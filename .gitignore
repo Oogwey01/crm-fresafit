@@ -1,0 +1,6 @@
+# Archivos del sistema (Windows / OneDrive / Mac)
+Thumbs.db
+desktop.ini
+.DS_Store
+# Respaldos que descargues desde la app (son datos, no código)
+respaldo-fresafit-crm-*.json

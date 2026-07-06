@@ -1,0 +1,303 @@
+/* ============================================================================
+   styles.css  —  Estilos del CRM Fresafit
+   ----------------------------------------------------------------------------
+   Tema limpio con acento "fresa" (rosa). Todo el diseño vive aquí.
+   ============================================================================ */
+
+/* --- Variables de color (cambia estos y cambia toda la app) --- */
+:root {
+  --fresa:        #e84393;   /* color principal de la marca */
+  --fresa-oscuro: #c2185b;
+  --fresa-claro:  #fce4ec;
+  --fondo:        #f4f5f7;   /* fondo general (gris muy claro) */
+  --panel:        #ffffff;   /* tarjetas y paneles */
+  --texto:        #2d3436;
+  --texto-suave:  #636e72;
+  --borde:        #e1e4e8;
+  --sombra:       0 1px 3px rgba(0,0,0,0.08);
+  --sombra-fuerte:0 8px 24px rgba(0,0,0,0.18);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  background: var(--fondo);
+  color: var(--texto);
+  font-size: 15px;
+}
+
+/* --- Estructura general: lateral + principal --- */
+#app {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ====================== BARRA LATERAL ====================== */
+.barra-lateral {
+  width: 240px;
+  min-width: 240px;
+  background: #ffffff;
+  border-right: 1px solid var(--borde);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+}
+
+.marca {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fresa);
+}
+.marca-fresa { font-size: 24px; }
+.marca-sub {
+  font-size: 12px;
+  color: var(--texto-suave);
+  margin: 2px 0 22px 34px;
+}
+
+.menu { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--texto);
+  text-align: left;
+  transition: background 0.15s;
+}
+.menu-item:hover:not(:disabled) { background: var(--fresa-claro); }
+.menu-item-activo {
+  background: var(--fresa);
+  color: #fff;
+  font-weight: 600;
+}
+.menu-item-activo:hover { background: var(--fresa) !important; }
+.menu-icono { font-size: 16px; width: 20px; text-align: center; }
+.menu-texto { flex: 1; }
+.menu-item-inactivo { color: #b2bec3; cursor: not-allowed; }
+.menu-badge {
+  font-size: 10px;
+  background: #dfe6e9;
+  color: #636e72;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.lateral-pie { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.lateral-nota {
+  font-size: 11px;
+  color: var(--texto-suave);
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* ====================== ÁREA PRINCIPAL ====================== */
+.area-principal {
+  flex: 1;
+  padding: 24px 28px;
+  overflow-x: auto;
+}
+
+/* Barra superior del módulo */
+.barra-modulo {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.titulo-modulo { font-size: 24px; margin: 0; }
+.subtitulo-modulo { margin: 4px 0 0; color: var(--texto-suave); font-size: 14px; }
+.barra-der { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.filtro {
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  color: var(--texto);
+  cursor: pointer;
+}
+
+/* ====================== BOTONES ====================== */
+.btn {
+  padding: 9px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s, background 0.15s;
+}
+.btn:hover { filter: brightness(0.95); }
+.btn-principal { background: var(--fresa); color: #fff; }
+.btn-secundario { background: #fff; color: var(--texto); border: 1px solid var(--borde); }
+.btn-peligro { background: #fff; color: #d63031; border: 1px solid #ffb8b8; }
+.btn-bloque { width: 100%; text-align: center; }
+
+/* ====================== TABLERO KANBAN ====================== */
+.tablero {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(240px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.columna {
+  background: #eef0f3;
+  border-radius: 12px;
+  padding: 10px;
+  transition: background 0.15s, outline 0.15s;
+  min-height: 120px;
+}
+.columna-resaltada {
+  background: var(--fresa-claro);
+  outline: 2px dashed var(--fresa);
+}
+.columna-cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px 10px;
+}
+.columna-titulo { font-weight: 700; font-size: 14px; }
+.columna-contador {
+  background: #fff;
+  color: var(--texto-suave);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 1px 9px;
+  border-radius: 10px;
+}
+.columna-lista { display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.columna-vacia {
+  color: #a9b2ba;
+  font-size: 13px;
+  text-align: center;
+  padding: 18px 0;
+  font-style: italic;
+}
+
+/* ====================== TARJETAS ====================== */
+.tarjeta {
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: var(--sombra);
+  border-left: 4px solid #ccc;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.05s;
+}
+.tarjeta:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.14); }
+.tarjeta.arrastrando { opacity: 0.5; }
+
+.tarjeta-titulo { font-weight: 600; font-size: 14px; line-height: 1.35; margin-bottom: 8px; }
+
+.tarjeta-etiquetas { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.etiqueta {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.etiqueta-prioridad { color: #fff; }
+.etiqueta-area { background: #eef0f3; color: var(--texto-suave); }
+
+.tarjeta-pie {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--texto-suave);
+}
+.tarjeta-responsable { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--texto); }
+.punto-color { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.tarjeta-fecha { background: #eef0f3; padding: 2px 7px; border-radius: 8px; }
+.fecha-vencida { background: #ffe0e0; color: #d63031; font-weight: 700; }
+
+.tarjeta-acciones {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--borde);
+}
+.btn-mover {
+  border: 1px solid var(--borde);
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--texto-suave);
+}
+.btn-mover:hover { background: var(--fresa-claro); color: var(--fresa-oscuro); border-color: var(--fresa); }
+.btn-editar { margin-left: auto; }
+
+/* ====================== VENTANA EMERGENTE (MODAL) ====================== */
+.modal-fondo {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+.modal {
+  background: #fff;
+  border-radius: 14px;
+  padding: 24px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: var(--sombra-fuerte);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-titulo { margin: 0 0 18px; font-size: 20px; }
+.campo-etiqueta {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--texto-suave);
+  margin: 12px 0 5px;
+}
+.campo {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--texto);
+}
+.campo:focus { outline: 2px solid var(--fresa); border-color: var(--fresa); }
+textarea.campo { resize: vertical; }
+
+.modal-fila { display: flex; gap: 12px; }
+.modal-grupo { flex: 1; }
+.modal-acciones { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
+.modal-espacio { flex: 1; }
+
+/* ====================== RESPONSIVO (pantallas chicas) ====================== */
+@media (max-width: 900px) {
+  #app { flex-direction: column; }
+  .barra-lateral { width: 100%; min-width: 0; flex-direction: column; }
+  .tablero { grid-template-columns: 1fr; }
+}
