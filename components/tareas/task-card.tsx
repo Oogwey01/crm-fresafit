@@ -2,7 +2,7 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { ESTADOS, obtenerPrioridad, obtenerArea } from "@/lib/catalogos";
+import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
 import type { TaskConResponsable, EstadoId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -63,6 +63,19 @@ export function TaskCard({
             {area.nombre}
           </span>
         )}
+        {(tarea.etiquetas ?? []).map((id) => {
+          const et = obtenerEtiqueta(id);
+          if (!et) return null;
+          return (
+            <span
+              key={id}
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-white"
+              style={{ backgroundColor: et.color }}
+            >
+              {et.nombre}
+            </span>
+          );
+        })}
       </div>
 
       {/* Pie: responsable + fecha */}

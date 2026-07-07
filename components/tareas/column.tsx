@@ -7,18 +7,21 @@ import { cn } from "@/lib/utils";
 
 export function Column({
   estadoId,
+  droppableId,
   nombre,
   tareas,
   onMover,
   onEditar,
 }: {
   estadoId: EstadoId;
-  nombre: string;
+  /** Id único del droppable (por si hay varios carriles con el mismo estado). */
+  droppableId?: string;
+  nombre?: string;
   tareas: TaskConResponsable[];
   onMover: (id: string, estado: EstadoId) => void;
   onEditar: (t: TaskConResponsable) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: estadoId });
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? estadoId });
 
   return (
     <div
@@ -28,12 +31,14 @@ export function Column({
         isOver && "bg-primary/10 outline-2 outline-dashed outline-primary",
       )}
     >
-      <div className="flex items-center justify-between px-1.5 pb-2.5 pt-1">
-        <span className="text-sm font-bold">{nombre}</span>
-        <span className="rounded-full bg-background px-2 py-0.5 text-xs font-bold text-muted-foreground">
-          {tareas.length}
-        </span>
-      </div>
+      {nombre && (
+        <div className="flex items-center justify-between px-1.5 pb-2.5 pt-1">
+          <span className="text-sm font-bold">{nombre}</span>
+          <span className="rounded-full bg-background px-2 py-0.5 text-xs font-bold text-muted-foreground">
+            {tareas.length}
+          </span>
+        </div>
+      )}
 
       <div className="flex min-h-16 flex-col gap-2.5">
         {tareas.length === 0 ? (
@@ -42,12 +47,7 @@ export function Column({
           </div>
         ) : (
           tareas.map((t) => (
-            <TaskCard
-              key={t.id}
-              tarea={t}
-              onMover={onMover}
-              onEditar={onEditar}
-            />
+            <TaskCard key={t.id} tarea={t} onMover={onMover} onEditar={onEditar} />
           ))
         )}
       </div>

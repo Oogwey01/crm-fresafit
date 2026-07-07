@@ -1,8 +1,8 @@
 /* ============================================================================
-   scripts/seed.mjs  —  Siembra inicial de Fresafit CRM
+   scripts/seed.mjs  —  Siembra inicial de Fresafit CRM (equipo real, 11 personas)
    ----------------------------------------------------------------------------
-   Crea los 4 usuarios del equipo en Supabase Auth, ajusta sus perfiles
-   (rol/área/color) e inserta las 5 tareas de ejemplo (las mismas de la Fase 1).
+   Crea/asegura los 11 usuarios del equipo en Supabase Auth con sus correos
+   reales, fija sus perfiles (rol/área/color/nombre) e inserta tareas de ejemplo.
    Es idempotente: se puede correr varias veces sin duplicar.
 
    Uso (Node 20+):
@@ -12,7 +12,7 @@
      NEXT_PUBLIC_SUPABASE_URL
      SUPABASE_SERVICE_ROLE_KEY   (service role — NUNCA en el cliente ni en git)
 
-   Contraseña inicial para los 4: variable SEED_PASSWORD o "Fresafit2026!".
+   Contraseña inicial para todos: variable SEED_PASSWORD o "Fresafit2026!".
    Cámbienla desde Supabase tras el primer login.
    ============================================================================ */
 
@@ -34,14 +34,21 @@ const admin = createClient(URL, SERVICE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+// Equipo real de Fresafit (coincide con EQUIPO_SEED en lib/catalogos.ts).
 const EQUIPO = [
-  { slug: "armando",  nombre: "Armando",  rol: "admin",   area: "general",     color: "#e84393" },
-  { slug: "rene",     nombre: "René",     rol: "miembro", area: "operaciones", color: "#0984e3" },
-  { slug: "emiliano", nombre: "Emiliano", rol: "miembro", area: "marketing",   color: "#00b894" },
-  { slug: "aaron",    nombre: "Aaron",    rol: "miembro", area: "marketing",   color: "#fdcb6e" },
+  { slug: "armando",  email: "armando@fresafit.com.mx",   nombre: "Diego Armando Duarte Palacios",  rol: "direccion",   area: "direccion",   color: "#e84393" },
+  { slug: "rene",     email: "rene@fresafit.com.mx",       nombre: "René Duarte Palacios",           rol: "direccion",   area: "operaciones", color: "#0984e3" },
+  { slug: "manuel",   email: "manuel@fresafit.com.mx",     nombre: "Manuel Enrique Barrera Rodríguez", rol: "coordinador", area: "diseno",    color: "#8e44ad" },
+  { slug: "julio",    email: "juliozea10@gmail.com",       nombre: "Julio Enrique Zea Silva",        rol: "coordinador", area: "contenido",   color: "#16a085" },
+  { slug: "juanpablo",email: "juanpverdugolopez@gmail.com",nombre: "Juan Pablo Verdugo López",       rol: "miembro",     area: "diseno",      color: "#9b59b6" },
+  { slug: "ulises",   email: "ulises@fresafit.com.mx",     nombre: "Miguel Ulises Zayas Hernández",  rol: "miembro",     area: "diseno",      color: "#a29bfe" },
+  { slug: "luna",     email: "lunanava93189@gmail.com",    nombre: "Luna Mayela Parra Nava",         rol: "miembro",     area: "contenido",   color: "#00b894" },
+  { slug: "argelia",  email: "adv_16@hotmail.com",         nombre: "Argelia Duarte Villa",           rol: "miembro",     area: "contenido",   color: "#55efc4" },
+  { slug: "german",   email: "germansegura02@hotmail.com", nombre: "Germán Segura García",           rol: "miembro",     area: "logistica",   color: "#e17055" },
+  { slug: "emiliano", email: "emiliano@fresafit.com.mx",   nombre: "Omar Emiliano Rendón Martínez",  rol: "miembro",     area: "logistica",   color: "#fab1a0" },
+  { slug: "aaron",    email: "aaron@fresafit.com.mx",      nombre: "Aaron Oviedo",                   rol: "externo",     area: "tech",        color: "#636e72" },
 ];
 
-/* Fechas relativas a hoy, formato AAAA-MM-DD. */
 function enDias(d) {
   const f = new Date();
   f.setDate(f.getDate() + d);
@@ -49,19 +56,18 @@ function enDias(d) {
 }
 
 const TAREAS_EJEMPLO = [
-  { titulo: "Reponer stock de guantes talla M", descripcion: "Revisar inventario y hacer pedido al proveedor.", responsable: "rene", estado: "por_hacer", prioridad: "alta", area: "inventario", fecha_limite: enDias(3) },
-  { titulo: "Campaña de Instagram para lanzamiento", descripcion: "Preparar 5 posts y 3 reels.", responsable: "aaron", estado: "en_progreso", prioridad: "media", area: "marketing", fecha_limite: enDias(5) },
-  { titulo: "Contactar clientes mayoristas", descripcion: "Seguimiento a los 10 prospectos de la feria.", responsable: "emiliano", estado: "en_progreso", prioridad: "alta", area: "ventas", fecha_limite: enDias(2) },
-  { titulo: "Revisar diseño del CRM interno", descripcion: "Validar la Fase 1 del sistema de tareas.", responsable: "armando", estado: "en_revision", prioridad: "media", area: "general", fecha_limite: enDias(7) },
-  { titulo: "Definir metas de ventas del mes", descripcion: "", responsable: "armando", estado: "hecho", prioridad: "media", area: "finanzas", fecha_limite: enDias(-1) },
+  { titulo: "Diseñar banner colección verano", descripcion: "Banner principal para home y redes.", responsable: "juanpablo", estado: "en_proceso", prioridad: "alta", area: "diseno", fecha_limite: enDias(2), etiquetas: ["grafico"] },
+  { titulo: "Renders 3D botella nueva", descripcion: "3 ángulos para la ficha de producto.", responsable: "ulises", estado: "por_hacer", prioridad: "media", area: "diseno", fecha_limite: enDias(5), etiquetas: ["grafico"] },
+  { titulo: "Guion video reto 30 días", descripcion: "Video para TikTok Shop.", responsable: "luna", estado: "en_proceso", prioridad: "alta", area: "contenido", fecha_limite: enDias(1), etiquetas: ["video", "tiktok"] },
+  { titulo: "Calendario de posts julio", descripcion: "Planeación mensual de contenido.", responsable: "argelia", estado: "en_revision", prioridad: "media", area: "contenido", fecha_limite: enDias(0), etiquetas: [] },
+  { titulo: "Coordinar envío mayoreo GYM Halcón", descripcion: "Confirmar paquetería y fechas.", responsable: "german", estado: "por_hacer", prioridad: "alta", area: "logistica", fecha_limite: enDias(3), etiquetas: ["urgente"] },
+  { titulo: "Definir metas de ventas Q3", descripcion: "Objetivos por canal.", responsable: "armando", estado: "en_proceso", prioridad: "media", area: "direccion", fecha_limite: enDias(6), etiquetas: [] },
 ];
 
 /* Devuelve el uid del usuario, creándolo si no existe. */
 async function asegurarUsuario(persona) {
-  const email = `${persona.slug}@fresafit.com`;
-
   const { data, error } = await admin.auth.admin.createUser({
-    email,
+    email: persona.email,
     password: PASSWORD,
     email_confirm: true,
     user_metadata: { nombre: persona.nombre },
@@ -69,13 +75,12 @@ async function asegurarUsuario(persona) {
 
   if (data?.user) return { id: data.user.id, creado: true };
 
-  // Ya existía: buscarlo en la lista de usuarios.
   if (error && /already been registered|already exists/i.test(error.message)) {
     const { data: lista } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    const u = lista.users.find((x) => x.email === email);
+    const u = lista.users.find((x) => x.email === persona.email);
     if (u) return { id: u.id, creado: false };
   }
-  throw error ?? new Error(`No se pudo crear/encontrar ${email}`);
+  throw error ?? new Error(`No se pudo crear/encontrar ${persona.email}`);
 }
 
 async function main() {
@@ -85,7 +90,6 @@ async function main() {
     const { id, creado } = await asegurarUsuario(persona);
     idPorSlug[persona.slug] = id;
 
-    // El trigger ya creó un profile básico; aquí fijamos rol/área/color/nombre.
     const { error } = await admin.from("profiles").upsert({
       id,
       nombre: persona.nombre,
@@ -94,13 +98,13 @@ async function main() {
       color: persona.color,
     });
     if (error) throw error;
-    console.log(`${creado ? "＋ creado " : "· existente"}  ${persona.nombre.padEnd(9)} ${persona.slug}@fresafit.com`);
+    console.log(`${creado ? "＋ creado " : "· existente"}  ${persona.slug.padEnd(10)} ${persona.email}`);
   }
 
-  // Insertar tareas de ejemplo solo si la tabla está vacía (no duplicar).
   const { count } = await admin.from("tasks").select("*", { count: "exact", head: true });
   if (count && count > 0) {
     console.log(`\nLa tabla tasks ya tiene ${count} tareas; no se siembran ejemplos.`);
+    console.log(`\nContraseña inicial de todos: ${PASSWORD}  (cámbienla tras el primer login)`);
     return;
   }
 
@@ -112,6 +116,7 @@ async function main() {
     prioridad: t.prioridad,
     estado: t.estado,
     fecha_limite: t.fecha_limite,
+    etiquetas: t.etiquetas ?? [],
     created_by: idPorSlug["armando"],
   }));
 

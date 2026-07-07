@@ -20,50 +20,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ESTADOS, PRIORIDADES, AREAS } from "@/lib/catalogos";
-import {
-  crearTarea,
-  editarTarea,
-  borrarTarea,
-  type TaskInput,
-} from "@/app/(app)/tareas/actions";
-import type {
-  TaskConResponsable,
-  Profile,
-  AreaId,
-  EstadoId,
-  PrioridadId,
-} from "@/lib/types";
+import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS } from "@/lib/catalogos";
+import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
+import type { Profile, AreaId, EstadoId, PrioridadId } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const SIN_ASIGNAR = "none";
 
+/* Diálogo para CREAR una tarea (solo dirección/coordinación). La edición y el
+   detalle rico viven en task-detail.tsx. */
 export function TaskDialog({
-  tarea,
   equipo,
   currentUserId,
   onClose,
 }: {
-  tarea: TaskConResponsable | null;
   equipo: Profile[];
   currentUserId: string;
   onClose: () => void;
 }) {
-  const esNueva = !tarea;
   const [pending, startTransition] = useTransition();
+  const [titulo, setTitulo] = useState("");
+  const [descripcion, setDescripcion] = useState("");
+  const [responsable, setResponsable] = useState(currentUserId || SIN_ASIGNAR);
+  const [area, setArea] = useState<AreaId>("operaciones");
+  const [prioridad, setPrioridad] = useState<PrioridadId>("media");
+  const [estado, setEstado] = useState<EstadoId>("por_hacer");
+  const [fecha, setFecha] = useState("");
+  const [etiquetas, setEtiquetas] = useState<string[]>([]);
 
-  // El componente se remonta (key) al abrir, así que basta inicializar de props.
-  const [titulo, setTitulo] = useState(tarea?.titulo ?? "");
-  const [descripcion, setDescripcion] = useState(tarea?.descripcion ?? "");
-  const [responsable, setResponsable] = useState(
-    // Al EDITAR se respeta "Sin asignar" (null); el default a mí solo aplica al crear.
-    tarea ? (tarea.responsable_id ?? SIN_ASIGNAR) : currentUserId || SIN_ASIGNAR,
-  );
-  const [area, setArea] = useState<AreaId>(tarea?.area ?? "general");
-  const [prioridad, setPrioridad] = useState<PrioridadId>(
-    tarea?.prioridad ?? "media",
-  );
-  const [estado, setEstado] = useState<EstadoId>(tarea?.estado ?? "por_hacer");
-  const [fecha, setFecha] = useState(tarea?.fecha_limite ?? "");
+  function toggleEtiqueta(id: string) {
+    setEtiquetas((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
 
   function guardar() {
     if (!titulo.trim()) {
@@ -78,39 +67,19 @@ export function TaskDialog({
       prioridad,
       estado,
       fecha_limite: fecha || null,
+      etiquetas,
     };
     startTransition(async () => {
       try {
-        const r = esNueva
-          ? await crearTarea(input)
-          : await editarTarea(tarea!.id, input);
+        const r = await crearTarea(input);
         if ("error" in r) {
           toast.error(r.error);
           return;
         }
-        toast.success(esNueva ? "Tarea creada." : "Cambios guardados.");
+        toast.success("Tarea creada.");
         onClose();
       } catch {
         toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
-    });
-  }
-
-  function borrar() {
-    if (!tarea) return;
-    if (!confirm("¿Seguro que quieres borrar esta tarea? No se puede deshacer."))
-      return;
-    startTransition(async () => {
-      try {
-        const r = await borrarTarea(tarea.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Tarea borrada.");
-        onClose();
-      } catch {
-        toast.error("No se pudo borrar. Revisa tu conexión.");
       }
     });
   }
@@ -119,7 +88,7 @@ export function TaskDialog({
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{esNueva ? "Nueva tarea" : "Editar tarea"}</DialogTitle>
+          <DialogTitle>Nueva tarea</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
@@ -139,7 +108,7 @@ export function TaskDialog({
             <Textarea
               id="descripcion"
               rows={3}
-              placeholder="Detalles, notas, links…"
+              placeholder="Detalles, contexto…"
               value={descripcion}
               onChange={(e) => setDescripcion(e.target.value)}
             />
@@ -148,10 +117,7 @@ export function TaskDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label>Responsable</Label>
-              <Select
-                value={responsable}
-                onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}
-              >
+              <Select value={responsable} onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -168,10 +134,7 @@ export function TaskDialog({
 
             <div className="flex flex-col gap-1.5">
               <Label>Área</Label>
-              <Select
-                value={area}
-                onValueChange={(v) => v && setArea(v as AreaId)}
-              >
+              <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -189,10 +152,7 @@ export function TaskDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <Label>Prioridad</Label>
-              <Select
-                value={prioridad}
-                onValueChange={(v) => v && setPrioridad(v as PrioridadId)}
-              >
+              <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -208,10 +168,7 @@ export function TaskDialog({
 
             <div className="flex flex-col gap-1.5">
               <Label>Estado</Label>
-              <Select
-                value={estado}
-                onValueChange={(v) => v && setEstado(v as EstadoId)}
-              >
+              <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -227,37 +184,41 @@ export function TaskDialog({
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="fecha">Fecha límite</Label>
-              <Input
-                id="fecha"
-                type="date"
-                value={fecha}
-                onChange={(e) => setFecha(e.target.value)}
-              />
+              <Input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Etiquetas</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {ETIQUETAS.map((et) => {
+                const on = etiquetas.includes(et.id);
+                return (
+                  <button
+                    key={et.id}
+                    type="button"
+                    onClick={() => toggleEtiqueta(et.id)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors",
+                      on ? "text-white" : "text-muted-foreground hover:bg-accent",
+                    )}
+                    style={on ? { backgroundColor: et.color, borderColor: et.color } : undefined}
+                  >
+                    {et.nombre}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
-        <DialogFooter className="sm:justify-between">
-          {!esNueva ? (
-            <Button
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={borrar}
-              disabled={pending}
-            >
-              Borrar
-            </Button>
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              Cancelar
-            </Button>
-            <Button onClick={guardar} disabled={pending}>
-              {pending ? "Guardando…" : "Guardar"}
-            </Button>
-          </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={pending}>
+            Cancelar
+          </Button>
+          <Button onClick={guardar} disabled={pending}>
+            {pending ? "Guardando…" : "Crear tarea"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
