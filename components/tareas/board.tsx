@@ -179,7 +179,12 @@ export function Board({
           {/* Filtro de PERSONA — visible en ambas vistas. */}
           <Select value={filtroResponsable} onValueChange={(v) => setFiltroResponsable(v ?? "todos")}>
             <SelectTrigger className="w-[190px]">
-              <SelectValue />
+              <SelectValue>
+                {(value: string) =>
+                  value === "todos"
+                    ? "Todas las personas"
+                    : (equipo.find((p) => p.id === value)?.nombre ?? "Persona")}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="todos">Todas las personas</SelectItem>
@@ -216,7 +221,9 @@ export function Board({
         onSeleccionar={setFiltroResponsable}
       />
 
-      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      {/* id fijo: evita el aviso de hidratación de dnd-kit (aria-describedby
+          DndDescribedBy-0 vs -1) al hacer estable el id entre servidor y navegador. */}
+      <DndContext id="tablero-fresafit" sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         {vista === "mis" ? (
           <>
             {personaSel && (

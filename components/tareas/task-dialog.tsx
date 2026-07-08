@@ -119,7 +119,10 @@ export function TaskDialog({
               <Label>Responsable</Label>
               <Select value={responsable} onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(v: string) =>
+                      v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
@@ -136,7 +139,9 @@ export function TaskDialog({
               <Label>Área</Label>
               <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {AREAS.map((a) => (
@@ -154,7 +159,9 @@ export function TaskDialog({
               <Label>Prioridad</Label>
               <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {PRIORIDADES.map((p) => (
@@ -170,7 +177,9 @@ export function TaskDialog({
               <Label>Estado</Label>
               <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
                 <SelectTrigger className="w-full">
-                  <SelectValue />
+                  <SelectValue>
+                    {(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {ESTADOS.map((e) => (

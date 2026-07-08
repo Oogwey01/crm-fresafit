@@ -222,7 +222,7 @@ export function TaskDetail({
             <div className="grid grid-cols-2 gap-3">
               <Meta label="Responsable">
                 <Select value={responsable} onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
                     {equipo.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
@@ -231,7 +231,7 @@ export function TaskDetail({
               </Meta>
               <Meta label="Área">
                 <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
                   </SelectContent>
@@ -239,7 +239,7 @@ export function TaskDetail({
               </Meta>
               <Meta label="Prioridad">
                 <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {PRIORIDADES.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
                   </SelectContent>
@@ -247,7 +247,7 @@ export function TaskDetail({
               </Meta>
               <Meta label="Estado">
                 <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {ESTADOS.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
                   </SelectContent>
@@ -298,7 +298,7 @@ export function TaskDetail({
                   onValueChange={(v) => v && puedeMover && cambiarEstadoMiembro(v as EstadoId)}
                   disabled={!puedeMover}
                 >
-                  <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-8 w-40"><SelectValue>{(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {ESTADOS.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
                   </SelectContent>
