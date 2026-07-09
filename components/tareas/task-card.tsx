@@ -2,6 +2,7 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { AlertTriangle } from "lucide-react";
 import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
 import type { TaskConResponsable, EstadoId } from "@/lib/types";
@@ -41,6 +42,7 @@ export function TaskCard({
         "rounded-lg border-l-4 bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
         !overlay && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50",
+        vencida && "ring-1 ring-red-300",
       )}
     >
       {/* Título */}
@@ -94,10 +96,12 @@ export function TaskCard({
         {tarea.fecha_limite && (
           <span
             className={cn(
-              "rounded-md bg-muted px-1.5 py-0.5",
+              "inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5",
               vencida && "bg-red-100 font-bold text-red-600",
             )}
+            title={vencida ? "Tarea vencida" : undefined}
           >
+            {vencida && <AlertTriangle className="size-3" aria-label="Vencida" />}
             {formatearFecha(tarea.fecha_limite)}
           </span>
         )}

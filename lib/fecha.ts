@@ -26,3 +26,49 @@ export function esVencida(fechaLimite: string | null, estado: string): boolean {
   if (!fechaLimite) return false;
   return fechaLimite < hoyISO() && estado !== "hecho";
 }
+
+/* ---- Helpers para la vista de CALENDARIO (sin librerías externas) ---- */
+
+const NOMBRES_MES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+/* Título del mes, ej. "Julio 2026". */
+export function nombreMes(anio: number, mes: number): string {
+  return `${NOMBRES_MES[mes]} ${anio}`;
+}
+
+/* Fecha AAAA-MM-DD a partir de año/mes(0-11)/día, en local. */
+function iso(anio: number, mes: number, dia: number): string {
+  const mm = String(mes + 1).padStart(2, "0");
+  const dd = String(dia).padStart(2, "0");
+  return `${anio}-${mm}-${dd}`;
+}
+
+export type CeldaDia = { iso: string; dia: number; esDelMes: boolean };
+
+/* Matriz del mes (semanas de lunes a domingo) para pintar el calendario.
+   Devuelve 6 filas × 7 días, incluyendo relleno de meses vecinos. */
+export function matrizMes(anio: number, mes: number): CeldaDia[][] {
+  const primero = new Date(anio, mes, 1);
+  // getDay(): 0=domingo … 6=sábado. Queremos que la semana empiece en LUNES.
+  const offset = (primero.getDay() + 6) % 7;
+  const inicio = new Date(anio, mes, 1 - offset);
+
+  const semanas: CeldaDia[][] = [];
+  const cursor = new Date(inicio);
+  for (let s = 0; s < 6; s++) {
+    const semana: CeldaDia[] = [];
+    for (let d = 0; d < 7; d++) {
+      semana.push({
+        iso: iso(cursor.getFullYear(), cursor.getMonth(), cursor.getDate()),
+        dia: cursor.getDate(),
+        esDelMes: cursor.getMonth() === mes,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    semanas.push(semana);
+  }
+  return semanas;
+}

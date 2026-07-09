@@ -38,6 +38,20 @@ async function usuarioActual() {
   return { supabase, user, rol: (perfil?.rol as string) ?? "miembro" };
 }
 
+/* Registra una línea en el historial de actividad de la tarea.
+   Los cambios de estado / comentarios / adjuntos ya los registran triggers en la BD;
+   esto cubre los que NO tienen trigger (checklist, enlaces, etiquetas). Es informativo:
+   si el insert falla (p. ej. RLS), NO rompe la acción principal. La policy
+   "actividad: registrar" (20250102000003_rls.sql) permite insertar si puedes ver la tarea. */
+async function registrarActividad(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  taskId: string,
+  autor: string,
+  texto: string,
+): Promise<void> {
+  await supabase.from("task_activity").insert({ task_id: taskId, autor, texto });
+}
+
 /* ============================ Tareas ====================================== */
 
 export async function crearTarea(input: TaskInput): Promise<Resultado> {
@@ -101,6 +115,17 @@ export async function moverTarea(id: string, estado: EstadoId): Promise<Resultad
   return { ok: true };
 }
 
+/* Cambiar prioridad rápido desde una celda (meta → solo gestor). */
+export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede cambiar la prioridad." };
+  const { error } = await supabase.from("tasks").update({ prioridad }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/tareas");
+  return { ok: true };
+}
+
 export async function borrarTarea(id: string): Promise<Resultado> {
   const { supabase, user, rol } = await usuarioActual();
   if (!user) return { error: "No autenticado." };
@@ -119,6 +144,7 @@ export async function guardarEtiquetas(id: string, etiquetas: string[]): Promise
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede cambiar etiquetas." };
   const { error } = await supabase.from("tasks").update({ etiquetas }).eq("id", id);
   if (error) return { error: error.message };
+  await registrarActividad(supabase, id, user.id, "actualizó las etiquetas");
   revalidatePath("/tareas");
   return { ok: true };
 }
@@ -167,11 +193,13 @@ export async function borrarComentario(id: string): Promise<Resultado> {
 /* ============================ Checklist =================================== */
 
 export async function agregarChecklist(taskId: string, texto: string): Promise<Resultado> {
-  const supabase = await createClient();
+  const { supabase, user } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
   const t = texto.trim();
   if (!t) return { error: "La subtarea está vacía." };
   const { error } = await supabase.from("task_checklist").insert({ task_id: taskId, texto: t });
   if (error) return { error: error.message };
+  await registrarActividad(supabase, taskId, user.id, `agregó la subtarea «${t}»`);
   revalidatePath("/tareas");
   return { ok: true };
 }
@@ -195,11 +223,13 @@ export async function borrarChecklist(id: string): Promise<Resultado> {
 /* ============================ Enlaces ===================================== */
 
 export async function agregarEnlace(taskId: string, titulo: string, url: string): Promise<Resultado> {
-  const supabase = await createClient();
+  const { supabase, user } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
   const u = url.trim();
   if (!u) return { error: "Falta la URL." };
   const { error } = await supabase.from("task_links").insert({ task_id: taskId, titulo: titulo.trim() || null, url: u });
   if (error) return { error: error.message };
+  await registrarActividad(supabase, taskId, user.id, "agregó un enlace");
   revalidatePath("/tareas");
   return { ok: true };
 }

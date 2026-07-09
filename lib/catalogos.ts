@@ -9,19 +9,20 @@
    EQUIPO_SEED es la referencia para sembrarlos (ver scripts/seed.mjs).
    ============================================================================ */
 
-/* --- Estados del tablero (las 4 columnas del Kanban). El orden = orden de columnas. */
+/* --- Estados del tablero (las 4 columnas del Kanban). El orden = orden de columnas.
+   `color` se usa para la pastilla de estado en la vista de tabla y el calendario. */
 export const ESTADOS = [
-  { id: "por_hacer", nombre: "Por hacer" },
-  { id: "en_proceso", nombre: "En proceso" },
-  { id: "en_revision", nombre: "En revisión" },
-  { id: "hecho", nombre: "Hecho" },
+  { id: "por_hacer", nombre: "Por hacer", color: "#94a3b8" },   // gris
+  { id: "en_proceso", nombre: "En proceso", color: "#f59e0b" }, // ámbar
+  { id: "en_revision", nombre: "En revisión", color: "#8b5cf6" },// morado
+  { id: "hecho", nombre: "Hecho", color: "#22c55e" },           // verde
 ] as const;
 
 /* --- Prioridades (con color para verse de un vistazo). --- */
 export const PRIORIDADES = [
-  { id: "alta", nombre: "Alta", color: "#d63031" },
-  { id: "media", nombre: "Media", color: "#fdcb6e" },
-  { id: "baja", nombre: "Baja", color: "#00b894" },
+  { id: "alta", nombre: "Alta", color: "#d63031" },  // rojo
+  { id: "media", nombre: "Media", color: "#f59e0b" },// ámbar
+  { id: "baja", nombre: "Baja", color: "#94a3b8" },  // gris
 ] as const;
 
 /* --- Áreas del negocio (para agrupar y filtrar tareas). --- */
@@ -33,13 +34,6 @@ export const AREAS = [
   { id: "logistica", nombre: "Logística", color: "#e17055" },
   { id: "tech", nombre: "Tech", color: "#636e72" },
 ] as const;
-
-/* --- Versiones "items" para el <Select> de Base UI. Al pasarlas como prop
-   `items` del Select, el trigger muestra la etiqueta (nombre) en vez del valor
-   crudo (id/uuid). --- */
-export const ESTADO_ITEMS = ESTADOS.map((e) => ({ value: e.id, label: e.nombre }));
-export const PRIORIDAD_ITEMS = PRIORIDADES.map((p) => ({ value: p.id, label: p.nombre }));
-export const AREA_ITEMS = AREAS.map((a) => ({ value: a.id, label: a.nombre }));
 
 /* --- Roles de usuario (definen qué ve y hace cada quien; se refuerza con RLS). --- */
 export const ROLES = [
