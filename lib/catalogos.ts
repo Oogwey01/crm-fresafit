@@ -54,14 +54,15 @@ export const ETIQUETAS = [
   { id: "idea", nombre: "Idea", color: "#00b894" },
 ] as const;
 
-/* --- Menú lateral: los 6 módulos del CRM. "activo: true" = construido. --- */
+/* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.
+   "activo: true" = construido. --- */
 export const MODULOS = [
   { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true },
-  { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: false },
-  { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: false },
   { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: false },
   { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: false },
   { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: false },
+  { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: false },
+  { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: false },
 ] as const;
 
 /* --- Referencia para sembrar los perfiles iniciales del equipo (scripts/seed.mjs).
@@ -80,8 +81,8 @@ export const EQUIPO_SEED = [
   { slug: "argelia", email: "adv_16@hotmail.com", nombre: "Argelia Duarte Villa", rol: "miembro", area: "contenido", color: "#55efc4" },
   { slug: "german", email: "germansegura02@hotmail.com", nombre: "Germán Segura García", rol: "miembro", area: "logistica", color: "#e17055" },
   { slug: "emiliano", email: "emiliano@fresafit.com.mx", nombre: "Omar Emiliano Rendón Martínez", rol: "miembro", area: "logistica", color: "#fab1a0" },
-  // Externo (solo lo que se le comparta)
-  { slug: "aaron", email: "aaron@fresafit.com.mx", nombre: "Aaron Oviedo", rol: "externo", area: "tech", color: "#636e72" },
+  // Programador (acceso total para desarrollo y soporte)
+  { slug: "aaron", email: "aaron@fresafit.com.mx", nombre: "Aaron Oviedo", rol: "direccion", area: "tech", color: "#636e72" },
 ] as const;
 
 /* --- Ayudantes para convertir un id en su objeto completo --- */

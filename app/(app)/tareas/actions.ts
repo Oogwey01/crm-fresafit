@@ -289,6 +289,47 @@ export async function urlAdjunto(storagePath: string): Promise<{ url: string } |
   return { url: data.signedUrl };
 }
 
+/* ============================ Respaldo completo =========================== */
+
+/* Trae TODO el módulo de tareas (tareas + comentarios + subtareas + enlaces +
+   metadatos de adjuntos + historial) para descargarlo como respaldo .json.
+   Solo gestores: es la copia de seguridad de todo el equipo, no la vista propia.
+   Los archivos binarios de Storage NO se incluyen (solo sus rutas). */
+export async function exportarRespaldo(): Promise<
+  { datos: Record<string, unknown> } | { error: string }
+> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede descargar el respaldo completo." };
+
+  const [tareas, perfiles, comentarios, checklist, enlaces, adjuntos, actividad] = await Promise.all([
+    supabase.from("tasks").select("*").order("created_at", { ascending: true }),
+    supabase.from("profiles").select("id, nombre, rol, area"),
+    supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
+    supabase.from("task_checklist").select("*").order("orden", { ascending: true }),
+    supabase.from("task_links").select("*").order("created_at", { ascending: true }),
+    supabase.from("task_attachments").select("*").order("created_at", { ascending: true }),
+    supabase.from("task_activity").select("*").order("created_at", { ascending: true }),
+  ]);
+
+  const conError = [tareas, perfiles, comentarios, checklist, enlaces, adjuntos, actividad].find((r) => r.error);
+  if (conError?.error) return { error: conError.error.message };
+
+  return {
+    datos: {
+      exportadoEl: new Date().toISOString(),
+      nota: "Respaldo completo del módulo Tareas. Los archivos adjuntos no se incluyen; solo sus rutas en Storage.",
+      equipo: perfiles.data ?? [],
+      tareas: tareas.data ?? [],
+      comentarios: comentarios.data ?? [],
+      subtareas: checklist.data ?? [],
+      enlaces: enlaces.data ?? [],
+      adjuntos: adjuntos.data ?? [],
+      actividad: actividad.data ?? [],
+    },
+  };
+}
+
 /* ============================ Compartir (externo) ========================= */
 
 export async function compartirTarea(taskId: string, userIds: string[]): Promise<Resultado> {

@@ -36,7 +36,8 @@ import { ExportButton } from "@/components/tareas/export-button";
 import { VistaTabla } from "@/components/tareas/vista-tabla";
 import { VistaCalendario } from "@/components/tareas/vista-calendario";
 
-type Vista = "mis" | "area";
+/* Alcance global: "mis" = solo lo asignado a mí; aplica en las TRES vistas. */
+type Alcance = "mis" | "todas";
 type VistaTop = "tabla" | "tablero" | "calendario";
 
 const VISTAS_TOP = [
@@ -65,7 +66,7 @@ export function Board({
   );
 
   const [vistaTop, setVistaTop] = useState<VistaTop>("tabla");
-  const [vista, setVista] = useState<Vista>("mis");
+  const [alcance, setAlcance] = useState<Alcance>("todas");
   const [filtroResponsable, setFiltroResponsable] = useState("todos");
   const [filtroArea, setFiltroArea] = useState("todas");
   const [soloVencidas, setSoloVencidas] = useState(false);
@@ -121,29 +122,25 @@ export function Board({
 
   const activa = activeId ? tareas.find((t) => t.id === activeId) : null;
 
-  /* Filtro de PERSONA (aplica en ambas vistas). "todos" = sin filtro. */
-  const personaSel =
-    filtroResponsable !== "todos" ? equipo.find((p) => p.id === filtroResponsable) ?? null : null;
-
-  /* Conjuntos base (filtros de persona/área, SIN el filtro de "solo vencidas"). */
-  const misBase = personaSel
-    ? tareas.filter((t) => t.responsable_id === personaSel.id)
-    : tareas.filter((t) => t.responsable_id === currentUserId);
-  const areaBase = tareas.filter(
-    (t) =>
-      (filtroResponsable === "todos" || t.responsable_id === filtroResponsable) &&
-      (filtroArea === "todas" || t.area === filtroArea),
-  );
+  /* Conjunto base según el alcance: "mis" ignora los filtros de persona/área
+     (es estrictamente lo asignado a mí); "todas" aplica ambos filtros. */
+  const base =
+    alcance === "mis"
+      ? tareas.filter((t) => t.responsable_id === currentUserId)
+      : tareas.filter(
+          (t) =>
+            (filtroResponsable === "todos" || t.responsable_id === filtroResponsable) &&
+            (filtroArea === "todas" || t.area === filtroArea),
+        );
 
   /* Contador de vencidas sobre lo mostrado (antes del filtro "solo vencidas"). */
-  const baseDisplayed = vistaTop === "tablero" && vista === "mis" ? misBase : areaBase;
-  const vencidas = baseDisplayed.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
+  const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
 
-  /* Filtro rápido "solo vencidas" (se alterna con clic en el contador). */
-  const soloV = (arr: TaskConResponsable[]) =>
-    soloVencidas ? arr.filter((t) => esVencida(t.fecha_limite, t.estado)) : arr;
-  const misVisibles = soloV(misBase);
-  const filtradas = soloV(areaBase);
+  /* Filtro rápido "solo vencidas" (se alterna con clic en el contador).
+     `filtradas` alimenta las TRES vistas: tabla, calendario y tablero. */
+  const filtradas = soloVencidas
+    ? base.filter((t) => esVencida(t.fecha_limite, t.estado))
+    : base;
   const areasVisibles = AREAS.filter(
     (a) => (filtroArea === "todas" || a.id === filtroArea) && filtradas.some((t) => t.area === a.id),
   );
@@ -178,6 +175,27 @@ export function Board({
             </button>
           )}
 
+          {/* Alcance global: Mis tareas / Todas — aplica en las TRES vistas. */}
+          <div className="inline-flex rounded-lg bg-muted p-0.5">
+            {(
+              [
+                ["mis", "Mis tareas"],
+                ["todas", "Todas"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setAlcance(id)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+                  alcance === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* Selector de vista principal: Tabla / Tablero / Calendario */}
           <div className="inline-flex rounded-lg bg-muted p-0.5">
             {VISTAS_TOP.map(([id, label]) => (
@@ -194,55 +212,33 @@ export function Board({
             ))}
           </div>
 
-          {/* Sub-conmutador SOLO del Tablero: Mis tareas / Por área */}
-          {vistaTop === "tablero" && (
-            <div className="inline-flex rounded-lg bg-muted p-0.5">
-              {(
-                [
-                  ["mis", "Mis tareas"],
-                  ["area", "Por área"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  onClick={() => setVista(id)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
-                    vista === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+          {/* Filtros de PERSONA y ÁREA — solo con alcance "Todas" ("mis" ya es lo mío). */}
+          {alcance === "todas" && (
+            <>
+              <Select value={filtroResponsable} onValueChange={(v) => setFiltroResponsable(v ?? "todos")}>
+                <SelectTrigger className="w-[190px]">
+                  <SelectValue>
+                    {(value: string) =>
+                      value === "todos"
+                        ? "Todas las personas"
+                        : (equipo.find((p) => p.id === value)?.nombre ?? "Persona")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todas las personas</SelectItem>
+                  {equipo.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <TaskFilters filtroArea={filtroArea} setFiltroArea={setFiltroArea} />
+            </>
           )}
 
-          {/* Filtro de PERSONA — visible en todas las vistas. */}
-          <Select value={filtroResponsable} onValueChange={(v) => setFiltroResponsable(v ?? "todos")}>
-            <SelectTrigger className="w-[190px]">
-              <SelectValue>
-                {(value: string) =>
-                  value === "todos"
-                    ? "Todas las personas"
-                    : (equipo.find((p) => p.id === value)?.nombre ?? "Persona")}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todas las personas</SelectItem>
-              {equipo.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.nombre}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {/* Filtro de ÁREA — en Tabla y en el Tablero "Por área". */}
-          {(vistaTop === "tabla" || (vistaTop === "tablero" && vista === "area")) && (
-            <TaskFilters filtroArea={filtroArea} setFiltroArea={setFiltroArea} />
-          )}
-
-          <ExportButton tareas={tareas} />
+          <ExportButton tareas={filtradas} gestor={gestor} />
           {gestor && <Button onClick={() => setNuevaAbierta(true)}>+ Nueva tarea</Button>}
         </div>
       </div>
@@ -254,12 +250,16 @@ export function Board({
         {ROLES.find((r) => r.id === rol)?.desc}
       </div>
 
-      {/* Carga por persona (chips clicables = atajo de filtro "solo [persona]") */}
+      {/* Carga por persona (chips clicables = atajo de filtro "solo [persona]").
+          Elegir a alguien cambia el alcance a "Todas" (el filtro vive ahí). */}
       <CargaPersonas
         tareas={tareas}
         equipo={equipo}
-        seleccion={filtroResponsable}
-        onSeleccionar={setFiltroResponsable}
+        seleccion={alcance === "todas" ? filtroResponsable : "todos"}
+        onSeleccionar={(id) => {
+          setAlcance("todas");
+          setFiltroResponsable(id);
+        }}
       />
 
       {/* ---- Vista TABLA ---- */}
@@ -282,18 +282,11 @@ export function Board({
       /* id fijo: evita el aviso de hidratación de dnd-kit (aria-describedby
           DndDescribedBy-0 vs -1) al hacer estable el id entre servidor y navegador. */
       <DndContext id="tablero-fresafit" sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        {vista === "mis" ? (
+        {alcance === "mis" ? (
           <>
-            {personaSel && (
-              <p className="mb-3 text-sm text-muted-foreground">
-                Viendo solo las tareas de <b className="text-foreground">{personaSel.nombre}</b>.
-              </p>
-            )}
-            {misVisibles.length === 0 && (
+            {filtradas.length === 0 && (
               <p className="mb-3 text-sm italic text-muted-foreground">
-                {personaSel
-                  ? `${personaSel.nombre} no tiene tareas asignadas por ahora.`
-                  : "No tienes tareas asignadas por ahora."}
+                No tienes tareas asignadas por ahora.
               </p>
             )}
             <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -302,7 +295,7 @@ export function Board({
                   key={estado.id}
                   estadoId={estado.id}
                   nombre={estado.nombre}
-                  tareas={misVisibles.filter((t) => t.estado === estado.id)}
+                  tareas={filtradas.filter((t) => t.estado === estado.id)}
                   onMover={mover}
                   onEditar={setDetalle}
                 />

@@ -46,7 +46,7 @@ const EQUIPO = [
   { slug: "argelia",  email: "adv_16@hotmail.com",         nombre: "Argelia Duarte Villa",           rol: "miembro",     area: "contenido",   color: "#55efc4" },
   { slug: "german",   email: "germansegura02@hotmail.com", nombre: "Germán Segura García",           rol: "miembro",     area: "logistica",   color: "#e17055" },
   { slug: "emiliano", email: "emiliano@fresafit.com.mx",   nombre: "Omar Emiliano Rendón Martínez",  rol: "miembro",     area: "logistica",   color: "#fab1a0" },
-  { slug: "aaron",    email: "aaron@fresafit.com.mx",      nombre: "Aaron Oviedo",                   rol: "externo",     area: "tech",        color: "#636e72" },
+  { slug: "aaron",    email: "aaron@fresafit.com.mx",      nombre: "Aaron Oviedo",                   rol: "direccion",   area: "tech",        color: "#636e72" },
 ];
 
 function enDias(d) {
