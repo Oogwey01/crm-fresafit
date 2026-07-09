@@ -1,7 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import logoFresafit from "@/public/logo-fresafit-blanco.png";
 import { MODULOS, ROLES } from "@/lib/catalogos";
 import type { Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -22,11 +24,16 @@ export function Sidebar({
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r bg-sidebar p-4 max-md:w-full max-md:border-b max-md:border-r-0">
       {/* Marca */}
-      <div className="mb-6 px-1">
-        <div className="flex items-center gap-2 text-xl font-bold text-primary">
-          <span className="text-2xl">🍓</span> Fresafit
+      <div className="mb-6">
+        <div className="flex items-center justify-center rounded-xl bg-primary px-4 py-3">
+          <Image
+            src={logoFresafit}
+            alt="Fresafit"
+            priority
+            className="h-6 w-auto"
+          />
         </div>
-        <p className="mt-0.5 pl-9 text-xs text-muted-foreground">
+        <p className="mt-2 text-center text-xs text-muted-foreground">
           Sistema interno
         </p>
       </div>

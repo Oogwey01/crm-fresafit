@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import logoFresafit from "@/public/logo-fresafit-blanco.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +13,6 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 
 export default function LoginPage() {
@@ -47,8 +48,14 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-1 text-4xl">🍓</div>
-          <CardTitle className="text-2xl text-primary">Fresafit</CardTitle>
+          <div className="mb-3 flex items-center justify-center rounded-xl bg-primary px-6 py-5">
+            <Image
+              src={logoFresafit}
+              alt="Fresafit"
+              priority
+              className="h-8 w-auto"
+            />
+          </div>
           <CardDescription>Sistema interno · inicia sesión</CardDescription>
         </CardHeader>
         <CardContent>

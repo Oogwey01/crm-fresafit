@@ -23,9 +23,19 @@ export function TaskFilters({
   filtroArea: string;
   setFiltroArea: (v: string) => void;
 }) {
+  const responsableItems = [
+    { value: "todos", label: "Todos los responsables" },
+    ...equipo.map((p) => ({ value: p.id, label: p.nombre })),
+  ];
+  const areaItems = [
+    { value: "todas", label: "Todas las áreas" },
+    ...AREAS.map((a) => ({ value: a.id, label: a.nombre })),
+  ];
+
   return (
     <>
       <Select
+        items={responsableItems}
         value={filtroResponsable}
         onValueChange={(v) => setFiltroResponsable(v ?? "todos")}
       >
@@ -43,6 +53,7 @@ export function TaskFilters({
       </Select>
 
       <Select
+        items={areaItems}
         value={filtroArea}
         onValueChange={(v) => setFiltroArea(v ?? "todas")}
       >

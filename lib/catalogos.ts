@@ -34,6 +34,13 @@ export const AREAS = [
   { id: "tech", nombre: "Tech", color: "#636e72" },
 ] as const;
 
+/* --- Versiones "items" para el <Select> de Base UI. Al pasarlas como prop
+   `items` del Select, el trigger muestra la etiqueta (nombre) en vez del valor
+   crudo (id/uuid). --- */
+export const ESTADO_ITEMS = ESTADOS.map((e) => ({ value: e.id, label: e.nombre }));
+export const PRIORIDAD_ITEMS = PRIORIDADES.map((p) => ({ value: p.id, label: p.nombre }));
+export const AREA_ITEMS = AREAS.map((a) => ({ value: a.id, label: a.nombre }));
+
 /* --- Roles de usuario (definen qué ve y hace cada quien; se refuerza con RLS). --- */
 export const ROLES = [
   { id: "direccion", nombre: "Dirección", desc: "Ve y edita todo." },

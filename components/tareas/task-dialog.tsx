@@ -20,7 +20,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS } from "@/lib/catalogos";
+import {
+  ESTADOS,
+  PRIORIDADES,
+  AREAS,
+  ETIQUETAS,
+  ESTADO_ITEMS,
+  PRIORIDAD_ITEMS,
+  AREA_ITEMS,
+} from "@/lib/catalogos";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
 import type { Profile, AreaId, EstadoId, PrioridadId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,6 +55,11 @@ export function TaskDialog({
   const [estado, setEstado] = useState<EstadoId>("por_hacer");
   const [fecha, setFecha] = useState("");
   const [etiquetas, setEtiquetas] = useState<string[]>([]);
+
+  const responsableItems = [
+    { value: SIN_ASIGNAR, label: "Sin asignar" },
+    ...equipo.map((p) => ({ value: p.id, label: p.nombre })),
+  ];
 
   function toggleEtiqueta(id: string) {
     setEtiquetas((prev) =>
@@ -117,7 +130,7 @@ export function TaskDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label>Responsable</Label>
-              <Select value={responsable} onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}>
+              <Select items={responsableItems} value={responsable} onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -134,7 +147,7 @@ export function TaskDialog({
 
             <div className="flex flex-col gap-1.5">
               <Label>Área</Label>
-              <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
+              <Select items={AREA_ITEMS} value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -152,7 +165,7 @@ export function TaskDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <Label>Prioridad</Label>
-              <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
+              <Select items={PRIORIDAD_ITEMS} value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -168,7 +181,7 @@ export function TaskDialog({
 
             <div className="flex flex-col gap-1.5">
               <Label>Estado</Label>
-              <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
+              <Select items={ESTADO_ITEMS} value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
