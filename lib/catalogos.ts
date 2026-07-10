@@ -54,11 +54,30 @@ export const ETIQUETAS = [
   { id: "idea", nombre: "Idea", color: "#00b894" },
 ] as const;
 
+/* --- Tipos de producto del catálogo (Fase 1: Inventario). --- */
+export const TIPOS_PRODUCTO = [
+  { id: "cinturones", nombre: "Cinturones", color: "#e84393" },
+  { id: "straps", nombre: "Straps", color: "#0984e3" },
+  { id: "munequeras", nombre: "Muñequeras", color: "#6c5ce7" },
+  { id: "mochilas", nombre: "Mochilas", color: "#e17055" },
+  { id: "ropa", nombre: "Ropa", color: "#00b894" },
+  { id: "otro", nombre: "Otro", color: "#94a3b8" },
+] as const;
+
+/* --- Estados de un pedido a proveedor (incluye aduana). Orden = avance. --- */
+export const ESTADOS_PEDIDO_PROVEEDOR = [
+  { id: "pedido", nombre: "Pedido", color: "#94a3b8" },
+  { id: "en_transito", nombre: "En tránsito", color: "#0984e3" },
+  { id: "en_aduana", nombre: "En aduana", color: "#f59e0b" },
+  { id: "recibido", nombre: "Recibido", color: "#22c55e" },
+  { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
+] as const;
+
 /* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.
    "activo: true" = construido. --- */
 export const MODULOS = [
   { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true },
-  { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: false },
+  { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: true },
   { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: false },
   { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: false },
   { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: false },
@@ -100,6 +119,12 @@ export function obtenerRol(id: string) {
 }
 export function obtenerEtiqueta(id: string) {
   return ETIQUETAS.find((e) => e.id === id) ?? null;
+}
+export function obtenerTipoProducto(id: string) {
+  return TIPOS_PRODUCTO.find((t) => t.id === id) ?? null;
+}
+export function obtenerEstadoPedidoProv(id: string) {
+  return ESTADOS_PEDIDO_PROVEEDOR.find((e) => e.id === id) ?? null;
 }
 
 /* --- Ayudantes de rol --- */

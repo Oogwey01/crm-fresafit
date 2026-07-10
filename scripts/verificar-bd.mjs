@@ -30,9 +30,11 @@ const mal = (msg) => {
   console.log(`  ✗ ${msg}`);
 };
 
-/* ¿Existe la tabla? (select head; el service role ignora RLS) */
+/* ¿Existe la tabla? Select real con limit(0): para una tabla inexistente
+   PostgREST responde PGRST205. OJO: con `head: true` respondería 204 SIN
+   error aunque la tabla no exista (falso positivo). */
 async function existeTabla(nombre) {
-  const { error } = await admin.from(nombre).select("*", { count: "exact", head: true });
+  const { error } = await admin.from(nombre).select("*").limit(0);
   return !error;
 }
 
@@ -52,8 +54,20 @@ async function main() {
     (await existeTabla(t)) ? ok(`tabla ${t}`) : mal(`tabla ${t} NO existe`);
   }
 
+  console.log("\n— Fase 1: Inventario (migración 20250103000000) —");
+  for (const t of ["suppliers", "products", "supplier_orders", "supplier_order_items"]) {
+    (await existeTabla(t)) ? ok(`tabla ${t}`) : mal(`tabla ${t} NO existe → falta aplicar 20250103000000_inventario.sql`);
+  }
+  {
+    const { error } = await admin.rpc("es_interno");
+    error && /could not find|does not exist|PGRST202/i.test(error.message + error.code)
+      ? mal("función public.es_interno() NO existe → falta aplicar 20250103000000_inventario.sql")
+      : ok("función public.es_interno() existe");
+  }
+  if (await existeTabla("inventory")) mal("la esqueleto `inventory` sigue existiendo (la migración de inventario la elimina)");
+
   console.log("\n— Tablas esqueleto Fase 2+ —");
-  for (const t of ["customers", "orders", "inventory", "finances"]) {
+  for (const t of ["customers", "orders", "finances"]) {
     (await existeTabla(t)) ? ok(`tabla ${t}`) : mal(`tabla ${t} NO existe`);
   }
 

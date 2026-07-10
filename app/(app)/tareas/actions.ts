@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
 import type {
   AreaId,
@@ -22,21 +23,6 @@ export type TaskInput = {
 };
 
 type Resultado = { ok: true } | { error: string };
-
-/* Devuelve el usuario actual + su rol (para gating server-side, además de RLS). */
-async function usuarioActual() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { supabase, user: null, rol: null as string | null };
-  const { data: perfil } = await supabase
-    .from("profiles")
-    .select("rol")
-    .eq("id", user.id)
-    .single();
-  return { supabase, user, rol: (perfil?.rol as string) ?? "miembro" };
-}
 
 /* Registra una línea en el historial de actividad de la tarea.
    Los cambios de estado / comentarios / adjuntos ya los registran triggers en la BD;
