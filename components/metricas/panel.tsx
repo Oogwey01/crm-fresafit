@@ -33,6 +33,9 @@ const ETIQUETA_DELTA: Record<PeriodoId, string> = {
 
 const COLS_VENTAS = "grid-cols-[90px_130px_minmax(160px,1fr)_70px_110px_90px]";
 
+/* Alto (px) de la barra más alta en "ventas por día". */
+const ALTO_BARRAS = 112;
+
 function nombreVenta(v: SaleConProducto): string {
   return v.producto
     ? `${v.producto.nombre}${v.producto.variante ? ` · ${v.producto.variante}` : ""}`
@@ -198,16 +201,18 @@ export function PanelMetricas({
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-muted-foreground">
           Ventas por día · últimos 14 días
         </h2>
-        <div className="flex h-32 items-end gap-1">
+        {/* Altura en PÍXELES, no en %: dentro de un flex sin altura definida el
+            navegador resuelve `height: X%` a cero y todas las barras se aplanan. */}
+        <div className="flex items-end gap-1">
           {dias.map((d) => (
             <div key={d.iso} className="group flex flex-1 flex-col items-center gap-1">
-              <div className="flex w-full flex-1 items-end">
-                <div
-                  className="w-full rounded-t bg-primary/80 transition-colors group-hover:bg-primary"
-                  style={{ height: `${(d.total / maxDia) * 100}%`, minHeight: d.total > 0 ? 3 : 0 }}
-                  title={`${formatearFecha(d.iso)}: ${formatearMXN(d.total)}`}
-                />
-              </div>
+              <div
+                className="w-full rounded-t bg-primary/80 transition-colors group-hover:bg-primary"
+                style={{
+                  height: d.total > 0 ? Math.max(3, Math.round((d.total / maxDia) * ALTO_BARRAS)) : 0,
+                }}
+                title={`${formatearFecha(d.iso)}: ${formatearMXN(d.total)}`}
+              />
               <span className="text-[10px] text-muted-foreground">{Number(d.iso.slice(8, 10))}</span>
             </div>
           ))}
