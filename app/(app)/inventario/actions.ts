@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
-import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
+import { empujarProductoTN, sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import type { EstadoPedidoProvId, TipoProductoId } from "@/lib/types";
 
 type Resultado = { ok: true } | { error: string };
@@ -90,10 +90,27 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     notas: input.notas.trim() || null,
   };
 
-  const { error } = id
-    ? await supabase.from("products").update(fila).eq("id", id)
-    : await supabase.from("products").insert({ ...fila, created_by: user.id });
+  if (id) {
+    const { data, error } = await supabase
+      .from("products")
+      .update(fila)
+      .eq("id", id)
+      .select("tiendanube_product_id, tiendanube_variant_id")
+      .single();
+    if (error) return { error: error.message };
+    revalidatePath("/inventario");
+    // Sync inversa: stock/precio/costo viajan a Tienda Nube si está vinculado.
+    try {
+      await empujarProductoTN({ ...data, stock: fila.stock, precio: fila.precio, costo: fila.costo });
+    } catch (e) {
+      return {
+        error: `Se guardó en el CRM, pero Tienda Nube no se pudo actualizar: ${e instanceof Error ? e.message : "error desconocido"}`,
+      };
+    }
+    return { ok: true };
+  }
 
+  const { error } = await supabase.from("products").insert({ ...fila, created_by: user.id });
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -106,9 +123,22 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
   if (!esInterno(rol)) return { error: "Solo el equipo interno puede ajustar el stock." };
   if (!Number.isInteger(stock) || stock < 0) return { error: "El stock debe ser un entero ≥ 0." };
 
-  const { error } = await supabase.from("products").update({ stock }).eq("id", id);
+  const { data, error } = await supabase
+    .from("products")
+    .update({ stock })
+    .eq("id", id)
+    .select("tiendanube_product_id, tiendanube_variant_id")
+    .single();
   if (error) return { error: error.message };
   revalidatePath("/inventario");
+  // Sync inversa: el ajuste rápido también viaja a Tienda Nube.
+  try {
+    await empujarProductoTN({ ...data, stock });
+  } catch (e) {
+    return {
+      error: `El stock se guardó en el CRM, pero Tienda Nube no se pudo actualizar: ${e instanceof Error ? e.message : "error desconocido"}`,
+    };
+  }
   return { ok: true };
 }
 

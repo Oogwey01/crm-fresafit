@@ -9,6 +9,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  actualizarVarianteTN,
   conexionTiendanube,
   listarProductosTN,
   type ConexionTN,
@@ -113,6 +114,28 @@ export async function sincronizarProductosTN(
   }
 
   return { creados: nuevos.length, actualizados: cambios.length };
+}
+
+/* Sync inversa (CRM → Tienda Nube): empuja stock/precio/costo de un renglón
+   vinculado. Silencioso para productos manuales (sin IDs de Tienda Nube).
+   El webhook product/updated que la tienda dispara de vuelta re-escribe los
+   mismos valores, así que no hay bucle: converge en una vuelta. */
+export async function empujarProductoTN(fila: {
+  tiendanube_product_id: number | null;
+  tiendanube_variant_id: number | null;
+  stock?: number;
+  precio?: number | null;
+  costo?: number | null;
+}): Promise<void> {
+  if (!fila.tiendanube_product_id || !fila.tiendanube_variant_id) return;
+  const cx = await conexionTiendanube();
+  if (!cx) throw new Error("Tienda Nube no está conectada.");
+  const cambios: { stock?: number; price?: number; cost?: number } = {};
+  if (typeof fila.stock === "number") cambios.stock = fila.stock;
+  if (typeof fila.precio === "number") cambios.price = fila.precio;
+  if (typeof fila.costo === "number") cambios.cost = fila.costo;
+  if (Object.keys(cambios).length === 0) return;
+  await actualizarVarianteTN(cx, fila.tiendanube_product_id, fila.tiendanube_variant_id, cambios);
 }
 
 /* Baja lógica cuando borran un producto en Tienda Nube (no se elimina el

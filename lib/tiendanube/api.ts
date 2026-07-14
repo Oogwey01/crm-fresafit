@@ -150,6 +150,23 @@ export async function listarProductosTN(cx: ConexionTN): Promise<ProductoTN[]> {
   return todos;
 }
 
+/* Empuja cambios de una variante hacia Tienda Nube (sync inversa CRM → tienda).
+   Solo los campos presentes en `cambios` se tocan. */
+export async function actualizarVarianteTN(
+  cx: ConexionTN,
+  productId: number,
+  variantId: number,
+  cambios: { stock?: number; price?: number; cost?: number },
+): Promise<void> {
+  const res = await tnFetch(cx, `/products/${productId}/variants/${variantId}`, {
+    method: "PUT",
+    body: JSON.stringify(cambios),
+  });
+  if (!res.ok) {
+    throw new Error(`Tienda Nube respondió ${res.status} al actualizar la variante ${variantId}.`);
+  }
+}
+
 /* ------------------------------ Webhooks --------------------------------- */
 
 const EVENTOS_WEBHOOK = ["product/created", "product/updated", "product/deleted"] as const;

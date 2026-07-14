@@ -50,6 +50,9 @@ export function ProductoDialog({
   onClose: () => void;
 }) {
   const [pending, startTransition] = useTransition();
+  /* Vinculado a Tienda Nube: nombre/variante se administran en la tienda
+     (la sync los pisaría); stock/precio/costo se empujan hacia la tienda. */
+  const deTiendaNube = producto?.tiendanube_variant_id != null;
   const [nombre, setNombre] = useState(producto?.nombre ?? "");
   const [tipo, setTipo] = useState<TipoProductoId>(producto?.tipo ?? "cinturones");
   const [variante, setVariante] = useState(producto?.variante ?? "");
@@ -119,12 +122,19 @@ export function ProductoDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
+          {deTiendaNube && (
+            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Producto vinculado a Tienda Nube: el nombre y la variante se editan en la
+              tienda; el stock, precio y costo que guardes aquí se actualizan también allá.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="prod-nombre">Nombre</Label>
               <Input
                 id="prod-nombre"
-                autoFocus
+                autoFocus={!deTiendaNube}
+                disabled={deTiendaNube}
                 placeholder="Cinturón de palanca"
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
@@ -134,6 +144,7 @@ export function ProductoDialog({
               <Label htmlFor="prod-variante">Variante (opcional)</Label>
               <Input
                 id="prod-variante"
+                disabled={deTiendaNube}
                 placeholder="Rosa / M"
                 value={variante}
                 onChange={(e) => setVariante(e.target.value)}
