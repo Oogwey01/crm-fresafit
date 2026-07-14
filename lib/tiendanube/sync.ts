@@ -15,7 +15,8 @@ import {
   type ConexionTN,
   type ProductoTN,
 } from "@/lib/tiendanube/api";
-import type { TipoProductoId } from "@/lib/types";
+import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
+import { tipoDesdeNombre } from "@/lib/inventario/tipo-producto";
 
 export type ResumenSync = {
   productos: number;
@@ -28,18 +29,6 @@ export type ResumenSync = {
 function texto(multi: Record<string, string> | null | undefined): string {
   if (!multi) return "";
   return (multi.es ?? Object.values(multi)[0] ?? "").trim();
-}
-
-/* Clasificación por palabras clave del nombre. Solo aplica al CREAR el
-   renglón; si después lo reclasifican a mano, la sync no lo pisa. */
-function tipoDesdeNombre(nombre: string): TipoProductoId {
-  const n = nombre.toLowerCase();
-  if (n.includes("cintur")) return "cinturones";
-  if (n.includes("strap")) return "straps";
-  if (n.includes("muñequ") || n.includes("munequ")) return "munequeras";
-  if (n.includes("mochila") || n.includes("backpack")) return "mochilas";
-  if (/playera|camiseta|sudadera|hoodie|short|legging|jogger|gorra|calceta|top\b/.test(n)) return "ropa";
-  return "otro";
 }
 
 /* Los montos llegan como string ("249.00"). */
@@ -55,21 +44,30 @@ export async function sincronizarProductosTN(
 ): Promise<{ creados: number; actualizados: number }> {
   const admin = createAdminClient();
 
-  // Mapa variante TN → id de renglón existente (consulta en tandas para no
-  // armar URLs kilométricas con .in()).
+  // Mapa variante TN → renglón existente (consulta en tandas para no armar
+  // URLs kilométricas con .in()). Trae stock y vínculo ML para el hub.
+  type FilaExistente = {
+    id: string;
+    tiendanube_variant_id: number;
+    stock: number;
+    meli_item_id: string | null;
+    meli_variation_id: number | null;
+  };
   const idsVariantes = productos.flatMap((p) => p.variants.map((v) => v.id));
-  const existentes = new Map<number, string>();
+  const existentes = new Map<number, FilaExistente>();
   for (let i = 0; i < idsVariantes.length; i += 200) {
     const { data, error } = await admin
       .from("products")
-      .select("id, tiendanube_variant_id")
+      .select("id, tiendanube_variant_id, stock, meli_item_id, meli_variation_id")
       .in("tiendanube_variant_id", idsVariantes.slice(i, i + 200));
     if (error) throw new Error(error.message);
-    for (const fila of data ?? []) existentes.set(fila.tiendanube_variant_id as number, fila.id as string);
+    for (const fila of (data ?? []) as FilaExistente[]) existentes.set(fila.tiendanube_variant_id, fila);
   }
 
   const nuevos: Record<string, unknown>[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
+  // Stock que cambió en TN y cuya fila también vive en Mercado Libre → hub.
+  const propagarAML: FilaVinculada[] = [];
 
   for (const p of productos) {
     const nombre = texto(p.name) || `Producto ${p.id}`;
@@ -87,9 +85,19 @@ export async function sincronizarProductosTN(
         // stock null en TN = "sin control de stock": no pisar el conteo local.
         ...(typeof v.stock === "number" ? { stock: Math.max(0, v.stock) } : {}),
       };
-      const idExistente = existentes.get(v.id);
-      if (idExistente) {
-        cambios.push({ id: idExistente, fila });
+      const existente = existentes.get(v.id);
+      if (existente) {
+        cambios.push({ id: existente.id, fila });
+        const nuevoStock = typeof v.stock === "number" ? Math.max(0, v.stock) : null;
+        if (nuevoStock !== null && nuevoStock !== existente.stock && existente.meli_item_id) {
+          propagarAML.push({
+            tiendanube_product_id: p.id,
+            tiendanube_variant_id: v.id,
+            meli_item_id: existente.meli_item_id,
+            meli_variation_id: existente.meli_variation_id,
+            stock: nuevoStock,
+          });
+        }
       } else {
         nuevos.push({
           ...fila,
@@ -111,6 +119,18 @@ export async function sincronizarProductosTN(
         if (error) throw new Error(error.message);
       }),
     );
+  }
+
+  // Hub de stock unificado: lo que cambió en TN se reenvía a Mercado Libre.
+  // Nunca rompe la sync a la base: los fallos solo se loggean.
+  if (propagarAML.length > 0) {
+    try {
+      (await propagarStock("tiendanube", propagarAML)).forEach((e) =>
+        console.error("[stock-hub] TN→ML:", e),
+      );
+    } catch (e) {
+      console.error("[stock-hub] TN→ML:", e);
+    }
   }
 
   return { creados: nuevos.length, actualizados: cambios.length };

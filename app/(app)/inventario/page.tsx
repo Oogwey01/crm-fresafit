@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
+import { estadoMercadolibre } from "@/lib/mercadolibre/api";
 import { PanelInventario } from "@/components/inventario/panel";
 import type { ProductConProveedor, Supplier, SupplierOrderConDetalle, RolId } from "@/lib/types";
 
@@ -12,7 +13,7 @@ export default async function InventarioPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [productosRes, proveedoresRes, pedidosRes, perfilRes, tiendanube] = await Promise.all([
+  const [productosRes, proveedoresRes, pedidosRes, perfilRes, tiendanube, mercadolibre] = await Promise.all([
     supabase
       .from("products")
       .select("*, proveedor:suppliers!proveedor_id(id, nombre)")
@@ -28,6 +29,7 @@ export default async function InventarioPage() {
       ? supabase.from("profiles").select("rol").eq("id", user.id).single()
       : Promise.resolve({ data: null }),
     estadoTiendanube(),
+    estadoMercadolibre(),
   ]);
 
   const productos = (productosRes.data ?? []) as unknown as ProductConProveedor[];
@@ -42,6 +44,7 @@ export default async function InventarioPage() {
       pedidos={pedidos}
       rol={rol}
       tiendanube={tiendanube}
+      mercadolibre={mercadolibre}
     />
   );
 }

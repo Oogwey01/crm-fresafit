@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
 import { empujarProductoTN, sincronizacionCompleta } from "@/lib/tiendanube/sync";
+import { importacionCompletaML } from "@/lib/mercadolibre/sync";
+import { propagarStock } from "@/lib/inventario/stock-hub";
 import type { EstadoPedidoProvId, TipoProductoId } from "@/lib/types";
 
 type Resultado = { ok: true } | { error: string };
@@ -66,6 +68,24 @@ export async function sincronizarTiendanube(): Promise<{ ok: true; detalle: stri
   }
 }
 
+/* Reconciliación manual con Mercado Libre (botón del panel). */
+export async function sincronizarMercadolibre(): Promise<{ ok: true; detalle: string } | { error: string }> {
+  const { user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede sincronizar el inventario." };
+
+  try {
+    const r = await importacionCompletaML();
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      detalle: `Sincronizado: ${r.items} publicaciones (${r.creados} nuevas, ${r.vinculados} vinculadas por SKU, ${r.actualizados} actualizadas${r.desactivados ? `, ${r.desactivados} desactivadas` : ""}).`,
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Falló la sincronización con Mercado Libre." };
+  }
+}
+
 /* ============================ Productos =================================== */
 
 export async function guardarProducto(id: string | null, input: ProductoInput): Promise<Resultado> {
@@ -95,17 +115,22 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
       .from("products")
       .update(fila)
       .eq("id", id)
-      .select("tiendanube_product_id, tiendanube_variant_id")
+      .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id")
       .single();
     if (error) return { error: error.message };
     revalidatePath("/inventario");
-    // Sync inversa: stock/precio/costo viajan a Tienda Nube si está vinculado.
+    // Sync inversa: Tienda Nube recibe stock/precio/costo; Mercado Libre solo
+    // stock (los precios de ML se administran allá). Origen "tiendanube" en el
+    // hub = no reenviar a TN, que ya quedó completa con empujarProductoTN.
+    const avisos: string[] = [];
     try {
       await empujarProductoTN({ ...data, stock: fila.stock, precio: fila.precio, costo: fila.costo });
     } catch (e) {
-      return {
-        error: `Se guardó en el CRM, pero Tienda Nube no se pudo actualizar: ${e instanceof Error ? e.message : "error desconocido"}`,
-      };
+      avisos.push(`Tienda Nube: ${e instanceof Error ? e.message : "error desconocido"}`);
+    }
+    avisos.push(...(await propagarStock("tiendanube", [{ ...data, stock: fila.stock }])));
+    if (avisos.length > 0) {
+      return { error: `Se guardó en el CRM, pero: ${avisos.join(" · ")}` };
     }
     return { ok: true };
   }
@@ -127,17 +152,14 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
     .from("products")
     .update({ stock })
     .eq("id", id)
-    .select("tiendanube_product_id, tiendanube_variant_id")
+    .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id")
     .single();
   if (error) return { error: error.message };
   revalidatePath("/inventario");
-  // Sync inversa: el ajuste rápido también viaja a Tienda Nube.
-  try {
-    await empujarProductoTN({ ...data, stock });
-  } catch (e) {
-    return {
-      error: `El stock se guardó en el CRM, pero Tienda Nube no se pudo actualizar: ${e instanceof Error ? e.message : "error desconocido"}`,
-    };
+  // Sync inversa: el ajuste rápido viaja a todos los canales vinculados.
+  const errores = await propagarStock("crm", [{ ...data, stock }]);
+  if (errores.length > 0) {
+    return { error: `El stock se guardó en el CRM, pero: ${errores.join(" · ")}` };
   }
   return { ok: true };
 }

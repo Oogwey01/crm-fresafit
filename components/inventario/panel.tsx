@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { AlertTriangle, RefreshCw, Store } from "lucide-react";
+import { AlertTriangle, RefreshCw, ShoppingCart, Store } from "lucide-react";
 import { toast } from "sonner";
 import { esGestor } from "@/lib/catalogos";
-import { sincronizarTiendanube } from "@/app/(app)/inventario/actions";
+import { sincronizarMercadolibre, sincronizarTiendanube } from "@/app/(app)/inventario/actions";
 import type {
   ProductConProveedor,
   Supplier,
@@ -34,35 +34,57 @@ const ETIQUETA_NUEVO: Record<Pestana, string> = {
   pedidos: "+ Nuevo pedido",
 };
 
+function fechaCorta(iso: string): string {
+  return new Date(iso).toLocaleString("es-MX", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function PanelInventario({
   productos,
   proveedores,
   pedidos,
   rol,
   tiendanube,
+  mercadolibre,
 }: {
   productos: ProductConProveedor[];
   proveedores: Supplier[];
   pedidos: SupplierOrderConDetalle[];
   rol: RolId;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
+  mercadolibre: { conectada: boolean; ultimaSync: string | null };
 }) {
   const gestor = esGestor(rol);
   const [pestana, setPestana] = useState<Pestana>("productos");
   const [sincronizando, startSync] = useTransition();
+  const [sincronizandoML, startSyncML] = useTransition();
 
-  /* Aviso al volver del OAuth de Tienda Nube (?tiendanube=conectada|error). */
+  /* Avisos al volver del OAuth (?tiendanube=… / ?mercadolibre=…). */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const estado = params.get("tiendanube");
-    if (!estado) return;
-    if (estado === "conectada") {
+    const tn = params.get("tiendanube");
+    const ml = params.get("mercadolibre");
+    if (!tn && !ml) return;
+    if (tn === "conectada") {
       const n = params.get("productos");
       toast.success(`Tienda Nube conectada${n ? ` · ${n} productos importados` : ""}.`);
       if (params.get("webhooks") === "pendientes")
         toast.info("La actualización automática (webhooks) se activará con el deploy en Vercel.");
-    } else {
+    } else if (tn) {
       toast.error("No se pudo conectar Tienda Nube. Intenta de nuevo.");
+    }
+    if (ml === "conectada") {
+      const n = params.get("items");
+      const v = params.get("vinculados");
+      toast.success(
+        `Mercado Libre conectado${n ? ` · ${n} publicaciones importadas` : ""}${v && v !== "0" ? ` (${v} vinculadas por SKU)` : ""}.`,
+      );
+    } else if (ml) {
+      toast.error("No se pudo conectar Mercado Libre. Intenta de nuevo.");
     }
     window.history.replaceState(null, "", window.location.pathname);
   }, []);
@@ -70,6 +92,14 @@ export function PanelInventario({
   function sincronizar() {
     startSync(async () => {
       const r = await sincronizarTiendanube();
+      if ("error" in r) toast.error(r.error);
+      else toast.success(r.detalle);
+    });
+  }
+
+  function sincronizarML() {
+    startSyncML(async () => {
+      const r = await sincronizarMercadolibre();
       if ("error" in r) toast.error(r.error);
       else toast.success(r.detalle);
     });
@@ -97,16 +127,10 @@ export function PanelInventario({
           <p className="mt-1 text-sm text-muted-foreground">
             Cuánto hay de cada producto, quién lo surte y qué viene en camino.
             {tiendanube.conectada && tiendanube.ultimaSync && (
-              <span className="ml-1">
-                · Tienda Nube sincronizada el{" "}
-                {new Date(tiendanube.ultimaSync).toLocaleString("es-MX", {
-                  day: "numeric",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                .
-              </span>
+              <span className="ml-1">· Tienda Nube: {fechaCorta(tiendanube.ultimaSync)}.</span>
+            )}
+            {mercadolibre.conectada && mercadolibre.ultimaSync && (
+              <span className="ml-1">· Mercado Libre: {fechaCorta(mercadolibre.ultimaSync)}.</span>
             )}
           </p>
         </div>
@@ -125,6 +149,22 @@ export function PanelInventario({
             >
               <Store className="size-4" aria-hidden="true" />
               Conectar Tienda Nube
+            </Button>
+          )}
+          {mercadolibre.conectada ? (
+            <Button variant="outline" onClick={sincronizarML} disabled={sincronizandoML}>
+              <RefreshCw className={cn("size-4", sincronizandoML && "animate-spin")} aria-hidden="true" />
+              {sincronizandoML ? "Sincronizando…" : "Sincronizar Mercado Libre"}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => {
+                window.location.href = "/api/mercadolibre/conectar";
+              }}
+            >
+              <ShoppingCart className="size-4" aria-hidden="true" />
+              Conectar Mercado Libre
             </Button>
           )}
           <div className="inline-flex rounded-lg bg-muted p-0.5">

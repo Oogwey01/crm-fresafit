@@ -136,6 +136,8 @@ export type Product = {
   sku: string | null;
   tiendanube_product_id: number | null;
   tiendanube_variant_id: number | null;
+  meli_item_id: string | null;
+  meli_variation_id: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;

@@ -3,6 +3,10 @@
     {
       "path": "/api/tiendanube/sync",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/mercadolibre/sync",
+      "schedule": "30 6 * * *"
     }
   ]
 }
