@@ -27,6 +27,64 @@ export function esVencida(fechaLimite: string | null, estado: string): boolean {
   return fechaLimite < hoyISO() && estado !== "hecho";
 }
 
+/* ---- Helpers de PERIODOS (módulo Métricas; todo en fecha LOCAL) ---- */
+
+/* AAAA-MM-DD de una fecha local. */
+function aISO(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/* Fecha local desplazada n días respecto a hoy (n negativo = pasado). */
+export function diasDesdeHoy(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return aISO(d);
+}
+
+export type Periodo = { desde: string; hasta: string };
+
+/* Rango del periodo elegido y su equivalente ANTERIOR (para el Δ de
+   comparación): hoy↔ayer, semana↔semana pasada, mes↔mes pasado, etc. */
+export function rangosDePeriodo(id: "hoy" | "semana" | "mes" | "mes_pasado"): {
+  actual: Periodo;
+  anterior: Periodo;
+} {
+  const hoy = new Date();
+  const y = hoy.getFullYear();
+  const m = hoy.getMonth();
+
+  if (id === "hoy") {
+    return {
+      actual: { desde: hoyISO(), hasta: hoyISO() },
+      anterior: { desde: diasDesdeHoy(-1), hasta: diasDesdeHoy(-1) },
+    };
+  }
+  if (id === "semana") {
+    // Semana de lunes a domingo.
+    const offset = (hoy.getDay() + 6) % 7;
+    const lunes = new Date(y, m, hoy.getDate() - offset);
+    const lunesPasado = new Date(y, m, hoy.getDate() - offset - 7);
+    const domingoPasado = new Date(y, m, hoy.getDate() - offset - 1);
+    return {
+      actual: { desde: aISO(lunes), hasta: hoyISO() },
+      anterior: { desde: aISO(lunesPasado), hasta: aISO(domingoPasado) },
+    };
+  }
+  if (id === "mes") {
+    return {
+      actual: { desde: aISO(new Date(y, m, 1)), hasta: hoyISO() },
+      anterior: { desde: aISO(new Date(y, m - 1, 1)), hasta: aISO(new Date(y, m, 0)) },
+    };
+  }
+  // mes_pasado (comparado contra el antepasado)
+  return {
+    actual: { desde: aISO(new Date(y, m - 1, 1)), hasta: aISO(new Date(y, m, 0)) },
+    anterior: { desde: aISO(new Date(y, m - 2, 1)), hasta: aISO(new Date(y, m - 1, 0)) },
+  };
+}
+
 /* ---- Helpers para la vista de CALENDARIO (sin librerías externas) ---- */
 
 const NOMBRES_MES = [

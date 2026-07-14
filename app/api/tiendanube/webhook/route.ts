@@ -2,8 +2,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse, after } from "next/server";
 import { conexionTiendanube, obtenerProductoTN } from "@/lib/tiendanube/api";
 import { desactivarProductoTN, sincronizarProductosTN } from "@/lib/tiendanube/sync";
+import { procesarOrdenTN } from "@/lib/tiendanube/ventas";
 
-/* Receptor de webhooks de Tienda Nube (product/created|updated|deleted).
+/* Receptor de webhooks de Tienda Nube (product/* y order/paid|cancelled).
    Exigen un 2XX en menos de 3 segundos, así que se responde de inmediato y el
    trabajo corre con after(). Pueden llegar duplicados: no estorban porque la
    sincronización es un upsert idempotente. */
@@ -27,7 +28,9 @@ export async function POST(request: Request) {
   }
   const { event, id } = evento;
   // Evento que no manejamos: 200 para que Tienda Nube no lo reintente.
-  if (!event?.startsWith("product/") || typeof id !== "number") {
+  const esProducto = !!event?.startsWith("product/");
+  const esOrden = event === "order/paid" || event === "order/cancelled";
+  if ((!esProducto && !esOrden) || typeof id !== "number") {
     return NextResponse.json({ ok: true });
   }
 
@@ -35,7 +38,10 @@ export async function POST(request: Request) {
     try {
       const cx = await conexionTiendanube();
       if (!cx || String(evento.store_id) !== cx.storeId) return;
-      if (event === "product/deleted") {
+      if (esOrden) {
+        // Alta o retiro de la venta según el estado real de la orden.
+        await procesarOrdenTN(id);
+      } else if (event === "product/deleted") {
         await desactivarProductoTN(id);
       } else {
         // El payload solo trae el id; los datos frescos se piden a la API.

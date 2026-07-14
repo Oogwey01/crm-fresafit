@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { conexionTiendanube, registrarWebhooksTN } from "@/lib/tiendanube/api";
 import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
+import { importarVentasTN } from "@/lib/tiendanube/ventas";
 
-/* Reconciliación completa del catálogo. La dispara el cron diario de Vercel
-   (Authorization: Bearer CRON_SECRET) o, como respaldo, un usuario interno. */
+/* Reconciliación completa del catálogo + ventas recientes. La dispara el cron
+   diario de Vercel (Authorization: Bearer CRON_SECRET) o un usuario interno. */
 export async function GET(request: Request) {
   const auth = request.headers.get("authorization");
   const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
@@ -31,7 +32,15 @@ export async function GET(request: Request) {
 
   try {
     const resumen = await sincronizacionCompleta(cx);
-    return NextResponse.json({ ok: true, ...resumen });
+    // Red de seguridad de ventas: reimporta la ventana reciente por si algún
+    // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
+    let ventas = null;
+    try {
+      ventas = await importarVentasTN(cx);
+    } catch (e) {
+      console.error("[tiendanube] importación de ventas:", e);
+    }
+    return NextResponse.json({ ok: true, ...resumen, ventas });
   } catch (e) {
     console.error("[tiendanube] sync:", e);
     const detalle = e instanceof Error ? e.message : "Falló la sincronización.";

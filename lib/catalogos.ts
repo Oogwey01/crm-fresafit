@@ -73,12 +73,21 @@ export const ESTADOS_PEDIDO_PROVEEDOR = [
   { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
 ] as const;
 
+/* --- Canales de venta (Fase 2: se reutilizan en Finanzas, Clientes y Pedidos). --- */
+export const CANALES = [
+  { id: "tienda_nube", nombre: "Tienda Nube", color: "#0984e3" },
+  { id: "mercado_libre", nombre: "Mercado Libre", color: "#f39c12" },
+  { id: "tiktok_shop", nombre: "TikTok Shop", color: "#2d3436" },
+  { id: "punto_fisico", nombre: "Punto físico", color: "#e84393" },
+  { id: "otro", nombre: "Otro", color: "#94a3b8" },
+] as const;
+
 /* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.
    "activo: true" = construido. --- */
 export const MODULOS = [
   { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true },
   { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: true },
-  { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: false },
+  { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: true },
   { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: false },
   { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: false },
   { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: false },
@@ -125,6 +134,9 @@ export function obtenerTipoProducto(id: string) {
 }
 export function obtenerEstadoPedidoProv(id: string) {
   return ESTADOS_PEDIDO_PROVEEDOR.find((e) => e.id === id) ?? null;
+}
+export function obtenerCanal(id: string) {
+  return CANALES.find((c) => c.id === id) ?? null;
 }
 
 /* --- Ayudantes de rol --- */

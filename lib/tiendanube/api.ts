@@ -167,9 +167,65 @@ export async function actualizarVarianteTN(
   }
 }
 
+/* ------------------------------ Órdenes ----------------------------------- */
+
+/* Renglón de una orden (un producto vendido). `price` es el precio unitario. */
+export type LineaOrdenTN = {
+  product_id: number;
+  variant_id: number;
+  name: string;
+  price: string;
+  quantity: number | string;
+  sku?: string | null;
+};
+
+export type OrdenTN = {
+  id: number;
+  number: number;
+  status: string; // open | closed | cancelled
+  payment_status: string; // pending | paid | voided | refunded | …
+  created_at: string;
+  paid_at?: string | null;
+  total: string;
+  products: LineaOrdenTN[];
+  customer?: { id?: number; name?: string | null; email?: string | null } | null;
+};
+
+export async function obtenerOrdenTN(cx: ConexionTN, id: number): Promise<OrdenTN | null> {
+  const res = await tnFetch(cx, `/orders/${id}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Tienda Nube respondió ${res.status} al pedir la orden ${id}.`);
+  return (await res.json()) as OrdenTN;
+}
+
+/* Órdenes desde una fecha (ISO), paginadas. Incluye canceladas: el importador
+   las usa para retirar ventas que se cancelaron después de importarse. */
+export async function listarOrdenesTN(cx: ConexionTN, desdeISO: string): Promise<OrdenTN[]> {
+  const POR_PAGINA = 200;
+  const todas: OrdenTN[] = [];
+  for (let page = 1; ; page++) {
+    const res = await tnFetch(
+      cx,
+      `/orders?per_page=${POR_PAGINA}&page=${page}&created_at_min=${encodeURIComponent(desdeISO)}`,
+    );
+    if (res.status === 404) break; // más allá de la última página
+    if (!res.ok) throw new Error(`Tienda Nube respondió ${res.status} al listar órdenes.`);
+    const lote = (await res.json()) as OrdenTN[];
+    todas.push(...lote);
+    if (lote.length < POR_PAGINA) break;
+  }
+  return todas;
+}
+
 /* ------------------------------ Webhooks --------------------------------- */
 
-const EVENTOS_WEBHOOK = ["product/created", "product/updated", "product/deleted"] as const;
+const EVENTOS_WEBHOOK = [
+  "product/created",
+  "product/updated",
+  "product/deleted",
+  "order/paid",
+  "order/cancelled",
+] as const;
 
 /* Alta idempotente: crea (o corrige la URL de) los webhooks de productos.
    Tienda Nube solo acepta URLs https públicas. */

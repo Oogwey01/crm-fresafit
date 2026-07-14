@@ -201,9 +201,11 @@ export async function sincronizacionCompleta(cx?: ConexionTN): Promise<ResumenSy
     actualizados,
     desactivados: sobrantes.length,
   };
+  // Merge sobre `datos` para no pisar el estado de otras syncs (p. ej. ventas).
+  const { data: fila } = await admin.from("integraciones").select("datos").eq("id", "tiendanube").maybeSingle();
   await admin
     .from("integraciones")
-    .update({ datos: { ultima_sync: new Date().toISOString(), ...resumen } })
+    .update({ datos: { ...(fila?.datos ?? {}), ultima_sync: new Date().toISOString(), ...resumen } })
     .eq("id", "tiendanube");
 
   return resumen;

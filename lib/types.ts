@@ -10,6 +10,7 @@ import type {
   ETIQUETAS,
   TIPOS_PRODUCTO,
   ESTADOS_PEDIDO_PROVEEDOR,
+  CANALES,
 } from "@/lib/catalogos";
 
 /* Uniones de literales derivadas de los catálogos (p. ej. "por_hacer" | ...). */
@@ -20,6 +21,7 @@ export type RolId = (typeof ROLES)[number]["id"];
 export type EtiquetaId = (typeof ETIQUETAS)[number]["id"];
 export type TipoProductoId = (typeof TIPOS_PRODUCTO)[number]["id"];
 export type EstadoPedidoProvId = (typeof ESTADOS_PEDIDO_PROVEEDOR)[number]["id"];
+export type CanalId = (typeof CANALES)[number]["id"];
 
 /* Perfil de usuario (tabla `profiles`, 1:1 con auth.users). */
 export type Profile = {
@@ -174,4 +176,29 @@ export type SupplierOrder = {
 export type SupplierOrderConDetalle = SupplierOrder & {
   proveedor: Pick<Supplier, "id" | "nombre"> | null;
   items: (SupplierOrderItem & { producto: Pick<Product, "id" | "nombre" | "variante"> | null })[];
+};
+
+/* --- Módulo Métricas / Ventas (Fase 2) --- */
+
+/* Venta (tabla `sales`): un renglón = un producto vendido. En la Fase 5 estas
+   MISMAS filas ganan columnas de envío y se vuelven los "pedidos". */
+export type Sale = {
+  id: string;
+  fecha: string; // "AAAA-MM-DD"
+  canal: CanalId;
+  producto_id: string | null;
+  descripcion: string | null;
+  cantidad: number;
+  monto: number; // total del renglón
+  cliente_id: string | null;
+  origen: "manual" | "csv" | "api";
+  referencia_externa: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type SaleConProducto = Sale & {
+  producto: Pick<Product, "id" | "nombre" | "variante"> | null;
 };
