@@ -216,9 +216,9 @@ export function PedidoProvDialog({
             <Label>Qué se pidió</Label>
             <div className="flex flex-col gap-2">
               {renglones.map((r, idx) => (
-                <div key={idx} className="grid grid-cols-[1fr_80px_110px_32px] items-center gap-2">
+                <div key={idx} className="flex flex-col gap-2 md:flex-row md:items-center">
                   {/* Producto del catálogo o descripción libre */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 md:flex-1">
                     <Select
                       value={r.producto_id ?? PRODUCTO_LIBRE}
                       onValueChange={(v) =>
@@ -254,34 +254,39 @@ export function PedidoProvDialog({
                       />
                     )}
                   </div>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    aria-label="Cantidad"
-                    title="Cantidad"
-                    value={r.cantidad}
-                    onChange={(e) => editarRenglon(idx, { cantidad: e.target.value })}
-                  />
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="$ c/u"
-                    aria-label="Costo unitario"
-                    title="Costo unitario"
-                    value={r.costo_unitario}
-                    onChange={(e) => editarRenglon(idx, { costo_unitario: e.target.value })}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setRenglones((prev) => prev.filter((_, i) => i !== idx))}
-                    disabled={renglones.length === 1}
-                    className="flex size-8 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent disabled:opacity-40"
-                    aria-label="Quitar renglón"
-                  >
-                    <X className="size-4" />
-                  </button>
+                  {/* Cantidad · costo · quitar: fila propia en móvil, inline en escritorio */}
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      aria-label="Cantidad"
+                      title="Cantidad"
+                      className="w-20 shrink-0"
+                      value={r.cantidad}
+                      onChange={(e) => editarRenglon(idx, { cantidad: e.target.value })}
+                    />
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="$ c/u"
+                      aria-label="Costo unitario"
+                      title="Costo unitario"
+                      className="w-28 shrink-0"
+                      value={r.costo_unitario}
+                      onChange={(e) => editarRenglon(idx, { costo_unitario: e.target.value })}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setRenglones((prev) => prev.filter((_, i) => i !== idx))}
+                      disabled={renglones.length === 1}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent disabled:opacity-40 md:size-8"
+                      aria-label="Quitar renglón"
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
               <div>

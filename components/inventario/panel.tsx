@@ -177,7 +177,7 @@ export function PanelInventario({
   return (
     <div>
       {/* Encabezado: título a la izquierda, acciones a la derecha */}
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight">Inventario y proveedores</h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
@@ -200,13 +200,13 @@ export function PanelInventario({
             </div>
           )}
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
           {tiendanube.conectada ? (
             <Button
               variant="outline"
               onClick={sincronizar}
               disabled={sincronizando}
-              className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
+              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
             >
               <RefreshCw className={cn("size-[15px]", sincronizando && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
               {sincronizando ? "Sincronizando…" : "Sincronizar"}
@@ -217,7 +217,7 @@ export function PanelInventario({
               onClick={() => {
                 window.location.href = "/api/tiendanube/conectar";
               }}
-              className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
+              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
             >
               <Store className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
               Conectar Tienda Nube
@@ -228,7 +228,7 @@ export function PanelInventario({
               variant="outline"
               onClick={sincronizarML}
               disabled={sincronizandoML}
-              className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
+              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
             >
               <RefreshCw className={cn("size-[15px]", sincronizandoML && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
               {sincronizandoML ? "Sincronizando…" : "Mercado Libre"}
@@ -239,7 +239,7 @@ export function PanelInventario({
               onClick={() => {
                 window.location.href = "/api/mercadolibre/conectar";
               }}
-              className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
+              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
             >
               <ShoppingCart className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
               Conectar Mercado Libre
@@ -247,7 +247,7 @@ export function PanelInventario({
           )}
           <Button
             onClick={abrirNuevo}
-            className="h-auto gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)]"
+            className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
           >
             <Plus className="size-4" strokeWidth={2.1} />
             {ETIQUETA_NUEVO[pestana]}
@@ -256,7 +256,7 @@ export function PanelInventario({
       </div>
 
       {/* Tarjetas KPI */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3 lg:grid-cols-5">
         <StatCard etiqueta="SKUs" valor={String(productos.length)} icono={Boxes} />
         <StatCard
           etiqueta="Por acabarse"
@@ -276,7 +276,22 @@ export function PanelInventario({
 
       {/* Barra de herramientas: pestañas a la izquierda, búsqueda/filtro a la derecha */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg bg-muted p-0.5">
+        {/* Móvil: Select (los labels no caben en un segmentado). Escritorio: segmentado. */}
+        <Select value={pestana} onValueChange={(v) => v && setPestana(v as Pestana)}>
+          <SelectTrigger className="w-full bg-card md:hidden">
+            <SelectValue>
+              {(v: string) => PESTANAS.find(([id]) => id === v)?.[1] ?? "Sección"}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {PESTANAS.map(([id, label]) => (
+              <SelectItem key={id} value={id}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="hidden rounded-lg bg-muted p-0.5 md:inline-flex">
           {PESTANAS.map(([id, label]) => (
             <button
               key={id}

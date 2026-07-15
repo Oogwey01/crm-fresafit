@@ -25,7 +25,7 @@ import {
   recibirPedidoProv,
 } from "@/app/(app)/inventario/actions";
 import type { EstadoPedidoProvId, SupplierOrderConDetalle } from "@/lib/types";
-import { TablaSimple, filaSimpleClases } from "@/components/compartido/tabla-simple";
+import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { cn } from "@/lib/utils";
 
 const COLS = "grid-cols-[140px_minmax(180px,1fr)_110px_120px_130px_110px]";
@@ -105,73 +105,78 @@ export function TablaPedidosProv({
     );
   }
 
+  const columnas: Columna<SupplierOrderConDetalle>[] = [
+    {
+      clave: "proveedor",
+      label: "Proveedor",
+      esTitulo: true,
+      celda: (p) => (
+        <button
+          type="button"
+          onClick={() => onEditar(p)}
+          className="truncate text-left font-medium hover:underline"
+          title={`Pedido a ${p.proveedor?.nombre ?? "proveedor"}`}
+        >
+          {p.proveedor?.nombre ?? "—"}
+        </button>
+      ),
+    },
+    {
+      clave: "productos",
+      label: "Productos",
+      celda: (p) => (
+        <div className="truncate text-muted-foreground" title={resumenItems(p)}>
+          {resumenItems(p) || "—"}
+        </div>
+      ),
+    },
+    { clave: "pedido", label: "Pedido", celda: (p) => <div>{formatearFecha(p.fecha_pedido)}</div> },
+    {
+      clave: "llega",
+      label: "Llega",
+      celda: (p) => {
+        const abierto = p.estado !== "recibido" && p.estado !== "cancelado";
+        const atrasado = abierto && !!p.fecha_estimada && p.fecha_estimada < hoyISO();
+        return p.fecha_estimada ? (
+          <span className={cn("inline-flex items-center gap-1", atrasado && "font-semibold text-red-600")}>
+            {atrasado && <AlertTriangle className="size-3.5" aria-label="Atrasado" />}
+            {formatearFecha(p.fecha_estimada)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">—</span>
+        );
+      },
+    },
+    {
+      clave: "estado",
+      label: "Estado",
+      celda: (p) => (
+        <Select value={p.estado} onValueChange={(v) => v && cambiarEstado(p, v as EstadoPedidoProvId)}>
+          <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0">
+            <PastillaEstadoProv estado={p.estado} />
+          </SelectTrigger>
+          <SelectContent>
+            {ESTADOS_PEDIDO_PROVEEDOR.map((e) => (
+              <SelectItem key={e.id} value={e.id}>
+                {e.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    },
+    { clave: "total", label: "Total", celda: (p) => <div>{formatearMXN(p.costo_total)}</div> },
+  ];
+
   return (
     <>
       <TablaSimple
         cols={COLS}
-        encabezados={["Proveedor", "Productos", "Pedido", "Llega", "Estado", "Total"]}
+        columnas={columnas}
+        datos={pedidos}
+        filaKey={(p) => p.id}
         minW="min-w-[840px]"
-      >
-        {pedidos.map((p) => {
-          const abierto = p.estado !== "recibido" && p.estado !== "cancelado";
-          const atrasado = abierto && !!p.fecha_estimada && p.fecha_estimada < hoyISO();
-          return (
-            <div key={p.id} className={filaSimpleClases(COLS)}>
-              <button
-                type="button"
-                onClick={() => onEditar(p)}
-                className="truncate text-left font-medium hover:underline"
-                title={`Pedido a ${p.proveedor?.nombre ?? "proveedor"}`}
-              >
-                {p.proveedor?.nombre ?? "—"}
-              </button>
-
-              <div className="truncate text-muted-foreground" title={resumenItems(p)}>
-                {resumenItems(p) || "—"}
-              </div>
-
-              <div>{formatearFecha(p.fecha_pedido)}</div>
-
-              <div>
-                {p.fecha_estimada ? (
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1",
-                      atrasado && "font-semibold text-red-600",
-                    )}
-                  >
-                    {atrasado && <AlertTriangle className="size-3.5" aria-label="Atrasado" />}
-                    {formatearFecha(p.fecha_estimada)}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground/50">—</span>
-                )}
-              </div>
-
-              {/* Estado editable en celda */}
-              <div>
-                <Select
-                  value={p.estado}
-                  onValueChange={(v) => v && cambiarEstado(p, v as EstadoPedidoProvId)}
-                >
-                  <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0">
-                    <PastillaEstadoProv estado={p.estado} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ESTADOS_PEDIDO_PROVEEDOR.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>{formatearMXN(p.costo_total)}</div>
-            </div>
-          );
-        })}
-      </TablaSimple>
+      />
 
       {/* Pregunta al recibir: ¿sumar los renglones al stock? */}
       {recibir && (

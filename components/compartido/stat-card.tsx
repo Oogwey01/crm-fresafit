@@ -12,6 +12,7 @@ export function StatCard({
   nota,
   icono: Icono,
   valorClassName,
+  className,
 }: {
   etiqueta: string;
   valor: string;
@@ -20,22 +21,24 @@ export function StatCard({
   nota?: string; // p. ej. "por transacción"
   icono?: LucideIcon;
   valorClassName?: string;
+  className?: string;
 }) {
   const tieneDelta = delta !== undefined && delta !== null && Number.isFinite(delta);
   const sube = tieneDelta && delta! > 0;
   const baja = tieneDelta && delta! < 0;
 
   return (
-    <div className="rounded-2xl border bg-card px-5 py-4 shadow-sm">
+    <div className={cn("min-w-0 rounded-2xl border bg-card px-5 py-4 shadow-sm", className)}>
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {Icono && <Icono className="size-3.5" strokeWidth={1.9} aria-hidden="true" />}
         {etiqueta}
       </div>
       <div
         className={cn(
-          "mt-2.5 text-[29px] font-bold leading-none tracking-tight tabular-nums",
+          "mt-2.5 truncate text-2xl font-bold leading-none tracking-tight tabular-nums md:text-[29px]",
           valorClassName,
         )}
+        title={valor}
       >
         {valor}
       </div>

@@ -11,7 +11,7 @@ import type { Customer, Product, RolId, SaleConProducto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
-import { TablaSimple, filaSimpleClases } from "@/components/compartido/tabla-simple";
+import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { VentaDialog } from "@/components/ventas/venta-dialog";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +42,43 @@ const ALTO_BARRAS = 190;
 
 /* Chips de productos sin movimiento que se listan antes del «+N más». */
 const CHIPS_SIN_MOVIMIENTO = 12;
+
+/* Gráfica de barras verticales «ventas por día». Recalcula su propio máximo
+   sobre los días que recibe, así el subconjunto móvil (7 días) no se aplana por
+   un pico fuera de la ventana. Columnas por `gridTemplateColumns` inline: el
+   número es dinámico y no puede ir en una clase Tailwind estática. */
+function GraficaVentasDia({ dias }: { dias: { iso: string; total: number }[] }) {
+  const max = Math.max(...dias.map((d) => d.total), 1);
+  const cols = { gridTemplateColumns: `repeat(${dias.length}, minmax(0, 1fr))` };
+  return (
+    <>
+      {/* Altura en PÍXELES, no en %: dentro de un flex/grid sin altura definida
+          el navegador resuelve `height: X%` a cero y las barras se aplanan. */}
+      <div className="grid items-end gap-2.5" style={{ ...cols, height: ALTO_BARRAS }}>
+        {dias.map((d) => (
+          <div
+            key={d.iso}
+            className="w-full rounded-t-[7px] rounded-b-[3px] bg-primary transition-[filter] hover:brightness-110"
+            style={{
+              height: d.total > 0 ? Math.max(3, Math.round((d.total / max) * ALTO_BARRAS)) : 0,
+            }}
+            title={`${formatearFecha(d.iso)}: ${formatearMXN(d.total)}`}
+          />
+        ))}
+      </div>
+      <div className="mt-2.5 grid gap-2.5 border-t pt-2.5" style={cols}>
+        {dias.map((d) => (
+          <span
+            key={d.iso}
+            className="text-center text-[11.5px] font-medium text-muted-foreground"
+          >
+            {Number(d.iso.slice(8, 10))}
+          </span>
+        ))}
+      </div>
+    </>
+  );
+}
 
 function nombreVenta(v: SaleConProducto): string {
   return v.producto
@@ -108,7 +145,6 @@ export function PanelMetricas({
     }
     return lista;
   }, [ventas]);
-  const maxDia = Math.max(...dias.map((d) => d.total), 1);
 
   /* --- Por canal: se listan todos los canales del catálogo, incluso en cero
      (atenuados), para que se vea de dónde NO está entrando dinero. "Otro" solo
@@ -149,6 +185,64 @@ export function PanelMetricas({
 
   const ultimas = ventas.slice(0, 20);
 
+  const columnasVenta: Columna<SaleConProducto>[] = [
+    {
+      clave: "fecha",
+      label: "Fecha",
+      celda: (v) => <div className="text-[13.5px] text-muted-foreground">{formatearFecha(v.fecha)}</div>,
+    },
+    {
+      clave: "canal",
+      label: "Canal",
+      celda: (v) => {
+        const canal = obtenerCanal(v.canal);
+        return canal ? (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12.5px] font-semibold"
+            style={{ backgroundColor: `${canal.color}1a`, color: canal.color }}
+          >
+            <span className="size-1.5 rounded-full" style={{ backgroundColor: canal.color }} />
+            {canal.nombre}
+          </span>
+        ) : null;
+      },
+    },
+    {
+      clave: "producto",
+      label: "Producto",
+      esTitulo: true,
+      celda: (v) => (
+        <button
+          type="button"
+          onClick={() => setVentaDialog(v)}
+          className="truncate text-left text-[14px] font-medium hover:underline"
+          title={v.notas ?? nombreVenta(v)}
+        >
+          {nombreVenta(v)}
+        </button>
+      ),
+    },
+    {
+      clave: "cantidad",
+      label: "Cant.",
+      celda: (v) => <div className="text-[13.5px] tabular-nums">{v.cantidad}</div>,
+    },
+    {
+      clave: "total",
+      label: "Total",
+      celda: (v) => <div className="text-[13.5px] font-bold tabular-nums">{formatearMXN(v.monto)}</div>,
+    },
+    {
+      clave: "origen",
+      label: "Origen",
+      celda: (v) => (
+        <div className="text-[12.5px] text-muted-foreground">
+          {v.origen === "api" ? "Automática" : v.origen === "csv" ? "CSV" : "Manual"}
+        </div>
+      ),
+    },
+  ];
+
   function importar() {
     startImportar(async () => {
       const r = await importarVentasTiendanube();
@@ -160,32 +254,32 @@ export function PanelMetricas({
   return (
     <div>
       {/* Barra superior */}
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-5">
+      <div className="mb-5 flex flex-col gap-4 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
           <h1 className="text-[26px] font-bold tracking-[-0.5px]">Métricas del negocio</h1>
           <p className="mt-1.5 max-w-[620px] text-[14.5px] text-muted-foreground">
             Los números clave de un vistazo: qué se vende, por dónde y cuánto deja.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2.5">
+        <div className="flex w-full flex-wrap items-center gap-2.5 md:w-auto md:justify-end">
           {tiendanube.conectada && (
             <Button
               variant="outline"
               onClick={importar}
               disabled={importando}
-              className="h-10 rounded-xl text-[13.5px] font-semibold"
+              className="h-10 w-full rounded-xl text-[13.5px] font-semibold md:w-auto"
             >
               <RefreshCw className={cn("size-4", importando && "animate-spin")} aria-hidden="true" />
               {importando ? "Importando…" : "Importar de Tienda Nube"}
             </Button>
           )}
-          <div className="inline-flex rounded-xl bg-muted p-[3px]">
+          <div className="flex w-full rounded-xl bg-muted p-[3px] md:inline-flex md:w-auto">
             {PERIODOS.map(([id, label]) => (
               <button
                 key={id}
                 onClick={() => setPeriodo(id)}
                 className={cn(
-                  "rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors",
+                  "flex-1 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors md:flex-none",
                   periodo === id
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -197,7 +291,7 @@ export function PanelMetricas({
           </div>
           <Button
             onClick={() => setVentaDialog("nueva")}
-            className="h-10 rounded-xl text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_var(--primary)]"
+            className="h-10 w-full rounded-xl text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_var(--primary)] md:w-auto"
           >
             <Plus className="size-4" strokeWidth={2.4} aria-hidden="true" />
             Registrar venta
@@ -233,35 +327,17 @@ export function PanelMetricas({
         <StatCard etiqueta="Ticket promedio" valor={formatearMXN(ticket)} nota="por transacción" />
       </div>
 
-      {/* Ventas por día (14 días) — barras verticales CSS */}
+      {/* Ventas por día — 7 barras en móvil (sin astillas), 14 en escritorio */}
       <div className={cn(TARJETA, "mb-4 px-6")}>
-        <h2 className={cn(ROTULO, "mb-4")}>Ventas por día · últimos 14 días</h2>
-        {/* Altura en PÍXELES, no en %: dentro de un flex sin altura definida el
-            navegador resuelve `height: X%` a cero y todas las barras se aplanan. */}
-        <div
-          className="grid grid-cols-[repeat(14,minmax(0,1fr))] items-end gap-2.5"
-          style={{ height: ALTO_BARRAS }}
-        >
-          {dias.map((d) => (
-            <div
-              key={d.iso}
-              className="w-full rounded-t-[7px] rounded-b-[3px] bg-primary transition-[filter] hover:brightness-110"
-              style={{
-                height: d.total > 0 ? Math.max(3, Math.round((d.total / maxDia) * ALTO_BARRAS)) : 0,
-              }}
-              title={`${formatearFecha(d.iso)}: ${formatearMXN(d.total)}`}
-            />
-          ))}
+        <h2 className={cn(ROTULO, "mb-4")}>
+          Ventas por día · últimos <span className="md:hidden">7</span>
+          <span className="hidden md:inline">14</span> días
+        </h2>
+        <div className="md:hidden">
+          <GraficaVentasDia dias={dias.slice(-7)} />
         </div>
-        <div className="mt-2.5 grid grid-cols-[repeat(14,minmax(0,1fr))] gap-2.5 border-t pt-2.5">
-          {dias.map((d) => (
-            <span
-              key={d.iso}
-              className="text-center text-[11.5px] font-medium text-muted-foreground"
-            >
-              {Number(d.iso.slice(8, 10))}
-            </span>
-          ))}
+        <div className="hidden md:block">
+          <GraficaVentasDia dias={dias} />
         </div>
       </div>
 
@@ -322,44 +398,10 @@ export function PanelMetricas({
         <TablaSimple
           cols={COLS_VENTAS}
           titulo="Últimas ventas"
-          encabezados={["Fecha", "Canal", "Producto", "Cant.", "Total", "Origen"]}
-        >
-          {ultimas.map((v) => {
-            const canal = obtenerCanal(v.canal);
-            return (
-              <div key={v.id} className={filaSimpleClases(COLS_VENTAS)}>
-                <div className="text-[13.5px] text-muted-foreground">{formatearFecha(v.fecha)}</div>
-                <div>
-                  {canal && (
-                    <span
-                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12.5px] font-semibold"
-                      style={{ backgroundColor: `${canal.color}1a`, color: canal.color }}
-                    >
-                      <span
-                        className="size-1.5 rounded-full"
-                        style={{ backgroundColor: canal.color }}
-                      />
-                      {canal.nombre}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setVentaDialog(v)}
-                  className="truncate text-left text-[14px] font-medium hover:underline"
-                  title={v.notas ?? nombreVenta(v)}
-                >
-                  {nombreVenta(v)}
-                </button>
-                <div className="text-[13.5px] tabular-nums">{v.cantidad}</div>
-                <div className="text-[13.5px] font-bold tabular-nums">{formatearMXN(v.monto)}</div>
-                <div className="text-[12.5px] text-muted-foreground">
-                  {v.origen === "api" ? "Automática" : v.origen === "csv" ? "CSV" : "Manual"}
-                </div>
-              </div>
-            );
-          })}
-        </TablaSimple>
+          columnas={columnasVenta}
+          datos={ultimas}
+          filaKey={(v) => v.id}
+        />
       )}
 
       {ventaDialog && (

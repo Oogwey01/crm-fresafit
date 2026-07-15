@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Space_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
@@ -22,6 +22,16 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Fresafit · Sistema interno",
   description: "CRM interno de Fresafit — tablero de tareas del equipo.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // `cover` habilita env(safe-area-inset-*) para notch/barras del sistema;
+  // `resizes-content` recomprime el layout cuando sube el teclado virtual.
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
+  themeColor: "#e84393",
 };
 
 export default function RootLayout({

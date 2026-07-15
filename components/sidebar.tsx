@@ -34,14 +34,32 @@ function iniciales(nombre: string): string {
   return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase();
 }
 
-export function Sidebar({
+/* Envoltura de escritorio: el aside fijo lateral (oculto en móvil, donde la
+   navegación vive en el Sheet de components/mobile-nav.tsx). */
+export function Sidebar(props: {
+  profile: Profile | null;
+  email: string;
+  tareasActivas: number;
+}) {
+  return (
+    <aside className="hidden w-[272px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+      <SidebarContent {...props} />
+    </aside>
+  );
+}
+
+/* Contenido del menú (marca + módulos + pie). Compartido 1:1 entre el aside de
+   escritorio y el Sheet móvil. `onNavigate` cierra el Sheet al tocar un módulo. */
+export function SidebarContent({
   profile,
   email,
   tareasActivas,
+  onNavigate,
 }: {
   profile: Profile | null;
   email: string;
   tareasActivas: number;
+  onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const rolNombre =
@@ -56,7 +74,7 @@ export function Sidebar({
   const proximos = MODULOS.filter((m) => !m.activo && visible(m));
 
   return (
-    <aside className="flex w-[272px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar p-4.5 pb-4 max-md:w-full max-md:border-b max-md:border-r-0">
+    <div className="flex min-h-0 flex-1 flex-col p-4.5 pb-4">
       {/* Marca */}
       <div className="mb-5 flex items-center gap-3 px-1.5 pb-1">
         <div className="flex size-[42px] shrink-0 items-center justify-center rounded-[13px] bg-primary shadow-[0_6px_16px_-6px_rgba(232,67,147,0.55)]">
@@ -84,6 +102,7 @@ export function Sidebar({
             <Link
               key={m.id}
               href={m.href}
+              onClick={onNavigate}
               className={cn(
                 "flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-[14.5px] transition-colors",
                 activo
@@ -148,6 +167,6 @@ export function Sidebar({
           </Button>
         </form>
       </div>
-    </aside>
+    </div>
   );
 }

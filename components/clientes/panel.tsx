@@ -8,8 +8,15 @@ import { formatearMXN } from "@/lib/moneda";
 import type { CustomerConStats, RolId, SaleConProducto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { StatCard } from "@/components/compartido/stat-card";
-import { TablaSimple, filaSimpleClases } from "@/components/compartido/tabla-simple";
+import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { ClienteDialog } from "@/components/clientes/cliente-dialog";
 import { ClienteDetalle } from "@/components/clientes/cliente-detalle";
 import { cn } from "@/lib/utils";
@@ -71,10 +78,74 @@ export function PanelClientes({
     [detalle, ventas],
   );
 
+  const columnas: Columna<CustomerConStats>[] = [
+    {
+      clave: "cliente",
+      label: "Cliente",
+      esTitulo: true,
+      celda: (c) => (
+        <button
+          type="button"
+          onClick={() => setDetalle(c)}
+          className="flex items-center gap-2 truncate text-left font-medium hover:underline"
+          title={c.notas ?? c.nombre}
+        >
+          <span className="truncate">{c.nombre}</span>
+          {c.recurrente && (
+            <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10.5px] font-bold text-primary">
+              Recurrente
+            </span>
+          )}
+        </button>
+      ),
+    },
+    {
+      clave: "contacto",
+      label: "Contacto",
+      celda: (c) => (
+        <div className="truncate text-muted-foreground" title={c.correo ?? c.telefono ?? ""}>
+          {c.correo ?? c.telefono ?? "—"}
+        </div>
+      ),
+    },
+    {
+      clave: "canal",
+      label: "Canal",
+      celda: (c) => {
+        const canal = obtenerCanal(c.canal ?? "");
+        return canal ? (
+          <span
+            className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
+            style={{ backgroundColor: `${canal.color}1F`, color: canal.color }}
+          >
+            {canal.nombre}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">—</span>
+        );
+      },
+    },
+    { clave: "compras", label: "Compras", celda: (c) => <div className="tabular-nums">{c.compras}</div> },
+    {
+      clave: "total",
+      label: "Total gastado",
+      celda: (c) => <div className="font-semibold tabular-nums">{formatearMXN(c.total)}</div>,
+    },
+    {
+      clave: "ultima",
+      label: "Última compra",
+      celda: (c) => (
+        <div className="text-muted-foreground">
+          {c.ultimaCompra ? formatearFecha(c.ultimaCompra) : "—"}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Encabezado */}
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+      <div className="mb-5 flex flex-col gap-4 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
           <h1 className="text-[26px] font-bold tracking-[-0.5px]">Clientes y ventas</h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
@@ -83,7 +154,7 @@ export function PanelClientes({
         </div>
         <Button
           onClick={() => setEditar("nuevo")}
-          className="h-10 rounded-xl text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_var(--primary)]"
+          className="h-10 w-full rounded-xl text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_var(--primary)] md:w-auto"
         >
           <Plus className="size-4" strokeWidth={2.1} />
           Nuevo cliente
@@ -91,7 +162,7 @@ export function PanelClientes({
       </div>
 
       {/* KPIs */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
         <StatCard etiqueta="Clientes" valor={String(clientes.length)} icono={Users} />
         <StatCard etiqueta="Recurrentes" valor={String(recurrentes)} icono={Repeat} />
         <StatCard etiqueta="Compraron una vez" valor={String(Math.max(0, nuevos))} icono={UserPlus} />
@@ -109,8 +180,26 @@ export function PanelClientes({
             className="h-auto rounded-[10px] bg-card py-2 pl-9"
           />
         </div>
-        <div className="flex-1" />
-        <div className="inline-flex rounded-xl bg-muted p-[3px]">
+        <div className="hidden flex-1 md:block" />
+        {/* Móvil: Select. Escritorio: segmentado. */}
+        <Select value={orden} onValueChange={(v) => v && setOrden(v as Orden)}>
+          <SelectTrigger className="w-full bg-card md:hidden">
+            <SelectValue>
+              {(v: string) => {
+                const label = ORDENES.find(([id]) => id === v)?.[1] ?? "Ordenar";
+                return `Orden: ${label}`;
+              }}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {ORDENES.map(([id, label]) => (
+              <SelectItem key={id} value={id}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="hidden rounded-xl bg-muted p-[3px] md:inline-flex">
           {ORDENES.map(([id, label]) => (
             <button
               key={id}
@@ -137,53 +226,11 @@ export function PanelClientes({
       ) : (
         <TablaSimple
           cols={COLS}
-          encabezados={["Cliente", "Contacto", "Canal", "Compras", "Total gastado", "Última compra"]}
+          columnas={columnas}
+          datos={visibles}
+          filaKey={(c) => c.id}
           minW="min-w-[880px]"
-        >
-          {visibles.map((c) => {
-            const canal = obtenerCanal(c.canal ?? "");
-            return (
-              <div key={c.id} className={filaSimpleClases(COLS)}>
-                <button
-                  type="button"
-                  onClick={() => setDetalle(c)}
-                  className="flex items-center gap-2 truncate text-left font-medium hover:underline"
-                  title={c.notas ?? c.nombre}
-                >
-                  <span className="truncate">{c.nombre}</span>
-                  {c.recurrente && (
-                    <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10.5px] font-bold text-primary">
-                      Recurrente
-                    </span>
-                  )}
-                </button>
-
-                <div className="truncate text-muted-foreground" title={c.correo ?? c.telefono ?? ""}>
-                  {c.correo ?? c.telefono ?? "—"}
-                </div>
-
-                <div>
-                  {canal ? (
-                    <span
-                      className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-                      style={{ backgroundColor: `${canal.color}1F`, color: canal.color }}
-                    >
-                      {canal.nombre}
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground/50">—</span>
-                  )}
-                </div>
-
-                <div className="tabular-nums">{c.compras}</div>
-                <div className="font-semibold tabular-nums">{formatearMXN(c.total)}</div>
-                <div className="text-muted-foreground">
-                  {c.ultimaCompra ? formatearFecha(c.ultimaCompra) : "—"}
-                </div>
-              </div>
-            );
-          })}
-        </TablaSimple>
+        />
       )}
 
       {editar && (

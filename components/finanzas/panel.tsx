@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
-import { TablaSimple, filaSimpleClases } from "@/components/compartido/tabla-simple";
+import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { GastoDialog } from "@/components/finanzas/gasto-dialog";
 import { cn } from "@/lib/utils";
 
@@ -94,24 +94,84 @@ export function PanelFinanzas({
       ? gastosPeriodo
       : gastosPeriodo.filter((g) => g.categoria === filtroCategoria);
 
+  const columnasGasto: Columna<(typeof visibles)[number]>[] = [
+    { clave: "fecha", label: "Fecha", celda: (g) => <div>{formatearFecha(g.fecha)}</div> },
+    {
+      clave: "concepto",
+      label: "Concepto",
+      esTitulo: true,
+      celda: (g) => (
+        <button
+          type="button"
+          onClick={() => setDialog(g)}
+          className="truncate text-left font-medium hover:underline"
+          title={g.notas ?? g.concepto}
+        >
+          {g.concepto}
+        </button>
+      ),
+    },
+    {
+      clave: "categoria",
+      label: "Categoría",
+      celda: (g) => {
+        const cat = obtenerCategoriaGasto(g.categoria);
+        return cat ? (
+          <span
+            className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
+            style={{ backgroundColor: `${cat.color}1F`, color: cat.color }}
+          >
+            {cat.nombre}
+          </span>
+        ) : null;
+      },
+    },
+    {
+      clave: "proveedor",
+      label: "Pagado a",
+      celda: (g) => <div className="truncate text-muted-foreground">{g.proveedor ?? "—"}</div>,
+    },
+    {
+      clave: "monto",
+      label: "Monto",
+      celda: (g) => <div className="font-semibold tabular-nums">{formatearMXN(g.monto)}</div>,
+    },
+    {
+      clave: "comprobantes",
+      label: "Comprobantes",
+      celda: (g) =>
+        g.comprobantes.length > 0 ? (
+          <span
+            className="inline-flex items-center gap-0.5 text-xs text-muted-foreground"
+            title={`${g.comprobantes.length} comprobante(s)`}
+          >
+            <Paperclip className="size-3.5" />
+            {g.comprobantes.length}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">—</span>
+        ),
+    },
+  ];
+
   return (
     <div>
       {/* Encabezado */}
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight">Finanzas y gastos</h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
             Cuánto entra, cuánto sale y cuánto queda. Solo Dirección ve este módulo.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg bg-muted p-0.5">
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+          <div className="flex w-full rounded-lg bg-muted p-0.5 md:inline-flex md:w-auto">
             {PERIODOS.map(([id, label]) => (
               <button
                 key={id}
                 onClick={() => setPeriodo(id)}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+                  "flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors md:flex-none",
                   periodo === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
                 )}
               >
@@ -121,7 +181,7 @@ export function PanelFinanzas({
           </div>
           <Button
             onClick={() => setDialog("nuevo")}
-            className="h-auto gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)]"
+            className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
           >
             <Plus className="size-4" strokeWidth={2.1} />
             Nuevo gasto
@@ -130,7 +190,7 @@ export function PanelFinanzas({
       </div>
 
       {/* Entradas / Salidas / Saldo */}
-      <div className="mb-4 grid grid-cols-1 gap-3.5 md:grid-cols-3">
+      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3">
         <StatCard
           etiqueta="Entradas (ventas)"
           valor={formatearMXN(entradas)}
@@ -152,6 +212,7 @@ export function PanelFinanzas({
           valor={formatearMXN(saldo)}
           icono={Wallet}
           valorClassName={saldo >= 0 ? "text-green-600" : "text-red-600"}
+          className="col-span-2 md:col-span-1"
         />
       </div>
 
@@ -196,49 +257,11 @@ export function PanelFinanzas({
       ) : (
         <TablaSimple
           cols={COLS}
-          encabezados={["Fecha", "Concepto", "Categoría", "Pagado a", "Monto", ""]}
+          columnas={columnasGasto}
+          datos={visibles}
+          filaKey={(g) => g.id}
           minW="min-w-[780px]"
-        >
-          {visibles.map((g) => {
-            const cat = obtenerCategoriaGasto(g.categoria);
-            return (
-              <div key={g.id} className={filaSimpleClases(COLS)}>
-                <div>{formatearFecha(g.fecha)}</div>
-                <button
-                  type="button"
-                  onClick={() => setDialog(g)}
-                  className="truncate text-left font-medium hover:underline"
-                  title={g.notas ?? g.concepto}
-                >
-                  {g.concepto}
-                </button>
-                <div>
-                  {cat && (
-                    <span
-                      className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-                      style={{ backgroundColor: `${cat.color}1F`, color: cat.color }}
-                    >
-                      {cat.nombre}
-                    </span>
-                  )}
-                </div>
-                <div className="truncate text-muted-foreground">{g.proveedor ?? "—"}</div>
-                <div className="font-semibold tabular-nums">{formatearMXN(g.monto)}</div>
-                <div className="text-muted-foreground">
-                  {g.comprobantes.length > 0 && (
-                    <span
-                      className="inline-flex items-center gap-0.5 text-xs"
-                      title={`${g.comprobantes.length} comprobante(s)`}
-                    >
-                      <Paperclip className="size-3.5" />
-                      {g.comprobantes.length}
-                    </span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </TablaSimple>
+        />
       )}
 
       {dialog && (

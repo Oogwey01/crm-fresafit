@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 
 /* Lista de barras horizontales en CSS puro (sin librería de gráficas):
@@ -30,12 +31,14 @@ export function ListaBarras({
         const color = i.color ?? "var(--primary)";
         return (
           <div key={i.id} className="flex items-center gap-3.5 text-[13.5px]">
+            {/* En móvil la etiqueta ocupa ~38% (deja aire a la barra); en
+                escritorio usa el ancho fijo por prop. */}
             <span
               className={cn(
-                "flex shrink-0 items-center gap-2",
+                "flex w-[38%] shrink-0 items-center gap-2 md:w-[var(--ancho-etiqueta)]",
                 enCero ? "font-medium text-muted-foreground" : "font-semibold",
               )}
-              style={{ width: anchoEtiqueta }}
+              style={{ "--ancho-etiqueta": `${anchoEtiqueta}px` } as CSSProperties}
               title={i.detalle ? `${i.nombre} · ${i.detalle}` : i.nombre}
             >
               {punto && (
@@ -62,7 +65,7 @@ export function ListaBarras({
             </div>
             <span
               className={cn(
-                "min-w-[92px] shrink-0 whitespace-nowrap text-right tabular-nums",
+                "min-w-[64px] shrink-0 whitespace-nowrap text-right tabular-nums md:min-w-[92px]",
                 enCero ? "font-semibold text-muted-foreground" : "font-bold",
               )}
             >
