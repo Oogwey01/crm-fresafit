@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { conexionMercadolibre } from "@/lib/mercadolibre/api";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
+import { importarVentasML } from "@/lib/mercadolibre/ventas";
 
 /* Reconciliación completa con Mercado Libre. La dispara el cron diario de
    Vercel a las 6:30 UTC — media hora DESPUÉS del de Tienda Nube, a propósito:
@@ -22,7 +23,15 @@ export async function GET(request: Request) {
 
   try {
     const resumen = await importacionCompletaML(cx);
-    return NextResponse.json({ ok: true, ...resumen });
+    // Red de seguridad de ventas: reimporta la ventana reciente por si algún
+    // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
+    let ventas = null;
+    try {
+      ventas = await importarVentasML(cx);
+    } catch (e) {
+      console.error("[mercadolibre] importación de ventas:", e);
+    }
+    return NextResponse.json({ ok: true, ...resumen, ventas });
   } catch (e) {
     console.error("[mercadolibre] sync:", e);
     const detalle = e instanceof Error ? e.message : "Falló la sincronización.";

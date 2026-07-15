@@ -279,3 +279,74 @@ export async function actualizarStockML(
     throw new Error(`Mercado Libre respondió ${res.status} al actualizar el stock de ${itemId}.`);
   }
 }
+
+/* ------------------------------ Órdenes ---------------------------------- */
+
+/* Renglón de una orden (un producto vendido). El id del item y su variación
+   son las mismas llaves con las que el catálogo mapea a `products`. */
+export type LineaOrdenML = {
+  item: {
+    id: string; // "MLM..."
+    title?: string | null;
+    variation_id?: number | null;
+    seller_sku?: string | null;
+  };
+  quantity: number | string;
+  unit_price: number | string;
+};
+
+/* ML restringe el PII del comprador: `email`/`phone` suelen venir ausentes o
+   anonimizados; `id` y `nickname` sí llegan siempre. */
+export type CompradorML = {
+  id: number;
+  nickname?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+};
+
+export type OrdenML = {
+  id: number;
+  // confirmed | payment_required | payment_in_process | partially_paid |
+  // paid | cancelled | invalid
+  status: string;
+  date_created: string;
+  date_closed?: string | null;
+  total_amount?: number;
+  order_items: LineaOrdenML[];
+  buyer?: CompradorML | null;
+};
+
+export async function obtenerOrdenML(cx: ConexionML, id: number | string): Promise<OrdenML | null> {
+  const res = await mlFetch(cx, `/orders/${id}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Mercado Libre respondió ${res.status} al pedir la orden ${id}.`);
+  return (await res.json()) as OrdenML;
+}
+
+/* Órdenes del seller desde una fecha (ISO), paginadas. Incluye canceladas: el
+   importador las usa para retirar ventas que se cancelaron tras importarse.
+   ML espera el filtro de fecha con offset explícito (…-00:00), no con la 'Z'
+   que produce toISOString(). No se pagina más allá de offset 10000 (tope de la
+   API): improbable en una ventana de 90 días. */
+export async function listarOrdenesML(cx: ConexionML, desdeISO: string): Promise<OrdenML[]> {
+  const LIMIT = 50;
+  const desde = desdeISO.replace(/Z$/, "-00:00");
+  const todas: OrdenML[] = [];
+  for (let offset = 0; ; offset += LIMIT) {
+    const params = new URLSearchParams({
+      seller: cx.userId,
+      sort: "date_desc",
+      offset: String(offset),
+      limit: String(LIMIT),
+      "order.date_created.from": desde,
+    });
+    const res = await mlFetch(cx, `/orders/search?${params}`);
+    if (!res.ok) throw new Error(`Mercado Libre respondió ${res.status} al listar órdenes.`);
+    const data = (await res.json()) as { results?: OrdenML[]; paging?: { total?: number } };
+    const lote = data.results ?? [];
+    todas.push(...lote);
+    const total = data.paging?.total ?? 0;
+    if (lote.length < LIMIT || offset + LIMIT >= total || offset + LIMIT >= 10000) break;
+  }
+  return todas;
+}
