@@ -125,8 +125,21 @@ export function VistaTabla({
                 </span>
               </button>
 
-              {!cerrado && (
-                <div className="flex flex-col gap-2.5 p-3 md:gap-0 md:p-0">
+              {/* Expandir/colapsar animado: grid-template-rows 0fr→1fr evita el
+                  salto brusco del montaje/desmontaje directo. */}
+              <div
+                className={cn(
+                  "grid transition-[grid-template-rows] duration-300 ease-out",
+                  cerrado ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+                )}
+              >
+                <div className="overflow-hidden">
+                <div
+                  className={cn(
+                    "flex flex-col gap-2.5 p-3 transition-opacity duration-300 md:gap-0 md:p-0",
+                    cerrado ? "opacity-0" : "opacity-100",
+                  )}
+                >
                   {items.map((t) => {
                     const vencida = esVencida(t.fecha_limite, t.estado);
                     const puedeEstado = gestor || t.responsable_id === currentUserId;
@@ -229,7 +242,8 @@ export function VistaTabla({
                     );
                   })}
                 </div>
-              )}
+                </div>
+              </div>
             </div>
           );
         })}

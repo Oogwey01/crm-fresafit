@@ -394,22 +394,36 @@ export function Board({
                       aria-hidden="true"
                     />
                   </button>
-                  {abierta && (
-                  <div className="-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">
-                    {ESTADOS.map((estado) => (
-                      <div key={estado.id} className="w-[85%] shrink-0 snap-start md:w-auto">
-                        <Column
-                          estadoId={estado.id}
-                          droppableId={`${area.id}::${estado.id}`}
-                          nombre={estado.nombre}
-                          tareas={delArea.filter((t) => t.estado === estado.id)}
-                          onMover={mover}
-                          onEditar={setDetalle}
-                        />
+                  {/* Expandir/colapsar animado: grid-template-rows 0fr→1fr evita el
+                      salto brusco del montaje/desmontaje directo. */}
+                  <div
+                    className={cn(
+                      "grid transition-[grid-template-rows] duration-300 ease-out",
+                      abierta ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                    )}
+                  >
+                    <div className="overflow-hidden">
+                      <div
+                        className={cn(
+                          "-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 pt-2 transition-opacity duration-300 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4",
+                          abierta ? "opacity-100" : "opacity-0",
+                        )}
+                      >
+                        {ESTADOS.map((estado) => (
+                          <div key={estado.id} className="w-[85%] shrink-0 snap-start md:w-auto">
+                            <Column
+                              estadoId={estado.id}
+                              droppableId={`${area.id}::${estado.id}`}
+                              nombre={estado.nombre}
+                              tareas={delArea.filter((t) => t.estado === estado.id)}
+                              onMover={mover}
+                              onEditar={setDetalle}
+                            />
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                  )}
                 </div>
               );
             })}

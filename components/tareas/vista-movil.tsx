@@ -180,8 +180,21 @@ export function VistaMovil({
                 />
               </button>
 
-              {abierta && (
-              <div className="flex flex-col gap-2">
+              {/* Expandir/colapsar animado: grid-template-rows 0fr→1fr evita el
+                  salto brusco del montaje/desmontaje directo. */}
+              <div
+                className={cn(
+                  "grid transition-[grid-template-rows] duration-300 ease-out",
+                  abierta ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                )}
+              >
+                <div className="overflow-hidden">
+                <div
+                  className={cn(
+                    "flex flex-col gap-2 transition-opacity duration-300",
+                    abierta ? "opacity-100" : "opacity-0",
+                  )}
+                >
                 {tasks.map((t) => {
                   const estado = ESTILO_ESTADO[t.estado];
                   const prioridad = obtenerPrioridad(t.prioridad);
@@ -254,8 +267,9 @@ export function VistaMovil({
                     </button>
                   );
                 })}
+                </div>
+                </div>
               </div>
-              )}
             </div>
             );
           })}
