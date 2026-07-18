@@ -12,7 +12,10 @@
         nunca se adivina.
      3. Sin SKU → fila nueva siempre.
 
-   Anti-bucle: el stock solo se adopta y propaga cuando DIFIERE del guardado.
+   Inventario: para productos vinculados también a Tienda Nube, TN gobierna el
+   stock por completo y la sync de ML NO lo toca. Mercado Libre nunca escribe
+   stock en Tienda Nube; el inventario de TN solo cambia con el ajuste manual
+   del CRM (ajustarStock). Al vincular por SKU, ML se alinea hacia el CRM.
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -25,6 +28,8 @@ import {
   type ItemML,
 } from "@/lib/mercadolibre/api";
 import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
+import { registrarStockLog, type EntradaStockLog } from "@/lib/inventario/stock-log";
+import { HUB_VENTAS_ACTIVO } from "@/lib/inventario/hub-config";
 import { tipoDesdeNombre } from "@/lib/inventario/tipo-producto";
 
 export type ResumenSyncML = {
@@ -138,8 +143,8 @@ export async function sincronizarItemsML(
 
   const nuevos: Record<string, unknown>[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
-  const adoptadosDeML: FilaVinculada[] = []; // stock de ML difiere → empujar a TN
   const alinearML: FilaVinculada[] = []; // al vincular, el CRM manda → empujar a ML
+  const logs: EntradaStockLog[] = []; // adopción local del stock de ML, para el ledger
   const reclamadas = new Set<string>();
   let vinculados = 0;
 
@@ -148,25 +153,31 @@ export async function sincronizarItemsML(
     const existente = vinculadas.get(clave(u.itemId, u.variationId));
 
     if (existente) {
-      const esDeTN = existente.tiendanube_variant_id != null;
-      const stockCambio = u.stock !== existente.stock;
-      const fila: Record<string, unknown> = esDeTN
-        ? // Vinculada también a Tienda Nube: nombre/variante/precio/activo los
-          // manda TN; de ML solo se adopta el stock.
-          stockCambio
-          ? { stock: u.stock }
-          : {}
-        : {
-            nombre: u.nombre,
-            variante: u.variante,
-            precio: u.precio,
-            sku: u.sku,
-            activo: u.activo,
-            ...(stockCambio ? { stock: u.stock } : {}),
-          };
-      if (Object.keys(fila).length > 0) cambios.push({ id: existente.id, fila });
-      if (stockCambio && esDeTN) {
-        adoptadosDeML.push({ ...existente, ...meliIds, stock: u.stock });
+      // Vinculada también a Tienda Nube → TN la gobierna por completo (nombre,
+      // variante, precio, activo Y stock). Mercado Libre no toca su inventario:
+      // el stock de TN solo cambia con el ajuste manual del CRM.
+      if (existente.tiendanube_variant_id != null) continue;
+      // Con el hub padre-hijo activo, ML NO dicta stock: solo se adopta catálogo.
+      // El stock solo-ML baja por venta (descuento) o ajuste manual, nunca por la
+      // sync matutina. Con el flag apagado se mantiene la adopción de siempre.
+      const stockCambio = !HUB_VENTAS_ACTIVO && u.stock !== existente.stock;
+      const fila: Record<string, unknown> = {
+        nombre: u.nombre,
+        variante: u.variante,
+        precio: u.precio,
+        sku: u.sku,
+        activo: u.activo,
+        ...(stockCambio ? { stock: u.stock } : {}),
+      };
+      cambios.push({ id: existente.id, fila });
+      if (stockCambio) {
+        logs.push({
+          producto_id: existente.id,
+          canal: "crm",
+          origen: "mercadolibre_sync",
+          stock_anterior: existente.stock,
+          stock_nuevo: u.stock,
+        });
       }
       continue;
     }
@@ -212,13 +223,11 @@ export async function sincronizarItemsML(
     );
   }
 
-  // Propagación (nunca rompe la sync a la base: solo se loggea).
+  // Propagación (nunca rompe la sync a la base: solo se loggea). Mercado Libre
+  // NUNCA escribe stock en Tienda Nube; solo se alinea ML hacia el CRM al
+  // vincular por SKU. El inventario de TN se toca únicamente desde el ajuste
+  // manual del CRM.
   try {
-    if (adoptadosDeML.length > 0) {
-      (await propagarStock("mercadolibre", adoptadosDeML)).forEach((e) =>
-        console.error("[stock-hub] ML→TN:", e),
-      );
-    }
     if (alinearML.length > 0) {
       // Origen "tiendanube" = no reenviar a TN (el valor vigente ya es suyo);
       // solo alinear Mercado Libre.
@@ -230,6 +239,7 @@ export async function sincronizarItemsML(
     console.error("[stock-hub] propagación:", e);
   }
 
+  await registrarStockLog(logs);
   return { creados: nuevos.length, actualizados: cambios.length - vinculados, vinculados };
 }
 

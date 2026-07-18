@@ -51,18 +51,20 @@ export function ProductoDialog({
 }) {
   const [pending, startTransition] = useTransition();
   /* Vinculado a un canal: nombre/variante se administran allá (la sync los
-     pisaría). El stock se empuja a todos los canales vinculados; el precio
-     solo aplica a Tienda Nube (el de ML se administra en ML). */
+     pisaría). El stock de un producto vinculado NO se edita aquí: solo cambia
+     con los botones +/− de la tabla (esa es la única vía que escribe stock en
+     los canales). El precio/costo desde este diálogo solo aplican a Tienda Nube
+     (el de ML se administra en ML). */
   const deTiendaNube = producto?.tiendanube_variant_id != null;
   const deMeli = producto?.meli_item_id != null;
   const vinculado = deTiendaNube || deMeli;
   const avisoCanales =
     deTiendaNube && deMeli
-      ? "Vinculado a Tienda Nube y Mercado Libre: el stock que guardes aquí se actualiza en ambos canales; el precio y costo solo aplican a Tienda Nube."
+      ? "Vinculado a Tienda Nube y Mercado Libre: el precio y costo que guardes aquí se actualizan en Tienda Nube. El stock se ajusta con los botones +/− de la tabla."
       : deTiendaNube
-        ? "Producto vinculado a Tienda Nube: el nombre y la variante se editan en la tienda; el stock, precio y costo que guardes aquí se actualizan también allá."
+        ? "Producto vinculado a Tienda Nube: el nombre y la variante se editan en la tienda; el precio y costo que guardes aquí se actualizan también allá. El stock se ajusta con los botones +/− de la tabla."
         : deMeli
-          ? "Publicación vinculada a Mercado Libre: nombre, variante y precio se editan allá; el stock que guardes aquí se actualiza también en ML."
+          ? "Publicación vinculada a Mercado Libre: nombre, variante y precio se editan allá. El stock se ajusta con los botones +/− de la tabla."
           : null;
   const [nombre, setNombre] = useState(producto?.nombre ?? "");
   const [tipo, setTipo] = useState<TipoProductoId>(producto?.tipo ?? "cinturones");
@@ -138,6 +140,34 @@ export function ProductoDialog({
               {avisoCanales}
             </p>
           )}
+
+          {/* Galería importada de Tienda Nube (solo lectura; click para ampliar). */}
+          {producto && producto.imagenes.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Fotos ({producto.imagenes.length})</Label>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {producto.imagenes.map((src, i) => (
+                  <a
+                    key={src}
+                    href={src}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0"
+                    title={`Foto ${i + 1} — abrir en tamaño completo`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt={`${producto.nombre} — foto ${i + 1}`}
+                      loading="lazy"
+                      className="size-20 rounded-md border object-cover transition hover:opacity-80"
+                    />
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="prod-nombre">Nombre</Label>
@@ -236,6 +266,8 @@ export function ProductoDialog({
                 type="number"
                 min="0"
                 step="1"
+                disabled={vinculado}
+                title={vinculado ? "El stock se ajusta con los botones +/− de la tabla" : undefined}
                 value={stock}
                 onChange={(e) => setStock(e.target.value)}
               />

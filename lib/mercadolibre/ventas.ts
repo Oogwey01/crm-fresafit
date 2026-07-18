@@ -23,6 +23,8 @@ import {
   type EnvioML,
   type OrdenML,
 } from "@/lib/mercadolibre/api";
+import { HUB_VENTAS_ACTIVO } from "@/lib/inventario/hub-config";
+import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
 
 export type ResumenVentasML = {
   ordenes: number;
@@ -224,9 +226,36 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
     const { data, error } = await admin
       .from("sales")
       .upsert(filas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
-      .select("id");
+      .select("id, producto_id, cantidad");
     if (error) throw new Error(error.message);
     insertadas = data?.length ?? 0;
+
+    // Hub padre-hijo (solo con el flag activo): la venta de ML descuenta el stock
+    // del CRM y se empuja a los demás canales. `ignoreDuplicates` hace que `data`
+    // sean solo las ventas NUEVAS, así reintentos de webhook/cron no re-descuentan.
+    if (HUB_VENTAS_ACTIVO) {
+      const aDescontar = (data ?? [])
+        .filter((r) => r.producto_id)
+        .map((r) => ({ producto_id: r.producto_id as string, cantidad: r.cantidad as number }));
+      if (aDescontar.length > 0) {
+        try {
+          const { data: afectados, error: errDesc } = await admin.rpc("descontar_stock_ventas", {
+            items: aDescontar,
+            p_origen: "venta_ml",
+          });
+          if (errDesc) throw new Error(errDesc.message);
+          const filasHub = (afectados ?? []) as FilaVinculada[];
+          if (filasHub.length > 0) {
+            // origen "mercadolibre" = no reenviar a ML (ya se descontó allá); sí a TN.
+            (await propagarStock("mercadolibre", filasHub)).forEach((e) =>
+              console.error("[stock-hub] venta ML→TN:", e),
+            );
+          }
+        } catch (e) {
+          console.error("[mercadolibre] descuento de stock por venta:", e);
+        }
+      }
+    }
 
     /* Ventas ya importadas antes de que existiera el cliente: se les liga el
        cliente ahora (el upsert de arriba las ignora por duplicadas). Solo toca

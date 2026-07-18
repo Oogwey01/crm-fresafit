@@ -12,14 +12,28 @@
 
 import { actualizarVarianteTN, conexionTiendanube } from "@/lib/tiendanube/api";
 import { actualizarStockML, conexionMercadolibre } from "@/lib/mercadolibre/api";
+import { registrarStockLog, type EntradaStockLog } from "@/lib/inventario/stock-log";
 
-export type OrigenStock = "crm" | "tiendanube" | "mercadolibre";
+export type OrigenStock = "crm" | "tiendanube" | "mercadolibre" | "tiktok";
+
+/* Etiqueta de `origen` para el ledger según el canal que disparó el empuje. */
+const ORIGEN_LOG: Record<OrigenStock, string> = {
+  crm: "manual",
+  tiendanube: "tiendanube_sync",
+  mercadolibre: "mercadolibre_sync",
+  tiktok: "tiktok_sync",
+};
 
 export type FilaVinculada = {
+  id?: string | null; // id del producto en el CRM (para el ledger)
   tiendanube_product_id: number | null;
   tiendanube_variant_id: number | null;
   meli_item_id: string | null;
   meli_variation_id: number | null;
+  // TikTok (fase 2): el hub ya acepta estos campos; el empuje a TikTok aún no
+  // se implementa (falta actualizarStockTikTok en lib/tiktok/api.ts).
+  tiktok_product_id?: string | null;
+  tiktok_sku_id?: string | null;
   stock: number;
 };
 
@@ -29,6 +43,7 @@ export type FilaVinculada = {
    guardada → se salta en silencio. */
 export async function propagarStock(origen: OrigenStock, filas: FilaVinculada[]): Promise<string[]> {
   const errores: string[] = [];
+  const logs: EntradaStockLog[] = []; // una entrada por empuje saliente que sí se aplicó
 
   const aTN =
     origen === "tiendanube"
@@ -44,6 +59,13 @@ export async function propagarStock(origen: OrigenStock, filas: FilaVinculada[])
           try {
             await actualizarVarianteTN(cx, f.tiendanube_product_id!, f.tiendanube_variant_id!, {
               stock: f.stock,
+            });
+            logs.push({
+              producto_id: f.id ?? null,
+              canal: "tienda_nube",
+              origen: ORIGEN_LOG[origen],
+              stock_anterior: null,
+              stock_nuevo: f.stock,
             });
           } catch (e) {
             errores.push(`Tienda Nube: ${mensaje(e)}`);
@@ -62,6 +84,13 @@ export async function propagarStock(origen: OrigenStock, filas: FilaVinculada[])
         for (const f of aML) {
           try {
             await actualizarStockML(cx, f.meli_item_id!, f.meli_variation_id, f.stock);
+            logs.push({
+              producto_id: f.id ?? null,
+              canal: "mercado_libre",
+              origen: ORIGEN_LOG[origen],
+              stock_anterior: null,
+              stock_nuevo: f.stock,
+            });
           } catch (e) {
             errores.push(`Mercado Libre: ${mensaje(e)}`);
           }
@@ -72,6 +101,7 @@ export async function propagarStock(origen: OrigenStock, filas: FilaVinculada[])
     }
   }
 
+  await registrarStockLog(logs);
   return errores;
 }
 

@@ -23,6 +23,15 @@ export type VarianteTN = {
   stock: number | null; // null = la tienda no controla stock de esta variante
   sku: string | null;
   values: Record<string, string>[];
+  image_id?: number | null; // imagen propia de la variante (puede faltar)
+};
+
+/* Foto de un producto. `src` es la URL pública del CDN de Tienda Nube y
+   `position` (1 = portada) define el orden de la galería. */
+export type ImagenTN = {
+  id: number;
+  src: string;
+  position: number;
 };
 
 export type ProductoTN = {
@@ -30,6 +39,7 @@ export type ProductoTN = {
   name: Record<string, string>;
   published: boolean;
   variants: VarianteTN[];
+  images?: ImagenTN[];
 };
 
 /* ------------------------- Conexión guardada ----------------------------- */

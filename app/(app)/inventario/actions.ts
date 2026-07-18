@@ -6,6 +6,7 @@ import { esGestor } from "@/lib/catalogos";
 import { empujarProductoTN, sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
 import { propagarStock } from "@/lib/inventario/stock-hub";
+import { registrarStockLog } from "@/lib/inventario/stock-log";
 import type { EstadoPedidoProvId, TipoProductoId } from "@/lib/types";
 
 type Resultado = { ok: true } | { error: string };
@@ -111,26 +112,46 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
   };
 
   if (id) {
-    const { data, error } = await supabase
+    // El inventario NO se administra desde el diálogo de edición: el stock solo
+    // cambia con el ajuste manual +/− de la tabla (ajustarStock), que es la
+    // única vía autorizada para escribir stock en Tienda Nube / Mercado Libre.
+    // Aquí, para productos vinculados a un canal, se excluye `stock` del update
+    // (así editar nombre/precio/notas nunca pisa el inventario, ni el local ni
+    // el de la tienda); a Tienda Nube solo se le empujan precio y costo, y solo
+    // si cambiaron (evita sobrescribir un precio editado en la tienda).
+    const { data: actual, error: errActual } = await supabase
       .from("products")
-      .update(fila)
+      .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, precio, costo")
       .eq("id", id)
-      .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id")
       .single();
+    if (errActual) return { error: errActual.message };
+    const vinculado = actual.tiendanube_variant_id != null || actual.meli_item_id != null;
+
+    const filaSinStock: Record<string, unknown> = { ...fila };
+    delete filaSinStock.stock;
+    const { error } = await supabase
+      .from("products")
+      .update(vinculado ? filaSinStock : fila)
+      .eq("id", id);
     if (error) return { error: error.message };
     revalidatePath("/inventario");
-    // Sync inversa: Tienda Nube recibe stock/precio/costo; Mercado Libre solo
-    // stock (los precios de ML se administran allá). Origen "tiendanube" en el
-    // hub = no reenviar a TN, que ya quedó completa con empujarProductoTN.
-    const avisos: string[] = [];
-    try {
-      await empujarProductoTN({ ...data, stock: fila.stock, precio: fila.precio, costo: fila.costo });
-    } catch (e) {
-      avisos.push(`Tienda Nube: ${e instanceof Error ? e.message : "error desconocido"}`);
-    }
-    avisos.push(...(await propagarStock("tiendanube", [{ ...data, stock: fila.stock }])));
-    if (avisos.length > 0) {
-      return { error: `Se guardó en el CRM, pero: ${avisos.join(" · ")}` };
+
+    // Sync inversa a Tienda Nube: SOLO precio/costo que hayan cambiado. Nunca stock.
+    const cambiosTN: { precio?: number | null; costo?: number | null } = {};
+    if (fila.precio !== actual.precio) cambiosTN.precio = fila.precio;
+    if (fila.costo !== actual.costo) cambiosTN.costo = fila.costo;
+    if (cambiosTN.precio !== undefined || cambiosTN.costo !== undefined) {
+      try {
+        await empujarProductoTN({
+          tiendanube_product_id: actual.tiendanube_product_id,
+          tiendanube_variant_id: actual.tiendanube_variant_id,
+          ...cambiosTN,
+        });
+      } catch (e) {
+        return {
+          error: `Se guardó en el CRM, pero Tienda Nube: ${e instanceof Error ? e.message : "error desconocido"}`,
+        };
+      }
     }
     return { ok: true };
   }
@@ -148,6 +169,10 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
   if (!esInterno(rol)) return { error: "Solo el equipo interno puede ajustar el stock." };
   if (!Number.isInteger(stock) || stock < 0) return { error: "El stock debe ser un entero ≥ 0." };
 
+  // Valor previo para el ledger (stock_log): éste es el ÚNICO camino manual que
+  // escribe stock en los canales, así que se deja rastro explícito.
+  const { data: prev } = await supabase.from("products").select("stock").eq("id", id).single();
+
   const { data, error } = await supabase
     .from("products")
     .update({ stock })
@@ -156,8 +181,11 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
     .single();
   if (error) return { error: error.message };
   revalidatePath("/inventario");
+  await registrarStockLog([
+    { producto_id: id, canal: "crm", origen: "manual", stock_anterior: prev?.stock ?? null, stock_nuevo: stock },
+  ]);
   // Sync inversa: el ajuste rápido viaja a todos los canales vinculados.
-  const errores = await propagarStock("crm", [{ ...data, stock }]);
+  const errores = await propagarStock("crm", [{ id, ...data, stock }]);
   if (errores.length > 0) {
     return { error: `El stock se guardó en el CRM, pero: ${errores.join(" · ")}` };
   }

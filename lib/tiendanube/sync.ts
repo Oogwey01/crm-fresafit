@@ -16,6 +16,7 @@ import {
   type ProductoTN,
 } from "@/lib/tiendanube/api";
 import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
+import { registrarStockLog, type EntradaStockLog } from "@/lib/inventario/stock-log";
 import { tipoDesdeNombre } from "@/lib/inventario/tipo-producto";
 
 export type ResumenSync = {
@@ -68,11 +69,16 @@ export async function sincronizarProductosTN(
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
   // Stock que cambió en TN y cuya fila también vive en Mercado Libre → hub.
   const propagarAML: FilaVinculada[] = [];
+  const logs: EntradaStockLog[] = []; // adopción local del stock de TN, para el ledger
 
   for (const p of productos) {
     const nombre = texto(p.name) || `Producto ${p.id}`;
+    // Galería completa del producto (URLs del CDN de TN), ordenada por posición.
+    const imagenes = [...(p.images ?? [])].sort((a, b) => a.position - b.position).map((i) => i.src);
     for (const v of p.variants) {
       const variante = (v.values ?? []).map(texto).filter(Boolean).join(" / ") || null;
+      // Portada de la variante: su imagen propia si la tiene, si no la del producto.
+      const imagenVariante = v.image_id ? (p.images ?? []).find((i) => i.id === v.image_id)?.src : null;
       const fila: Record<string, unknown> = {
         nombre,
         variante,
@@ -82,6 +88,8 @@ export async function sincronizarProductosTN(
         activo: p.published !== false,
         tiendanube_product_id: p.id,
         tiendanube_variant_id: v.id,
+        imagen_url: imagenVariante ?? imagenes[0] ?? null,
+        imagenes,
         // stock null en TN = "sin control de stock": no pisar el conteo local.
         ...(typeof v.stock === "number" ? { stock: Math.max(0, v.stock) } : {}),
       };
@@ -89,14 +97,24 @@ export async function sincronizarProductosTN(
       if (existente) {
         cambios.push({ id: existente.id, fila });
         const nuevoStock = typeof v.stock === "number" ? Math.max(0, v.stock) : null;
-        if (nuevoStock !== null && nuevoStock !== existente.stock && existente.meli_item_id) {
-          propagarAML.push({
-            tiendanube_product_id: p.id,
-            tiendanube_variant_id: v.id,
-            meli_item_id: existente.meli_item_id,
-            meli_variation_id: existente.meli_variation_id,
-            stock: nuevoStock,
+        if (nuevoStock !== null && nuevoStock !== existente.stock) {
+          logs.push({
+            producto_id: existente.id,
+            canal: "crm",
+            origen: "tiendanube_sync",
+            stock_anterior: existente.stock,
+            stock_nuevo: nuevoStock,
           });
+          if (existente.meli_item_id) {
+            propagarAML.push({
+              id: existente.id,
+              tiendanube_product_id: p.id,
+              tiendanube_variant_id: v.id,
+              meli_item_id: existente.meli_item_id,
+              meli_variation_id: existente.meli_variation_id,
+              stock: nuevoStock,
+            });
+          }
         }
       } else {
         nuevos.push({
@@ -133,6 +151,7 @@ export async function sincronizarProductosTN(
     }
   }
 
+  await registrarStockLog(logs);
   return { creados: nuevos.length, actualizados: cambios.length };
 }
 

@@ -22,6 +22,7 @@ import type {
   ProductConProveedor,
   Supplier,
   SupplierOrderConDetalle,
+  StockLog,
   RolId,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -42,20 +43,32 @@ import { TablaProveedores } from "@/components/inventario/tabla-proveedores";
 import { ProveedorDialog } from "@/components/inventario/proveedor-dialog";
 import { TablaPedidosProv } from "@/components/inventario/tabla-pedidos-prov";
 import { PedidoProvDialog } from "@/components/inventario/pedido-prov-dialog";
+import { TablaMovimientos } from "@/components/inventario/tabla-movimientos";
 
-type Pestana = "productos" | "proveedores" | "pedidos";
+type Pestana = "productos" | "proveedores" | "pedidos" | "movimientos";
 
 const PESTANAS = [
   ["productos", "Productos"],
   ["proveedores", "Proveedores"],
   ["pedidos", "Pedidos a proveedor"],
+  ["movimientos", "Historial de stock"],
 ] as const;
 
-const ETIQUETA_NUEVO: Record<Pestana, string> = {
+/* Solo las pestañas que permiten dar de alta algo (movimientos es de lectura). */
+const ETIQUETA_NUEVO: Partial<Record<Pestana, string>> = {
   productos: "Nuevo producto",
   proveedores: "Nuevo proveedor",
   pedidos: "Nuevo pedido",
 };
+
+/* Filtro de canal para el historial de movimientos. */
+const CANALES_MOV = [
+  ["todos", "Todos los canales"],
+  ["crm", "CRM (local)"],
+  ["tienda_nube", "Tienda Nube"],
+  ["mercado_libre", "Mercado Libre"],
+  ["tiktok_shop", "TikTok Shop"],
+] as const;
 
 /* Valor compacto para la tarjeta KPI: "$684K" en vez de "$684,231.00". */
 function valorCompacto(n: number): string {
@@ -78,6 +91,7 @@ export function PanelInventario({
   productos,
   proveedores,
   pedidos,
+  movimientos,
   rol,
   tiendanube,
   mercadolibre,
@@ -85,6 +99,7 @@ export function PanelInventario({
   productos: ProductConProveedor[];
   proveedores: Supplier[];
   pedidos: SupplierOrderConDetalle[];
+  movimientos: StockLog[];
   rol: RolId;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
   mercadolibre: { conectada: boolean; ultimaSync: string | null };
@@ -149,6 +164,11 @@ export function PanelInventario({
   /* Filtro de semáforo de stock (solo aplica a la pestaña de productos). */
   const [filtroStock, setFiltroStock] = useState("todos");
 
+  /* Filtro de canal del historial (solo aplica a la pestaña de movimientos). */
+  const [filtroCanalMov, setFiltroCanalMov] = useState("todos");
+  const movimientosFiltrados =
+    filtroCanalMov === "todos" ? movimientos : movimientos.filter((m) => m.canal === filtroCanalMov);
+
   /* Agotado (ya no hay) y por acabarse (queda poco: lo accionable) son cosas
      distintas; juntarlos ahogaba el aviso con cientos de variantes agotadas. */
   const agotados = productos.filter((p) => estadoStock(p) === "agotado");
@@ -159,7 +179,7 @@ export function PanelInventario({
   function abrirNuevo() {
     if (pestana === "productos") setProductoDialog("nuevo");
     else if (pestana === "proveedores") setProveedorDialog("nuevo");
-    else setPedidoDialog("nuevo");
+    else if (pestana === "pedidos") setPedidoDialog("nuevo");
   }
 
   /* Desde el aviso de stock bajo: llevar a Pedidos y abrir uno nuevo. */
@@ -245,13 +265,15 @@ export function PanelInventario({
               Conectar Mercado Libre
             </Button>
           )}
-          <Button
-            onClick={abrirNuevo}
-            className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
-          >
-            <Plus className="size-4" strokeWidth={2.1} />
-            {ETIQUETA_NUEVO[pestana]}
-          </Button>
+          {ETIQUETA_NUEVO[pestana] && (
+            <Button
+              onClick={abrirNuevo}
+              className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
+            >
+              <Plus className="size-4" strokeWidth={2.1} />
+              {ETIQUETA_NUEVO[pestana]}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -353,6 +375,23 @@ export function PanelInventario({
             </Select>
           </>
         )}
+
+        {pestana === "movimientos" && (
+          <Select value={filtroCanalMov} onValueChange={(v) => setFiltroCanalMov(v ?? "todos")}>
+            <SelectTrigger className="w-full bg-card md:w-[190px]">
+              <SelectValue>
+                {(v: string) => CANALES_MOV.find(([id]) => id === v)?.[1] ?? "Canal"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {CANALES_MOV.map(([id, label]) => (
+                <SelectItem key={id} value={id}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* Aviso: SOLO lo que está por acabarse (lo accionable). Lo agotado se
@@ -417,6 +456,7 @@ export function PanelInventario({
       {pestana === "pedidos" && (
         <TablaPedidosProv pedidos={pedidos} onEditar={setPedidoDialog} />
       )}
+      {pestana === "movimientos" && <TablaMovimientos movimientos={movimientosFiltrados} />}
 
       {productoDialog && (
         <ProductoDialog

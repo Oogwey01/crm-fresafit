@@ -139,6 +139,8 @@ export type Product = {
   proveedor_id: string | null;
   activo: boolean;
   notas: string | null;
+  imagen_url: string | null; // portada (miniatura); URL del CDN de Tienda Nube
+  imagenes: string[]; // galería completa, ordenada
   sku: string | null;
   tiendanube_product_id: number | null;
   tiendanube_variant_id: number | null;
@@ -151,6 +153,19 @@ export type Product = {
 
 export type ProductConProveedor = Product & {
   proveedor: Pick<Supplier, "id" | "nombre"> | null;
+};
+
+/* Movimiento de stock (tabla `stock_log`): ledger append-only de cada escritura
+   de inventario. `producto` se resuelve con un join (puede faltar si se borró). */
+export type StockLog = {
+  id: number;
+  producto_id: string | null;
+  canal: "crm" | "tienda_nube" | "mercado_libre" | "tiktok_shop";
+  origen: string; // manual | tiendanube_sync | mercadolibre_sync | venta_ml | proveedor | ...
+  stock_anterior: number | null; // null = empuje saliente (no se conoce el previo)
+  stock_nuevo: number;
+  creado_en: string;
+  producto: Pick<Product, "nombre" | "variante"> | null;
 };
 
 /* Renglón de un pedido a proveedor (tabla `supplier_order_items`). */

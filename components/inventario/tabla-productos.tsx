@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
@@ -26,6 +26,24 @@ function PastillaTipo({ tipo }: { tipo: string }) {
     >
       {t.nombre}
     </span>
+  );
+}
+
+/* Miniatura de la portada (importada de Tienda Nube). Se usa <img> plano en vez
+   de next/image para no tener que allowlistar el hostname del CDN de Tienda Nube
+   en next.config; para una miniatura es suficiente. Cae a un placeholder cuando
+   el producto no tiene foto (capturado a mano o aún sin sincronizar). */
+function Miniatura({ src, alt }: { src: string | null; alt: string }) {
+  if (!src) {
+    return (
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground/50">
+        <ImageIcon className="size-4" />
+      </div>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} loading="lazy" className="size-9 shrink-0 rounded-md border object-cover" />
   );
 }
 
@@ -84,16 +102,19 @@ export function TablaProductos({
       label: "Producto",
       esTitulo: true,
       celda: (p) => (
-        <button
-          type="button"
-          onClick={() => onEditar(p)}
-          className="truncate text-left font-medium hover:underline"
-          title={`${p.nombre}${p.variante ? ` — ${p.variante}` : ""}`}
-        >
-          {p.nombre}
-          {p.variante && <span className="ml-1.5 text-muted-foreground">· {p.variante}</span>}
-          {!p.activo && <span className="ml-1.5 text-xs italic text-muted-foreground">(inactivo)</span>}
-        </button>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Miniatura src={p.imagen_url} alt={p.nombre} />
+          <button
+            type="button"
+            onClick={() => onEditar(p)}
+            className="min-w-0 truncate text-left font-medium hover:underline"
+            title={`${p.nombre}${p.variante ? ` — ${p.variante}` : ""}`}
+          >
+            {p.nombre}
+            {p.variante && <span className="ml-1.5 text-muted-foreground">· {p.variante}</span>}
+            {!p.activo && <span className="ml-1.5 text-xs italic text-muted-foreground">(inactivo)</span>}
+          </button>
+        </div>
       ),
     },
     { clave: "tipo", label: "Tipo", celda: (p) => <PastillaTipo tipo={p.tipo} /> },
