@@ -258,13 +258,19 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
       lista.push(f.referencia_externa);
       porEstado.set(f.estado, lista);
     }
+    // En tandas: un `.in()` con cientos de refs arma una URL que supera el
+    // límite del servidor y falla en silencio (el histórico entregado son
+    // ~700 renglones). 200 por lote mantiene la URL corta.
     for (const [estado, refs] of porEstado) {
-      await admin
-        .from("sales")
-        .update({ estado })
-        .eq("canal", "mercado_libre")
-        .eq("origen", "api")
-        .in("referencia_externa", refs);
+      for (let i = 0; i < refs.length; i += 200) {
+        const { error } = await admin
+          .from("sales")
+          .update({ estado })
+          .eq("canal", "mercado_libre")
+          .eq("origen", "api")
+          .in("referencia_externa", refs.slice(i, i + 200));
+        if (error) console.error("[mercadolibre] refresco de estado:", error.message);
+      }
     }
   }
 
