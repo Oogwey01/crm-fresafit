@@ -5,6 +5,7 @@ import { Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
+import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
 import { esFull } from "@/lib/inventario/reabastecimiento";
 import { portadaProducto } from "@/lib/inventario/fotos";
 import { formatearMXN } from "@/lib/moneda";
@@ -78,6 +79,14 @@ export function TablaProductos({
       try {
         const r = await ajustarStock(p.id, nuevo);
         if ("error" in r) toast.error(r.error);
+        else
+          avisarStockAjustado({
+            productoId: p.id,
+            nombre: p.nombre,
+            anterior: p.stock,
+            nuevo,
+            escrituraCanales,
+          });
       } catch {
         toast.error("No se pudo ajustar el stock. Revisa tu conexión.");
       }

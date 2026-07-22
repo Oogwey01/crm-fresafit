@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { BadgeStock } from "@/components/inventario/badge-stock";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
+import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
 import { esFull, obtenerUrgencia, type GrupoReorden } from "@/lib/inventario/reabastecimiento";
 import { galeriaProducto } from "@/lib/inventario/fotos";
 import { hoyISO } from "@/lib/fecha";
@@ -181,6 +182,14 @@ export function ProductoVista({
       try {
         const r = await ajustarStock(producto.id, nuevo);
         if ("error" in r) toast.error(r.error);
+        else
+          avisarStockAjustado({
+            productoId: producto.id,
+            nombre: producto.nombre,
+            anterior: producto.stock,
+            nuevo,
+            escrituraCanales,
+          });
       } catch {
         toast.error("No se pudo ajustar el stock. Revisa tu conexión.");
       }
