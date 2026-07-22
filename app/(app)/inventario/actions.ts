@@ -9,7 +9,7 @@ import { propagarStock } from "@/lib/inventario/stock-hub";
 import { registrarStockLog } from "@/lib/inventario/stock-log";
 import { reconciliarInventario, type ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
-import type { EstadoPedidoProvId, TipoProductoId } from "@/lib/types";
+import type { EstadoPedidoProvId, ProductPhoto, StockLog, TipoProductoId } from "@/lib/types";
 
 type Resultado = { ok: true } | { error: string };
 
@@ -254,7 +254,7 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
     .update({ stock })
     .eq("id", id)
     .select(
-      "sku, tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
+      "sku, bajo_pedido, tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
     )
     .single();
   if (error) return { error: error.message };
@@ -282,6 +282,93 @@ export async function borrarProducto(id: string): Promise<Resultado> {
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar productos." };
 
   const { error } = await supabase.from("products").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+/* Historial de UN producto, para el pop-up. Va aparte del que carga la página
+   (los 300 movimientos más recientes de todo el catálogo): filtrar esos por
+   producto dejaría casi todas las fichas en blanco. */
+export async function movimientosProducto(
+  productoId: string,
+  limite = 8,
+): Promise<{ movimientos: StockLog[] } | { error: string }> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede ver el historial." };
+
+  const { data, error } = await supabase
+    .from("stock_log")
+    .select("*")
+    .eq("producto_id", productoId)
+    .order("creado_en", { ascending: false })
+    .limit(limite);
+  if (error) return { error: error.message };
+  return { movimientos: (data ?? []) as unknown as StockLog[] };
+}
+
+/* ========================= Fotos propias (Storage) ======================== */
+
+const BUCKET_FOTOS = "fotos-productos";
+const MAX_FOTO = 10 * 1024 * 1024;
+
+/* Devuelve la foto creada para que el pop-up abierto la pinte al instante (sus
+   props son una foto del producto anterior a la subida). */
+export async function subirFotoProducto(
+  productoId: string,
+  formData: FormData,
+): Promise<{ ok: true; foto: ProductPhoto } | { error: string }> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede subir fotos." };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "No se recibió el archivo." };
+  if (!file.type.startsWith("image/")) return { error: "El archivo debe ser una imagen." };
+  if (file.size > MAX_FOTO) return { error: "La imagen supera 10 MB." };
+
+  const limpio = file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `${productoId}/${Date.now()}-${limpio}`;
+
+  const { error: upErr } = await supabase.storage.from(BUCKET_FOTOS).upload(path, file, {
+    contentType: file.type || undefined,
+    upsert: false,
+  });
+  if (upErr) return { error: upErr.message };
+
+  const { count } = await supabase
+    .from("product_photos")
+    .select("id", { count: "exact", head: true })
+    .eq("producto_id", productoId);
+
+  const { data, error } = await supabase
+    .from("product_photos")
+    .insert({
+      producto_id: productoId,
+      nombre: file.name,
+      storage_path: path,
+      tipo: file.type || null,
+      orden: count ?? 0,
+    })
+    .select("*")
+    .single();
+  if (error || !data) {
+    // El binario ya subió pero no se registró: no dejar basura en Storage.
+    await supabase.storage.from(BUCKET_FOTOS).remove([path]);
+    return { error: error?.message ?? "No se pudo registrar la foto." };
+  }
+  revalidatePath("/inventario");
+  return { ok: true, foto: data as ProductPhoto };
+}
+
+export async function borrarFotoProducto(id: string, storagePath: string): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar fotos." };
+
+  await supabase.storage.from(BUCKET_FOTOS).remove([storagePath]);
+  const { error } = await supabase.from("product_photos").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };

@@ -4,8 +4,16 @@ import { estadoMercadolibre } from "@/lib/mercadolibre/api";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelInventario } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
+import { estadoPiloto } from "@/lib/inventario/piloto";
 import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/inventario/reabastecimiento";
-import type { ProductConProveedor, Supplier, SupplierOrderConDetalle, RolId, StockLog } from "@/lib/types";
+import type {
+  ProductConProveedor,
+  ProductPhoto,
+  Supplier,
+  SupplierOrderConDetalle,
+  RolId,
+  StockLog,
+} from "@/lib/types";
 
 export const metadata = { title: "Inventario · Fresafit" };
 
@@ -26,6 +34,7 @@ export default async function InventarioPage() {
 
   const [
     productosRes,
+    fotosRes,
     proveedoresRes,
     pedidosRes,
     movimientosRes,
@@ -34,11 +43,15 @@ export default async function InventarioPage() {
     perfilRes,
     tiendanube,
     mercadolibre,
+    piloto,
   ] = await Promise.all([
     supabase
       .from("products")
       .select("*, proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)")
       .order("nombre"),
+    // Fotos subidas a mano. Van aparte de products.imagenes (la galería
+    // importada) porque cada sincronización de canal reescribe esa columna.
+    supabase.from("product_photos").select("*").order("orden"),
     supabase.from("suppliers").select("*").order("nombre"),
     supabase
       .from("supplier_orders")
@@ -70,9 +83,19 @@ export default async function InventarioPage() {
       : Promise.resolve({ data: null }),
     estadoTiendanube(),
     estadoMercadolibre(),
+    // Monitor del piloto: sale de la foto horaria y del ledger, sin llamar a
+    // las APIs de los canales.
+    estadoPiloto(),
   ]);
 
-  const productos = (productosRes.data ?? []) as unknown as ProductConProveedor[];
+  const fotosPorProducto: Record<string, ProductPhoto[]> = {};
+  for (const f of (fotosRes.data ?? []) as ProductPhoto[]) {
+    (fotosPorProducto[f.producto_id] ??= []).push(f);
+  }
+  const productos = ((productosRes.data ?? []) as unknown as ProductConProveedor[]).map((p) => ({
+    ...p,
+    fotos_propias: fotosPorProducto[p.id] ?? [],
+  }));
   const proveedores = (proveedoresRes.data ?? []) as Supplier[];
   const pedidos = (pedidosRes.data ?? []) as unknown as SupplierOrderConDetalle[];
   const movimientos = (movimientosRes.data ?? []) as unknown as StockLog[];
@@ -106,6 +129,7 @@ export default async function InventarioPage() {
       tiendanube={tiendanube}
       mercadolibre={mercadolibre}
       escrituraCanales={ESCRITURA_CANALES}
+      piloto={piloto}
     />
   );
 }

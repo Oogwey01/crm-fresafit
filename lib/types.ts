@@ -160,10 +160,24 @@ export type Product = {
   updated_at: string | null;
 };
 
+/* Foto subida a mano desde el CRM (tabla `product_photos`, bucket público
+   `fotos-productos`). Vive aparte de `Product.imagenes` porque esa columna la
+   reescribe completa cada sincronización de Tienda Nube / Mercado Libre. */
+export type ProductPhoto = {
+  id: string;
+  producto_id: string;
+  nombre: string;
+  storage_path: string;
+  tipo: string | null;
+  orden: number;
+  created_at: string;
+};
+
 export type ProductConProveedor = Product & {
   /* `dias_entrega` viaja aquí porque es la entrada del punto de reorden
      (lib/inventario/reabastecimiento.ts). */
   proveedor: Pick<Supplier, "id" | "nombre" | "dias_entrega"> | null;
+  fotos_propias: ProductPhoto[];
 };
 
 /* Movimiento de stock (tabla `stock_log`): ledger append-only de cada escritura

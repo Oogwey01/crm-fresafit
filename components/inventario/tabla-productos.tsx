@@ -6,7 +6,9 @@ import { toast } from "sonner";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
 import { esFull } from "@/lib/inventario/reabastecimiento";
+import { portadaProducto } from "@/lib/inventario/fotos";
 import { formatearMXN } from "@/lib/moneda";
+import { BadgeStock } from "@/components/inventario/badge-stock";
 import { ajustarStock } from "@/app/(app)/inventario/actions";
 import type { ProductConProveedor } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
@@ -30,10 +32,10 @@ function PastillaTipo({ tipo }: { tipo: string }) {
   );
 }
 
-/* Miniatura de la portada (importada de Tienda Nube). Se usa <img> plano en vez
-   de next/image para no tener que allowlistar el hostname del CDN de Tienda Nube
-   en next.config; para una miniatura es suficiente. Cae a un placeholder cuando
-   el producto no tiene foto (capturado a mano o aún sin sincronizar). */
+/* Miniatura de la portada (la subida en el CRM, si no la importada del canal).
+   Se usa <img> plano en vez de next/image para no tener que allowlistar el
+   hostname del CDN de Tienda Nube en next.config; para una miniatura es
+   suficiente. Cae a un placeholder cuando el producto no tiene foto. */
 function Miniatura({ src, alt }: { src: string | null; alt: string }) {
   if (!src) {
     return (
@@ -54,7 +56,7 @@ export function TablaProductos({
   filtroTipo,
   filtroStock,
   escrituraCanales,
-  onEditar,
+  onAbrir,
 }: {
   productos: ProductConProveedor[];
   busqueda: string;
@@ -62,7 +64,7 @@ export function TablaProductos({
   filtroStock: string; // "todos" | agotado | por_acabarse | ok
   /* false (el default del sistema) = el ajuste es local, no viaja a los canales. */
   escrituraCanales: boolean;
-  onEditar: (p: ProductConProveedor) => void;
+  onAbrir: (p: ProductConProveedor) => void;
 }) {
   const [, startTransition] = useTransition();
   const tituloAjuste = escrituraCanales
@@ -111,10 +113,10 @@ export function TablaProductos({
       esTitulo: true,
       celda: (p) => (
         <div className="flex min-w-0 items-center gap-2.5">
-          <Miniatura src={p.imagen_url} alt={p.nombre} />
+          <Miniatura src={portadaProducto(p)} alt={p.nombre} />
           <button
             type="button"
-            onClick={() => onEditar(p)}
+            onClick={() => onAbrir(p)}
             className="min-w-0 truncate text-left font-medium hover:underline"
             title={`${p.nombre}${p.variante ? ` — ${p.variante}` : ""}`}
           >
@@ -178,31 +180,7 @@ export function TablaProductos({
             >
               <Plus className="size-3.5" />
             </button>
-            {p.bajo_pedido ? (
-              <span
-                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground"
-                title="Se fabrica cuando alguien lo compra: no lleva inventario."
-              >
-                Bajo pedido
-              </span>
-            ) : estado === "agotado" ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-600 dark:bg-red-950 dark:text-red-300">
-                <span className="size-1.5 rounded-full bg-red-500" />
-                Agotado
-              </span>
-            ) : estado === "por_acabarse" ? (
-              <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                <span className="size-1.5 rounded-full bg-amber-500" />
-                Por acabarse
-              </span>
-            ) : (
-              p.activo && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-bold text-green-700 dark:bg-green-950 dark:text-green-300">
-                  <span className="size-1.5 rounded-full bg-green-500" />
-                  OK
-                </span>
-              )
-            )}
+            <BadgeStock producto={p} />
           </div>
         );
       },

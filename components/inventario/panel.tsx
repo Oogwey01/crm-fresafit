@@ -52,6 +52,7 @@ import { cn } from "@/lib/utils";
 import { TIPOS_PRODUCTO, obtenerTipoProducto } from "@/lib/catalogos";
 import { TablaProductos } from "@/components/inventario/tabla-productos";
 import { ProductoDialog } from "@/components/inventario/producto-dialog";
+import { ProductoVista } from "@/components/inventario/producto-vista";
 import { TablaProveedores } from "@/components/inventario/tabla-proveedores";
 import { ProveedorDialog } from "@/components/inventario/proveedor-dialog";
 import { TablaPedidosProv } from "@/components/inventario/tabla-pedidos-prov";
@@ -59,6 +60,8 @@ import { PedidoProvDialog } from "@/components/inventario/pedido-prov-dialog";
 import { TablaMovimientos } from "@/components/inventario/tabla-movimientos";
 import { TablaDescuadres } from "@/components/inventario/tabla-descuadres";
 import { FichasDuplicadas } from "@/components/inventario/fichas-duplicadas";
+import { PanelPiloto } from "@/components/inventario/panel-piloto";
+import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import { TablaReabastecer } from "@/components/inventario/tabla-reabastecer";
 import type { ItemInicialPedido } from "@/components/inventario/pedido-prov-dialog";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
@@ -79,6 +82,10 @@ const PESTANAS = [
   ["movimientos", "Historial de stock"],
   ["reconciliacion", "Reconciliación"],
 ] as const;
+
+/* Ventana de ventas del reorden que se muestra al entrar (la tabla «Qué pedir»
+   la deja cambiar; la tarjeta KPI y el pop-up de producto usan ésta). */
+const VENTANA_REORDEN = 30;
 
 /* Solo las pestañas que permiten dar de alta algo (movimientos es de lectura). */
 const ETIQUETA_NUEVO: Partial<Record<Pestana, string>> = {
@@ -133,6 +140,7 @@ export function PanelInventario({
   tiendanube,
   mercadolibre,
   escrituraCanales,
+  piloto,
 }: {
   productos: ProductConProveedor[];
   proveedores: Supplier[];
@@ -148,6 +156,8 @@ export function PanelInventario({
   mercadolibre: { conectada: boolean; ultimaSync: string | null };
   /* false (el default del sistema) = el CRM no modifica nada en las plataformas. */
   escrituraCanales: boolean;
+  /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
+  piloto: EstadoPiloto;
 }) {
   const gestor = esGestor(rol);
   const [pestana, setPestana] = useState<Pestana>("productos");
@@ -198,6 +208,12 @@ export function PanelInventario({
 
   /* null = cerrado; "nuevo" = alta; objeto = edición. */
   const [productoDialog, setProductoDialog] = useState<ProductConProveedor | "nuevo" | null>(null);
+  /* La vista rápida guarda el id, no el producto: así el pop-up abierto refleja
+     lo que se ajusta desde él (stock, fotos) cuando la página revalida. */
+  const [productoVistaId, setProductoVistaId] = useState<string | null>(null);
+  const productoVista = productoVistaId
+    ? (productos.find((p) => p.id === productoVistaId) ?? null)
+    : null;
   const [proveedorDialog, setProveedorDialog] = useState<Supplier | "nuevo" | null>(null);
   const [pedidoDialog, setPedidoDialog] = useState<SupplierOrderConDetalle | "nuevo" | null>(null);
   /* Renglones con los que abre un pedido nuevo (viene de «Qué pedir»). */
@@ -254,20 +270,26 @@ export function PanelInventario({
   const pedidosEnCamino = pedidos.filter((p) => p.estado !== "recibido" && p.estado !== "cancelado");
   const valorInventario = productos.reduce((acc, p) => acc + p.stock * (p.costo ?? 0), 0);
 
-  /* Aviso de reorden para la tarjeta KPI: con la ventana y la plataforma por
-     defecto de «Qué pedir» (30 días, todas), para que el número de la tarjeta y
-     el de la tabla cuenten lo mismo al entrar. */
-  const porPedir = useMemo(
+  /* Reorden con la ventana y la plataforma por defecto de «Qué pedir» (30 días,
+     todas), para que la tarjeta KPI, la tabla y el pop-up de un producto cuenten
+     lo mismo al entrar. */
+  const reorden = useMemo(
     () =>
       calcularReabastecimiento({
         productos,
         ventas,
         enCamino,
-        ventanaDias: 30,
+        ventanaDias: VENTANA_REORDEN,
         params: paramsReorden,
-      }).filter((g) => g.urgencia === "pedir_ya"),
+      }),
     [productos, ventas, enCamino, paramsReorden],
   );
+  const porPedir = reorden.filter((g) => g.urgencia === "pedir_ya");
+  /* El reorden agrupa por SKU: la ficha abierta puede compartir grupo con sus
+     publicaciones gemelas. Los inactivos y los de bajo pedido no tienen grupo. */
+  const grupoVista = productoVista
+    ? (reorden.find((g) => g.productoIds.includes(productoVista.id)) ?? null)
+    : null;
 
   function abrirNuevo() {
     if (pestana === "productos") setProductoDialog("nuevo");
@@ -626,7 +648,7 @@ export function PanelInventario({
           filtroTipo={filtroTipo}
           filtroStock={filtroStock}
           escrituraCanales={escrituraCanales}
-          onEditar={setProductoDialog}
+          onAbrir={(p) => setProductoVistaId(p.id)}
         />
       )}
       {pestana === "reabastecer" && (
@@ -655,6 +677,10 @@ export function PanelInventario({
 
       {pestana === "reconciliacion" && (
         <div className="flex flex-col gap-4">
+          {/* Monitor del piloto: solo aparece cuando el CRM tiene el mando de
+              algún producto. Va arriba porque es lo que hay que vigilar a diario
+              mientras dura la transición. */}
+          <PanelPiloto estado={piloto} />
           <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3.5 md:flex-row md:items-center md:justify-between">
             <p className="text-[13.5px] leading-relaxed text-muted-foreground">
               Compara el stock del CRM contra el que tienen <b>en este momento</b> Tienda Nube y
@@ -715,6 +741,24 @@ export function PanelInventario({
         </div>
       )}
 
+      {productoVista && (
+        <ProductoVista
+          producto={productoVista}
+          grupo={grupoVista}
+          ventanaDias={VENTANA_REORDEN}
+          escrituraCanales={escrituraCanales}
+          onEditar={() => {
+            setProductoVistaId(null);
+            setProductoDialog(productoVista);
+          }}
+          onGenerarPedido={() => {
+            setProductoVistaId(null);
+            setItemsIniciales([{ producto_id: productoVista.id, cantidad: 1 }]);
+            setPedidoDialog("nuevo");
+          }}
+          onClose={() => setProductoVistaId(null)}
+        />
+      )}
       {productoDialog && (
         <ProductoDialog
           producto={productoDialog === "nuevo" ? null : productoDialog}
