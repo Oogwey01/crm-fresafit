@@ -336,9 +336,44 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
       .delete()
       .eq("canal", "mercado_libre")
       .in("referencia_externa", refsCanceladas)
-      .select("id");
+      .select("id, producto_id, cantidad");
     if (error) throw new Error(error.message);
     retiradas = data?.length ?? 0;
+
+    /* Devolver el stock de lo cancelado (simétrico al descuento por venta):
+       cancelar suma la unidad de vuelta. `data` son solo los renglones que
+       EXISTÍAN y se acaban de borrar, así una segunda notificación de la misma
+       cancelación no devuelve dos veces.
+
+       Mercado Libre ya restituyó lo suyo al cancelar; por eso el origen es
+       "mercadolibre" y el hub reenvía el +N solo a los demás canales, no a él. */
+    if (HUB_VENTAS_ACTIVO) {
+      const aDevolver = await productosDelPiloto(
+        (data ?? [])
+          .filter((r) => r.producto_id)
+          .map((r) => ({ producto_id: r.producto_id as string, cantidad: r.cantidad as number })),
+      );
+      if (aDevolver.length > 0) {
+        try {
+          const { data: afectados, error: errDev } = await admin.rpc("devolver_stock_ventas", {
+            items: aDevolver,
+            p_origen: "cancelacion_ml",
+          });
+          if (errDev) throw new Error(errDev.message);
+          const filasHub = ((afectados ?? []) as (FilaVinculada & { devuelto?: number })[]).map(
+            (f) => ({ ...f, delta: f.devuelto ? f.devuelto : null }),
+          );
+          if (filasHub.length > 0) {
+            // origen "mercadolibre" = no reenviar a ML (ya restituyó); sí a TN.
+            (await propagarStock("mercadolibre", filasHub, "cancelacion_ml")).forEach((e) =>
+              console.error("[stock-hub] cancelación ML→TN:", e),
+            );
+          }
+        } catch (e) {
+          console.error("[mercadolibre] devolución de stock por cancelación:", e);
+        }
+      }
+    }
   }
 
   return {

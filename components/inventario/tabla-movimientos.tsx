@@ -18,6 +18,8 @@ const ORIGEN_LABEL: Record<string, string> = {
   venta_tn: "Venta Tienda Nube",
   venta_tiktok: "Venta TikTok",
   reparacion: "Reparación automática",
+  cancelacion_tn: "Cancelación Tienda Nube",
+  cancelacion_ml: "Cancelación Mercado Libre",
 };
 
 /* Etiquetas legibles para el `canal` (dónde impactó la escritura). */

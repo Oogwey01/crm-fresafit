@@ -254,9 +254,43 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
       .delete()
       .eq("canal", "tienda_nube")
       .in("referencia_externa", refsCanceladas)
-      .select("id");
+      .select("id, producto_id, cantidad");
     if (error) throw new Error(error.message);
     retiradas = data?.length ?? 0;
+
+    /* Devolver el stock de lo cancelado (simétrico al descuento por venta):
+       cancelar una venta suma la unidad de vuelta. `data` son solo los renglones
+       que EXISTÍAN y se acaban de borrar, así que una segunda notificación de la
+       misma cancelación no encuentra nada y no devuelve dos veces.
+
+       Tienda Nube ya restituyó lo suyo al cancelar; por eso el origen es
+       "tiendanube" y el hub reenvía el +N solo a los demás canales, no a ella. */
+    if (HUB_VENTAS_ACTIVO) {
+      const aDevolver = await productosDelPiloto(
+        (data ?? [])
+          .filter((r) => r.producto_id)
+          .map((r) => ({ producto_id: r.producto_id as string, cantidad: r.cantidad as number })),
+      );
+      if (aDevolver.length > 0) {
+        try {
+          const { data: afectados, error: errDev } = await admin.rpc("devolver_stock_ventas", {
+            items: aDevolver,
+            p_origen: "cancelacion_tn",
+          });
+          if (errDev) throw new Error(errDev.message);
+          const filasHub = ((afectados ?? []) as (FilaVinculada & { devuelto?: number })[]).map(
+            (f) => ({ ...f, delta: f.devuelto ? f.devuelto : null }),
+          );
+          if (filasHub.length > 0) {
+            (await propagarStock("tiendanube", filasHub, "cancelacion_tn")).forEach((e) =>
+              console.error("[stock-hub] cancelación TN→ML:", e),
+            );
+          }
+        } catch (e) {
+          console.error("[tiendanube] devolución de stock por cancelación:", e);
+        }
+      }
+    }
   }
 
   return {
