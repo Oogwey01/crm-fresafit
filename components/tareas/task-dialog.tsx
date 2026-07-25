@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS } from "@/lib/catalogos";
+import { localInputAIso } from "@/lib/fecha";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
 import type { Profile, AreaId, EstadoId, PrioridadId } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ export function TaskDialog({
   const [prioridad, setPrioridad] = useState<PrioridadId>("media");
   const [estado, setEstado] = useState<EstadoId>("por_hacer");
   const [fecha, setFecha] = useState("");
+  const [recordatorio, setRecordatorio] = useState("");
   const [etiquetas, setEtiquetas] = useState<string[]>([]);
 
   function toggleEtiqueta(id: string) {
@@ -67,6 +69,7 @@ export function TaskDialog({
       prioridad,
       estado,
       fecha_limite: fecha || null,
+      recordatorio_at: localInputAIso(recordatorio),
       etiquetas,
     };
     startTransition(async () => {
@@ -195,6 +198,19 @@ export function TaskDialog({
               <Label htmlFor="fecha">Fecha límite</Label>
               <Input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="recordatorio">Recordarme el… (opcional)</Label>
+            <Input
+              id="recordatorio"
+              type="datetime-local"
+              value={recordatorio}
+              onChange={(e) => setRecordatorio(e.target.value)}
+            />
+            <span className="text-xs text-muted-foreground">
+              Le llegará un aviso al responsable en ese momento.
+            </span>
           </div>
 
           <div className="flex flex-col gap-1.5">

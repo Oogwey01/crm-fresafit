@@ -15,7 +15,7 @@ import { AlertTriangle, ChevronDown, Info, List, LayoutGrid, Calendar as Calenda
 import { toast } from "sonner";
 import { ESTADOS, AREAS, ROLES, esGestor } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
-import { moverTarea, cambiarPrioridad } from "@/app/(app)/tareas/actions";
+import { moverTarea, cambiarPrioridad, reasignarTarea } from "@/app/(app)/tareas/actions";
 import type { TaskConResponsable, Profile, EstadoId, PrioridadId, RolId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +36,11 @@ import { ExportButton } from "@/components/tareas/export-button";
 import { VistaTabla } from "@/components/tareas/vista-tabla";
 import { VistaCalendario } from "@/components/tareas/vista-calendario";
 import { VistaMovil } from "@/components/tareas/vista-movil";
+import { ImportarTareas } from "@/components/tareas/importar";
+import { Papelera } from "@/components/tareas/papelera";
+
+/* Carril del tablero cuando se agrupa (por área o por persona). */
+type Grupo = { id: string; nombre: string; color: string; tareas: TaskConResponsable[] };
 
 /* Alcance global: "mis" = solo lo asignado a mí; aplica en las TRES vistas. */
 type Alcance = "mis" | "todas";
@@ -49,24 +54,28 @@ const VISTAS_TOP = [
 
 export function Board({
   tareas: inicial,
+  borradas = [],
   equipo,
   currentUserId,
   rol,
 }: {
   tareas: TaskConResponsable[];
+  borradas?: TaskConResponsable[];
   equipo: Profile[];
   currentUserId: string;
   rol: RolId;
 }) {
   const gestor = esGestor(rol);
 
+  /* Parche optimista genérico: mover de estado y/o reasignar responsable. */
   const [tareas, aplicarMovimiento] = useOptimistic(
     inicial,
-    (estado, m: { id: string; nuevoEstado: EstadoId }) =>
-      estado.map((t) => (t.id === m.id ? { ...t, estado: m.nuevoEstado } : t)),
+    (estado, m: { id: string; patch: Partial<TaskConResponsable> }) =>
+      estado.map((t) => (t.id === m.id ? { ...t, ...m.patch } : t)),
   );
 
   const [vistaTop, setVistaTop] = useState<VistaTop>("tabla");
+  const [ejeAgrupacion, setEjeAgrupacion] = useState<"area" | "persona">("area");
   const [alcance, setAlcance] = useState<Alcance>("todas");
   const [filtroResponsable, setFiltroResponsable] = useState("todos");
   const [filtroArea, setFiltroArea] = useState("todas");
@@ -97,12 +106,40 @@ export function Board({
     const actual = tareas.find((t) => t.id === id);
     if (!actual || actual.estado === nuevoEstado) return;
     startTransition(async () => {
-      aplicarMovimiento({ id, nuevoEstado });
+      aplicarMovimiento({ id, patch: { estado: nuevoEstado } });
       try {
         const r = await moverTarea(id, nuevoEstado);
         if ("error" in r) toast.error("No se pudo mover: " + r.error);
       } catch {
         toast.error("No se pudo mover la tarea. Revisa tu conexión.");
+      }
+    });
+  }
+
+  /* Reasignar arrastrando entre carriles de persona (solo gestor). */
+  function reasignar(id: string, responsableId: string | null) {
+    const actual = tareas.find((t) => t.id === id);
+    if (!actual || actual.responsable_id === responsableId) return;
+    if (!gestor) {
+      toast.error("Solo dirección o coordinación puede reasignar tareas.");
+      return;
+    }
+    const perfil = responsableId
+      ? (equipo.find((p) => p.id === responsableId) ?? null)
+      : null;
+    startTransition(async () => {
+      aplicarMovimiento({
+        id,
+        patch: {
+          responsable_id: responsableId,
+          responsable: perfil ? { id: perfil.id, nombre: perfil.nombre, color: perfil.color } : null,
+        },
+      });
+      try {
+        const r = await reasignarTarea(id, responsableId);
+        if ("error" in r) toast.error(r.error);
+      } catch {
+        toast.error("No se pudo reasignar. Revisa tu conexión.");
       }
     });
   }
@@ -127,9 +164,17 @@ export function Board({
     setActiveId(null);
     const { active, over } = e;
     if (!over) return;
+    const id = String(active.id);
     const raw = String(over.id);
-    const estado = (raw.includes("::") ? raw.split("::")[1] : raw) as EstadoId;
-    if (ESTADOS.some((es) => es.id === estado)) mover(String(active.id), estado);
+    const [prefijo, sufijo] = raw.includes("::") ? raw.split("::") : [null, raw];
+    const estado = sufijo as EstadoId;
+    if (!ESTADOS.some((es) => es.id === estado)) return;
+    mover(id, estado);
+    // En carriles por persona el prefijo es el id del responsable destino
+    // ("sin" = sin asignar): además de mover, reasigna.
+    if (ejeAgrupacion === "persona" && prefijo !== null) {
+      reasignar(id, prefijo === "sin" ? null : prefijo);
+    }
   }
 
   const activa = activeId ? tareas.find((t) => t.id === activeId) : null;
@@ -153,9 +198,32 @@ export function Board({
   const filtradas = soloVencidas
     ? base.filter((t) => esVencida(t.fecha_limite, t.estado))
     : base;
-  const areasVisibles = AREAS.filter(
-    (a) => (filtroArea === "todas" || a.id === filtroArea) && filtradas.some((t) => t.area === a.id),
-  );
+  /* Carriles del tablero agrupado. Por ÁREA: las áreas con tareas (respetando el
+     filtro). Por PERSONA: cada responsable con tareas + un carril "Sin asignar". */
+  const grupos: Grupo[] =
+    ejeAgrupacion === "area"
+      ? AREAS.filter(
+          (a) => (filtroArea === "todas" || a.id === filtroArea) && filtradas.some((t) => t.area === a.id),
+        ).map((a) => ({
+          id: a.id,
+          nombre: a.nombre,
+          color: a.color,
+          tareas: filtradas.filter((t) => t.area === a.id),
+        }))
+      : (() => {
+          const conResp: Grupo[] = equipo
+            .map((p) => ({
+              id: p.id,
+              nombre: p.nombre,
+              color: p.color,
+              tareas: filtradas.filter((t) => t.responsable_id === p.id),
+            }))
+            .filter((g) => g.tareas.length > 0);
+          const sin = filtradas.filter((t) => !t.responsable_id);
+          return sin.length
+            ? [...conResp, { id: "sin", nombre: "Sin asignar", color: "#94a3b8", tareas: sin }]
+            : conResp;
+        })();
 
   const rolNombre = ROLES.find((r) => r.id === rol)?.nombre ?? "Miembro";
 
@@ -187,8 +255,10 @@ export function Board({
             Quién hace qué y en qué va cada cosa — sin perseguir a nadie.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <ExportButton tareas={filtradas} gestor={gestor} />
+          {gestor && <ImportarTareas equipo={equipo} />}
+          {gestor && <Papelera borradas={borradas} />}
           {gestor && (
             <Button
               onClick={() => setNuevaAbierta(true)}
@@ -258,6 +328,30 @@ export function Board({
             </button>
           ))}
         </div>
+
+        {/* Eje de agrupación del TABLERO: por área o por persona (solo tablero + Todas). */}
+        {vistaTop === "tablero" && alcance === "todas" && (
+          <div className="inline-flex items-center gap-1.5 rounded-lg bg-muted p-0.5 pl-2.5">
+            <span className="text-xs font-medium text-muted-foreground">Agrupar:</span>
+            {(
+              [
+                ["area", "Área"],
+                ["persona", "Persona"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setEjeAgrupacion(id)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+                  ejeAgrupacion === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="flex-1" />
 
@@ -352,14 +446,14 @@ export function Board({
               ))}
             </div>
           </>
-        ) : areasVisibles.length === 0 ? (
+        ) : grupos.length === 0 ? (
           <p className="text-sm italic text-muted-foreground">
             No hay tareas para mostrar con estos filtros.
           </p>
         ) : (
           <div className="flex flex-col gap-6">
-            {/* Encabezado de columnas (una vez, arriba) — solo si hay algún tema abierto */}
-            {areasVisibles.some((a) => areasAbiertas.has(a.id)) && (
+            {/* Encabezado de columnas (una vez, arriba) — solo si hay algún carril abierto */}
+            {grupos.some((g) => areasAbiertas.has(g.id)) && (
               <div className="hidden gap-4 xl:grid xl:grid-cols-4">
                 {ESTADOS.map((e) => (
                   <div key={e.id} className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
@@ -369,21 +463,20 @@ export function Board({
               </div>
             )}
 
-            {areasVisibles.map((area) => {
-              const delArea = filtradas.filter((t) => t.area === area.id);
-              const abierta = areasAbiertas.has(area.id);
+            {grupos.map((g) => {
+              const abierta = areasAbiertas.has(g.id);
               return (
-                <div key={area.id}>
+                <div key={g.id}>
                   <button
                     type="button"
-                    onClick={() => alternarArea(area.id)}
+                    onClick={() => alternarArea(g.id)}
                     aria-expanded={abierta}
                     className="mb-2 flex w-full items-center gap-2"
                   >
-                    <span className="inline-block h-4 w-1.5 rounded" style={{ backgroundColor: area.color }} />
-                    <span className="text-sm font-bold">{area.nombre}</span>
+                    <span className="inline-block h-4 w-1.5 rounded" style={{ backgroundColor: g.color }} />
+                    <span className="text-sm font-bold">{g.nombre}</span>
                     <span className="text-xs text-muted-foreground">
-                      {delArea.length} {delArea.length === 1 ? "tarea" : "tareas"}
+                      {g.tareas.length} {g.tareas.length === 1 ? "tarea" : "tareas"}
                     </span>
                     <ChevronDown
                       className={cn(
@@ -413,9 +506,10 @@ export function Board({
                           <div key={estado.id} className="w-[85%] shrink-0 snap-start md:w-auto">
                             <Column
                               estadoId={estado.id}
-                              droppableId={`${area.id}::${estado.id}`}
+                              droppableId={`${g.id}::${estado.id}`}
                               nombre={estado.nombre}
-                              tareas={delArea.filter((t) => t.estado === estado.id)}
+                              ocultarNombreXl
+                              tareas={g.tareas.filter((t) => t.estado === estado.id)}
                               onMover={mover}
                               onEditar={setDetalle}
                             />

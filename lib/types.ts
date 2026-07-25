@@ -48,6 +48,12 @@ export type Task = {
   fecha_limite: string | null; // "AAAA-MM-DD"
   etiquetas: string[];
   orden: number;
+  /* Recordatorio opcional: momento (fecha+hora) en que avisar al responsable.
+     Distinto de `fecha_limite` (solo fecha). El cron lo consume y marca enviado. */
+  recordatorio_at: string | null;
+  recordatorio_enviado: boolean;
+  /* Papelera: si tiene fecha, la tarea está borrada (borrado suave). null = activa. */
+  deleted_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -99,6 +105,17 @@ export type TaskActivity = {
   task_id: string;
   autor: string | null;
   texto: string;
+  created_at: string;
+};
+
+/* Notificación in-app (tabla `notifications`). Destinatario = user_id. */
+export type Notificacion = {
+  id: string;
+  user_id: string;
+  task_id: string | null;
+  tipo: "asignacion" | "recordatorio";
+  texto: string;
+  leida: boolean;
   created_at: string;
 };
 

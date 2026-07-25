@@ -4,7 +4,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { LogoFresafit } from "@/components/logo-fresafit";
-import type { Profile } from "@/lib/types";
+import { Notificaciones } from "@/components/tareas/notificaciones";
+import type { Profile, Notificacion } from "@/lib/types";
 import { SidebarContent } from "@/components/sidebar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -14,6 +15,7 @@ export function MobileNav(props: {
   profile: Profile | null;
   email: string;
   tareasActivas: number;
+  notificaciones: Notificacion[];
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -39,6 +41,10 @@ export function MobileNav(props: {
       </Sheet>
 
       <LogoFresafit priority className="h-5 w-auto" />
+
+      <div className="ml-auto">
+        <Notificaciones notificaciones={props.notificaciones} />
+      </div>
     </header>
   );
 }

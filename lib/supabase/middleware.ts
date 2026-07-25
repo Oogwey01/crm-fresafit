@@ -8,16 +8,18 @@ import { NextResponse, type NextRequest } from "next/server";
    webhooks llegan sin cookies (validan firma/origen adentro) y los
    conectar/callback verifican sesión por su cuenta.
 
-   /api/inventario/foto igual: la dispara un programador externo cada hora (el
-   plan Hobby de Vercel no da crons horarios) y llega sin cookies. Se lista la
-   ruta exacta, no todo /api/inventario, para no abrir de más. Adentro exige
-   CRON_SECRET o usuario interno, así que sin credencial responde 401. */
+   /api/inventario/foto y /api/tareas/recordatorios igual: los dispara un
+   programador externo (el plan Hobby de Vercel no da crons frecuentes) y llegan
+   sin cookies. Se lista la ruta exacta, no todo el segmento, para no abrir de
+   más. Adentro exigen CRON_SECRET o usuario interno, así que sin credencial
+   responden 401. */
 const RUTAS_PUBLICAS = [
   "/login",
   "/auth",
   "/api/tiendanube",
   "/api/mercadolibre",
   "/api/inventario/foto",
+  "/api/tareas/recordatorios",
 ];
 
 export async function updateSession(request: NextRequest) {

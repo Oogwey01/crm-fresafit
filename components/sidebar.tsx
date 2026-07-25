@@ -13,8 +13,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { LogoFresafit } from "@/components/logo-fresafit";
+import { Notificaciones } from "@/components/tareas/notificaciones";
 import { MODULOS, ROLES } from "@/lib/catalogos";
-import type { Profile } from "@/lib/types";
+import type { Profile, Notificacion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,7 @@ export function Sidebar(props: {
   profile: Profile | null;
   email: string;
   tareasActivas: number;
+  notificaciones: Notificacion[];
 }) {
   return (
     <aside className="hidden w-[272px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
@@ -53,11 +55,13 @@ export function SidebarContent({
   profile,
   email,
   tareasActivas,
+  notificaciones,
   onNavigate,
 }: {
   profile: Profile | null;
   email: string;
   tareasActivas: number;
+  notificaciones: Notificacion[];
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -141,7 +145,7 @@ export function SidebarContent({
           >
             {iniciales(nombre)}
           </span>
-          <div className="min-w-0 leading-tight">
+          <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-[13.5px] font-semibold text-foreground">
               {nombre}
             </div>
@@ -149,6 +153,7 @@ export function SidebarContent({
               {rolNombre}
             </div>
           </div>
+          <Notificaciones notificaciones={notificaciones} />
         </div>
         <form action="/auth/signout" method="post">
           <Button type="submit" variant="outline" size="sm" className="w-full gap-2">

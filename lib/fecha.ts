@@ -34,6 +34,22 @@ export function esVencida(fechaLimite: string | null, estado: string): boolean {
   return fechaLimite < hoyISO() && estado !== "hecho";
 }
 
+/* ---- Recordatorios: puente entre <input type="datetime-local"> e ISO ----
+   El input da/espera "AAAA-MM-DDTHH:mm" en hora LOCAL; en la BD guardamos ISO
+   (UTC). Se usan en el navegador (equipo en zona de México), así que `new Date`
+   interpreta el valor local correctamente. */
+export function isoALocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 16);
+}
+export function localInputAIso(valor: string): string | null {
+  if (!valor) return null;
+  const d = new Date(valor);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /* Un pedido pendiente lleva demasiados días sin moverse a "entregado". */
 export const DIAS_ATRASO_PEDIDO = 3;
 

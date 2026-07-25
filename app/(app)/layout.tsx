@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/sidebar";
 import { MobileNav } from "@/components/mobile-nav";
-import type { Profile } from "@/lib/types";
+import type { Profile, Notificacion } from "@/lib/types";
 
 /* Shell de la app protegida: sidebar + área principal.
    Doble guardia (además del middleware): sin sesión → login. */
@@ -18,7 +18,7 @@ export default async function AppLayout({
 
   if (!user) redirect("/login");
 
-  const [{ data: profile }, { count: tareasActivas }] = await Promise.all([
+  const [{ data: profile }, { count: tareasActivas }, notisRes] = await Promise.all([
     supabase
       .from("profiles")
       .select("id, nombre, rol, area, color")
@@ -27,13 +27,23 @@ export default async function AppLayout({
     supabase
       .from("tasks")
       .select("id", { count: "exact", head: true })
-      .neq("estado", "hecho"),
+      .neq("estado", "hecho")
+      .is("deleted_at", null),
+    // Notificaciones del usuario (RLS ya limita a las suyas): las recientes.
+    supabase
+      .from("notifications")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20),
   ]);
+
+  const notificaciones = (notisRes.data ?? []) as Notificacion[];
 
   const navProps = {
     profile: profile as Profile | null,
     email: user.email ?? "",
     tareasActivas: tareasActivas ?? 0,
+    notificaciones,
   };
 
   return (

@@ -19,6 +19,7 @@ export type TaskInput = {
   prioridad: PrioridadId;
   estado: EstadoId;
   fecha_limite: string | null;
+  recordatorio_at: string | null;
   etiquetas: string[];
 };
 
@@ -56,6 +57,7 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
     prioridad: input.prioridad,
     estado: input.estado,
     fecha_limite: input.fecha_limite || null,
+    recordatorio_at: input.recordatorio_at || null,
     etiquetas: input.etiquetas ?? [],
     created_by: user.id,
   });
@@ -83,6 +85,7 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
       prioridad: input.prioridad,
       estado: input.estado,
       fecha_limite: input.fecha_limite || null,
+      recordatorio_at: input.recordatorio_at || null,
       etiquetas: input.etiquetas ?? [],
     })
     .eq("id", id);
@@ -112,10 +115,51 @@ export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Prom
   return { ok: true };
 }
 
+/* Reasignar responsable (meta → solo gestor). El aviso al nuevo responsable lo
+   dispara el trigger `notificar_asignacion` en la BD, así que cubre también el
+   arrastre entre carriles de persona y la edición desde el detalle. */
+export async function reasignarTarea(id: string, responsableId: string | null): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede reasignar tareas." };
+  const { error } = await supabase.from("tasks").update({ responsable_id: responsableId }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/tareas");
+  return { ok: true };
+}
+
+/* Borrado SUAVE: manda la tarea a la papelera (se puede restaurar). */
 export async function borrarTarea(id: string): Promise<Resultado> {
   const { supabase, user, rol } = await usuarioActual();
   if (!user) return { error: "No autenticado." };
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar tareas." };
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/tareas");
+  return { ok: true };
+}
+
+/* Sacar de la papelera. */
+export async function restaurarTarea(id: string): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede restaurar tareas." };
+
+  const { error } = await supabase.from("tasks").update({ deleted_at: null }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/tareas");
+  return { ok: true };
+}
+
+/* Eliminar DEFINITIVO (borrado real, sin vuelta atrás). */
+export async function eliminarDefinitivo(id: string): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede eliminar tareas." };
 
   const { error } = await supabase.from("tasks").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -314,6 +358,65 @@ export async function exportarRespaldo(): Promise<
       actividad: actividad.data ?? [],
     },
   };
+}
+
+/* ============================ Importar en lote ============================= */
+
+/* Alta masiva de tareas (pegar texto → filas). Solo gestor. Reusa el insert de
+   `crearTarea`; cada fila con responsable dispara el aviso vía trigger. */
+export async function importarTareas(
+  filas: TaskInput[],
+): Promise<{ ok: true; creadas: number } | { error: string }> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede importar tareas." };
+
+  const validas = filas
+    .map((f) => ({ ...f, titulo: f.titulo.trim() }))
+    .filter((f) => f.titulo);
+  if (!validas.length) return { error: "No hay renglones con título para importar." };
+
+  const { error } = await supabase.from("tasks").insert(
+    validas.map((f) => ({
+      titulo: f.titulo,
+      descripcion: f.descripcion?.trim() || null,
+      responsable_id: f.responsable_id,
+      area: f.area,
+      prioridad: f.prioridad,
+      estado: f.estado,
+      fecha_limite: f.fecha_limite || null,
+      recordatorio_at: f.recordatorio_at || null,
+      etiquetas: f.etiquetas ?? [],
+      created_by: user.id,
+    })),
+  );
+  if (error) return { error: error.message };
+  revalidatePath("/tareas");
+  return { ok: true, creadas: validas.length };
+}
+
+/* ============================ Notificaciones ============================== */
+
+export async function marcarNotificacionLeida(id: string): Promise<Resultado> {
+  const { supabase, user } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  const { error } = await supabase.from("notifications").update({ leida: true }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function marcarTodasLeidas(): Promise<Resultado> {
+  const { supabase, user } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  const { error } = await supabase
+    .from("notifications")
+    .update({ leida: true })
+    .eq("user_id", user.id)
+    .eq("leida", false);
+  if (error) return { error: error.message };
+  revalidatePath("/", "layout");
+  return { ok: true };
 }
 
 /* ============================ Compartir (externo) ========================= */

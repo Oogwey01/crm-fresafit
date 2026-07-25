@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS, esGestor } from "@/lib/catalogos";
+import { isoALocalInput, localInputAIso } from "@/lib/fecha";
 import {
   editarTarea,
   moverTarea,
@@ -92,6 +93,7 @@ export function TaskDetail({
   const [prioridad, setPrioridad] = useState<PrioridadId>(tarea.prioridad);
   const [estado, setEstado] = useState<EstadoId>(tarea.estado);
   const [fecha, setFecha] = useState(tarea.fecha_limite ?? "");
+  const [recordatorio, setRecordatorio] = useState(isoALocalInput(tarea.recordatorio_at));
   const [etiquetas, setEtiquetas] = useState<string[]>(tarea.etiquetas ?? []);
 
   const [nuevoComentario, setNuevoComentario] = useState("");
@@ -146,6 +148,7 @@ export function TaskDetail({
       prioridad,
       estado,
       fecha_limite: fecha || null,
+      recordatorio_at: localInputAIso(recordatorio),
       etiquetas,
     };
     startTransition(async () => {
@@ -255,6 +258,13 @@ export function TaskDetail({
               </Meta>
               <Meta label="Fecha límite">
                 <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              </Meta>
+              <Meta label="Recordatorio">
+                <Input
+                  type="datetime-local"
+                  value={recordatorio}
+                  onChange={(e) => setRecordatorio(e.target.value)}
+                />
               </Meta>
             </div>
 
