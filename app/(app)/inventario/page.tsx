@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
 import { estadoMercadolibre } from "@/lib/mercadolibre/api";
+import { estadoTiktok } from "@/lib/tiktok/api";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelInventario } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
@@ -43,6 +44,7 @@ export default async function InventarioPage() {
     perfilRes,
     tiendanube,
     mercadolibre,
+    tiktok,
     piloto,
   ] = await Promise.all([
     supabase
@@ -83,6 +85,7 @@ export default async function InventarioPage() {
       : Promise.resolve({ data: null }),
     estadoTiendanube(),
     estadoMercadolibre(),
+    estadoTiktok(),
     // Monitor del piloto: sale de la foto horaria y del ledger, sin llamar a
     // las APIs de los canales.
     estadoPiloto(),
@@ -128,6 +131,7 @@ export default async function InventarioPage() {
       rol={rol}
       tiendanube={tiendanube}
       mercadolibre={mercadolibre}
+      tiktok={tiktok}
       escrituraCanales={ESCRITURA_CANALES}
       piloto={piloto}
     />

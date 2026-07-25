@@ -33,6 +33,7 @@ import {
   stockActualML,
   LOGISTICA_FULL,
 } from "@/lib/mercadolibre/api";
+import { actualizarStockTikTok, conexionTiktok, stockActualTikTok } from "@/lib/tiktok/api";
 import { registrarStockLog, type EntradaStockLog } from "@/lib/inventario/stock-log";
 import {
   esSimulacro,
@@ -117,6 +118,7 @@ export async function propagarStock(
 
   const cxTN = origen !== "tiendanube" && unicas.some((f) => destinoTN(f)) ? await conexion(conexionTiendanube, "Tienda Nube", avisos) : null;
   const cxML = origen !== "mercadolibre" && unicas.some((f) => destinoML(f)) ? await conexion(conexionMercadolibre, "Mercado Libre", avisos) : null;
+  const cxTikTok = origen !== "tiktok" && unicas.some((f) => destinoTikTok(f)) ? await conexion(conexionTiktok, "TikTok Shop", avisos) : null;
 
   for (const f of unicas) {
     const liberar = await tomarCandado(f.id);
@@ -154,6 +156,19 @@ export async function propagarStock(
           escribir: (valor) => actualizarStockML(cxML, f.meli_item_id!, f.meli_variation_id, valor),
         });
       }
+      if (cxTikTok && destinoTikTok(f)) {
+        await empujar({
+          canal: "tiktok",
+          fila: f,
+          origen,
+          motivo,
+          simulado,
+          avisos,
+          logs,
+          leer: () => stockActualTikTok(cxTikTok, f.tiktok_product_id!, f.tiktok_sku_id!),
+          escribir: (valor) => actualizarStockTikTok(cxTikTok, f.tiktok_product_id!, f.tiktok_sku_id!, valor),
+        });
+      }
     } finally {
       await liberar();
     }
@@ -179,6 +194,13 @@ function destinoML(f: FilaVinculada): boolean {
   // desde la bodega.
   if (f.meli_logistic_type === LOGISTICA_FULL) return false;
   return f.meli_item_id != null && puedeEscribir("mercadolibre", f.sku);
+}
+
+function destinoTikTok(f: FilaVinculada): boolean {
+  if (f.bajo_pedido) return false; // sin control de stock: no se le escribe
+  return (
+    f.tiktok_product_id != null && f.tiktok_sku_id != null && puedeEscribir("tiktok", f.sku)
+  );
 }
 
 type Empuje = {

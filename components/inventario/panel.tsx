@@ -7,6 +7,7 @@ import {
   DollarSign,
   Lock,
   PackageX,
+  Music2,
   Plus,
   RefreshCw,
   Search,
@@ -30,6 +31,7 @@ import {
   revisarDescuadres,
   sincronizarMercadolibre,
   sincronizarTiendanube,
+  sincronizarTiktok,
 } from "@/app/(app)/inventario/actions";
 import type {
   ProductConProveedor,
@@ -139,6 +141,7 @@ export function PanelInventario({
   rol,
   tiendanube,
   mercadolibre,
+  tiktok,
   escrituraCanales,
   piloto,
 }: {
@@ -154,6 +157,7 @@ export function PanelInventario({
   rol: RolId;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
   mercadolibre: { conectada: boolean; ultimaSync: string | null };
+  tiktok: { conectada: boolean; ultimaSync: string | null };
   /* false (el default del sistema) = el CRM no modifica nada en las plataformas. */
   escrituraCanales: boolean;
   /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
@@ -163,13 +167,15 @@ export function PanelInventario({
   const [pestana, setPestana] = useState<Pestana>("productos");
   const [sincronizando, startSync] = useTransition();
   const [sincronizandoML, startSyncML] = useTransition();
+  const [sincronizandoTikTok, startSyncTikTok] = useTransition();
 
   /* Avisos al volver del OAuth (?tiendanube=… / ?mercadolibre=…). */
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const tn = params.get("tiendanube");
     const ml = params.get("mercadolibre");
-    if (!tn && !ml) return;
+    const tk = params.get("tiktok");
+    if (!tn && !ml && !tk) return;
     if (tn === "conectada") {
       const n = params.get("productos");
       toast.success(`Tienda Nube conectada${n ? ` · ${n} productos importados` : ""}.`);
@@ -187,6 +193,15 @@ export function PanelInventario({
     } else if (ml) {
       toast.error("No se pudo conectar Mercado Libre. Intenta de nuevo.");
     }
+    if (tk === "conectada") {
+      const n = params.get("productos");
+      const v = params.get("vinculados");
+      toast.success(
+        `TikTok Shop conectado${n ? ` · ${n} productos importados` : ""}${v && v !== "0" ? ` (${v} vinculados por SKU)` : ""}.`,
+      );
+    } else if (tk) {
+      toast.error("No se pudo conectar TikTok Shop. Intenta de nuevo.");
+    }
     window.history.replaceState(null, "", window.location.pathname);
   }, []);
 
@@ -201,6 +216,14 @@ export function PanelInventario({
   function sincronizarML() {
     startSyncML(async () => {
       const r = await sincronizarMercadolibre();
+      if ("error" in r) toast.error(r.error);
+      else toast.success(r.detalle);
+    });
+  }
+
+  function sincronizarTK() {
+    startSyncTikTok(async () => {
+      const r = await sincronizarTiktok();
       if ("error" in r) toast.error(r.error);
       else toast.success(r.detalle);
     });
@@ -328,7 +351,7 @@ export function PanelInventario({
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
             Cuánto hay de cada producto, quién lo surte y qué viene en camino.
           </p>
-          {(tiendanube.conectada || mercadolibre.conectada) && (
+          {(tiendanube.conectada || mercadolibre.conectada || tiktok.conectada) && (
             <div className="mt-2.5 flex flex-wrap gap-2">
               {tiendanube.conectada && tiendanube.ultimaSync && (
                 <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground">
@@ -340,6 +363,12 @@ export function PanelInventario({
                 <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-green-500" />
                   Mercado Libre sincronizado · {fechaCorta(mercadolibre.ultimaSync)}
+                </span>
+              )}
+              {tiktok.conectada && tiktok.ultimaSync && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+                  <span className="size-1.5 rounded-full bg-green-500" />
+                  TikTok Shop sincronizado · {fechaCorta(tiktok.ultimaSync)}
                 </span>
               )}
             </div>
@@ -388,6 +417,28 @@ export function PanelInventario({
             >
               <ShoppingCart className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
               Conectar Mercado Libre
+            </Button>
+          )}
+          {tiktok.conectada ? (
+            <Button
+              variant="outline"
+              onClick={sincronizarTK}
+              disabled={sincronizandoTikTok}
+              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
+            >
+              <RefreshCw className={cn("size-[15px]", sincronizandoTikTok && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
+              {sincronizandoTikTok ? "Sincronizando…" : "TikTok Shop"}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => {
+                window.location.href = "/api/tiktok/conectar";
+              }}
+              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
+            >
+              <Music2 className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
+              Conectar TikTok Shop
             </Button>
           )}
           {ETIQUETA_NUEVO[pestana] && (

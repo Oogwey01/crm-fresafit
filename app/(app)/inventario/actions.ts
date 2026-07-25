@@ -5,6 +5,7 @@ import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
 import { empujarProductoTN, sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
+import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
 import { propagarStock } from "@/lib/inventario/stock-hub";
 import { registrarStockLog } from "@/lib/inventario/stock-log";
 import { reconciliarInventario, type ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
@@ -107,6 +108,24 @@ export async function sincronizarMercadolibre(): Promise<{ ok: true; detalle: st
     };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Falló la sincronización con Mercado Libre." };
+  }
+}
+
+/* Reconciliación manual con TikTok Shop (botón del panel). */
+export async function sincronizarTiktok(): Promise<{ ok: true; detalle: string } | { error: string }> {
+  const { user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede sincronizar el inventario." };
+
+  try {
+    const r = await importacionCompletaTikTok();
+    revalidatePath("/inventario");
+    return {
+      ok: true,
+      detalle: `Sincronizado: ${r.productos} productos (${r.creados} nuevos, ${r.vinculados} vinculados por SKU, ${r.actualizados} actualizados${r.desactivados ? `, ${r.desactivados} desactivados` : ""}).`,
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Falló la sincronización con TikTok Shop." };
   }
 }
 
@@ -254,7 +273,7 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
     .update({ stock })
     .eq("id", id)
     .select(
-      "sku, bajo_pedido, tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
+      "sku, bajo_pedido, tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type, tiktok_product_id, tiktok_sku_id",
     )
     .single();
   if (error) return { error: error.message };

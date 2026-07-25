@@ -18,6 +18,7 @@ const RUTAS_PUBLICAS = [
   "/auth",
   "/api/tiendanube",
   "/api/mercadolibre",
+  "/api/tiktok",
   "/api/inventario/foto",
   "/api/tareas/recordatorios",
 ];

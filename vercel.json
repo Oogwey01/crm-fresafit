@@ -7,6 +7,10 @@
     {
       "path": "/api/mercadolibre/sync",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/tiktok/sync",
+      "schedule": "0 7 * * *"
     }
   ]
 }

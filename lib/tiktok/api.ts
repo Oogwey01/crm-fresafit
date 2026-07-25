@@ -20,7 +20,12 @@ const AUTH_BASE = "https://auth.tiktok-shops.com";
 /* Renovar cuando falte menos de 1 h de vida del token (dura ~7 días). */
 const MARGEN_REFRESH_MS = 60 * 60 * 1000;
 
-export type ConexionTikTok = { accessToken: string; shopCipher: string; shopId: string };
+export type ConexionTikTok = {
+  accessToken: string;
+  shopCipher: string;
+  shopId: string;
+  warehouseId: string | null; // almacén principal (para escribir stock)
+};
 
 type TokensTikTok = {
   access_token: string;
@@ -82,16 +87,17 @@ export async function conexionTiktok(): Promise<ConexionTikTok | null> {
     .eq("id", "tiktok")
     .maybeSingle();
   if (!data) return null;
-  const datos = (data.datos ?? {}) as { shop_cipher?: string; shop_id?: string };
+  const datos = (data.datos ?? {}) as { shop_cipher?: string; shop_id?: string; warehouse_id?: string };
   const shopCipher = datos.shop_cipher ?? "";
   const shopId = datos.shop_id ?? data.external_id ?? "";
+  const warehouseId = datos.warehouse_id ?? null;
 
   const vence = data.expires_at ? Date.parse(data.expires_at) : 0;
   if (vence - Date.now() > MARGEN_REFRESH_MS) {
-    return { accessToken: data.access_token, shopCipher, shopId };
+    return { accessToken: data.access_token, shopCipher, shopId, warehouseId };
   }
   const token = await refrescarToken(data.refresh_token);
-  return { accessToken: token, shopCipher, shopId };
+  return { accessToken: token, shopCipher, shopId, warehouseId };
 }
 
 /* Renueva el access token con el refresh token. Ante fallo, relee la fila por
@@ -134,6 +140,16 @@ async function refrescarToken(refreshViejo: string | null): Promise<string> {
   return t.access_token;
 }
 
+/* Guarda el almacén principal en integraciones.datos (se elige al conectar). */
+export async function guardarWarehouseTikTok(warehouseId: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data } = await admin.from("integraciones").select("datos").eq("id", "tiktok").maybeSingle();
+  await admin
+    .from("integraciones")
+    .update({ datos: { ...((data?.datos as object) ?? {}), warehouse_id: warehouseId } })
+    .eq("id", "tiktok");
+}
+
 export async function estadoTiktok(): Promise<{ conectada: boolean; ultimaSync: string | null }> {
   try {
     const admin = createAdminClient();
@@ -148,14 +164,14 @@ export async function estadoTiktok(): Promise<{ conectada: boolean; ultimaSync: 
 
 /* ------------------------------ OAuth ------------------------------------ */
 
-/* URL de autorización (el vendedor la abre para conceder acceso a su tienda). */
+/* URL de autorización (el vendedor la abre para conceder acceso a su tienda).
+   Formato basado en el app_id (service), el mismo que funcionó al autorizar la
+   tienda sandbox. Redirige al login del vendedor y de vuelta a TIKTOK_REDIRECT_URI
+   con `code`. Región MX (Fresafit es seller local mexicano). */
+const TIKTOK_APP_ID = process.env.TIKTOK_APP_ID ?? "7663534939447363336";
+
 export function urlAutorizacionTikTok(): string {
-  const params = new URLSearchParams({
-    app_key: process.env.TIKTOK_APP_KEY ?? "",
-    redirect_uri: process.env.TIKTOK_REDIRECT_URI ?? "",
-    state: "fresafit",
-  });
-  return `https://services.tiktokshop.com/open/authorize?${params}`;
+  return `https://seller-mx.tiktok.com/services/market/custom-authorize/${TIKTOK_APP_ID}?shop_region=MX`;
 }
 
 export async function intercambiarCodigoTikTok(code: string): Promise<TokensTikTok> {
@@ -217,7 +233,7 @@ export type ShopTikTok = { id: string; name?: string; cipher: string; region?: s
 /* Tiendas autorizadas del vendedor. Da el `shop_cipher` que necesita todo lo
    demás. Se llama con una conexión sin cipher todavía (sinCipher: true). */
 export async function obtenerShopsTikTok(accessToken: string): Promise<ShopTikTok[]> {
-  const cx: ConexionTikTok = { accessToken, shopCipher: "", shopId: "" };
+  const cx: ConexionTikTok = { accessToken, shopCipher: "", shopId: "", warehouseId: null };
   const data = await ttFetch<{ shops?: ShopTikTok[] }>(cx, "GET", "/authorization/202309/shops", {
     sinCipher: true,
   });
@@ -233,6 +249,128 @@ export type WarehouseTikTok = { id: string; name?: string; type?: string; sub_ty
 export async function listarWarehousesTikTok(cx: ConexionTikTok): Promise<WarehouseTikTok[]> {
   const data = await ttFetch<{ warehouses?: WarehouseTikTok[] }>(cx, "GET", "/logistics/202309/warehouses");
   return data.warehouses ?? [];
+}
+
+/* ------------------------------ Productos -------------------------------- */
+
+export type SkuTikTok = {
+  id: string;
+  seller_sku?: string | null;
+  price?: { sale_price?: string; tax_exclusive_price?: string; currency?: string } | null;
+  inventory?: { quantity: number; warehouse_id: string }[] | null;
+  sales_attributes?: { name?: string; value_name?: string }[] | null;
+};
+
+export type ProductoTikTok = {
+  id: string;
+  title?: string;
+  status?: string; // ACTIVATE | DEACTIVATED | DELETED | ...
+  skus?: SkuTikTok[] | null;
+};
+
+/* Catálogo completo del vendedor. El search 202309 ya devuelve los SKUs con su
+   inventario y precio, así que no hace falta pedir el detalle uno por uno. */
+export async function listarProductosTikTok(cx: ConexionTikTok): Promise<ProductoTikTok[]> {
+  const todos: ProductoTikTok[] = [];
+  let pageToken = "";
+  for (;;) {
+    const query: Record<string, string> = { page_size: "100" };
+    if (pageToken) query.page_token = pageToken;
+    const data = await ttFetch<{ products?: ProductoTikTok[]; next_page_token?: string }>(
+      cx,
+      "POST",
+      "/product/202309/products/search",
+      { query, body: { status: "ALL" } },
+    );
+    todos.push(...(data.products ?? []));
+    if (!data.next_page_token) break;
+    pageToken = data.next_page_token;
+  }
+  return todos;
+}
+
+/* Stock actual de un SKU en TikTok (suma de sus almacenes). undefined = el
+   producto/SKU ya no existe. Lo usa el hub para leer antes de escribir. */
+export async function stockActualTikTok(
+  cx: ConexionTikTok,
+  productId: string,
+  skuId: string,
+): Promise<number | undefined> {
+  const p = await ttFetch<ProductoTikTok>(cx, "GET", `/product/202309/products/${productId}`);
+  const sku = p.skus?.find((s) => s.id === skuId);
+  if (!sku) return undefined;
+  return Math.max(0, (sku.inventory ?? []).reduce((a, i) => a + (i.quantity ?? 0), 0));
+}
+
+/* Actualiza el stock de un SKU en el almacén principal (el inventario en TikTok
+   es por almacén: hay que decir a cuál va la cantidad). */
+export async function actualizarStockTikTok(
+  cx: ConexionTikTok,
+  productId: string,
+  skuId: string,
+  cantidad: number,
+): Promise<void> {
+  if (!cx.warehouseId) throw new Error("TikTok Shop sin almacén configurado; reconecta la cuenta.");
+  await ttFetch(cx, "POST", `/product/202309/products/${productId}/inventory/update`, {
+    body: { skus: [{ id: skuId, inventory: [{ warehouse_id: cx.warehouseId, quantity: cantidad }] }] },
+  });
+}
+
+/* ------------------------------ Órdenes ---------------------------------- */
+
+export type LineItemTikTok = {
+  id: string; // único por renglón de la orden
+  product_id?: string;
+  sku_id?: string;
+  seller_sku?: string | null;
+  product_name?: string;
+  sale_price?: string; // precio unitario (cada line_item es una unidad)
+  currency?: string;
+};
+
+export type OrdenTikTok = {
+  id: string;
+  // UNPAID | ON_HOLD | AWAITING_SHIPMENT | AWAITING_COLLECTION | IN_TRANSIT |
+  // DELIVERED | COMPLETED | CANCELLED
+  status: string;
+  create_time?: number; // unix segundos
+  buyer_email?: string | null; // enmascarado (@scs.tiktok.com)
+  payment?: { total_amount?: string; sub_total?: string; currency?: string } | null;
+  line_items?: LineItemTikTok[] | null;
+  tracking_number?: string | null;
+};
+
+/* Órdenes del vendedor desde una fecha (unix seg), paginadas por page_token.
+   Incluye canceladas: el importador las usa para retirar ventas canceladas. */
+export async function listarOrdenesTikTok(cx: ConexionTikTok, desdeUnix: number): Promise<OrdenTikTok[]> {
+  const todas: OrdenTikTok[] = [];
+  let pageToken = "";
+  for (;;) {
+    const query: Record<string, string> = {
+      page_size: "50",
+      sort_field: "create_time",
+      sort_order: "DESC",
+    };
+    if (pageToken) query.page_token = pageToken;
+    const data = await ttFetch<{ orders?: OrdenTikTok[]; next_page_token?: string }>(
+      cx,
+      "POST",
+      "/order/202309/orders/search",
+      { query, body: { create_time_ge: desdeUnix } },
+    );
+    todas.push(...(data.orders ?? []));
+    if (!data.next_page_token) break;
+    pageToken = data.next_page_token;
+  }
+  return todas;
+}
+
+/* Una orden por id (la avisa el webhook). */
+export async function obtenerOrdenTikTok(cx: ConexionTikTok, orderId: string): Promise<OrdenTikTok | null> {
+  const data = await ttFetch<{ orders?: OrdenTikTok[] }>(cx, "GET", "/order/202309/orders", {
+    query: { ids: orderId },
+  });
+  return data.orders?.[0] ?? null;
 }
 
 export { ttFetch };
