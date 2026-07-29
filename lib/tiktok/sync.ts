@@ -16,11 +16,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   conexionTiktok,
   listarProductosTikTok,
+  obtenerProductoTikTok,
   type ConexionTikTok,
+  type ImagenTikTok,
   type ProductoTikTok,
   type SkuTikTok,
 } from "@/lib/tiktok/api";
 import { tipoDesdeProducto } from "@/lib/inventario/tipo-producto";
+import { colorDeVariante } from "@/lib/talla";
 
 export type ResumenSyncTikTok = {
   productos: number;
@@ -28,6 +31,9 @@ export type ResumenSyncTikTok = {
   actualizados: number;
   vinculados: number;
   desactivados: number;
+  /* Fichas de TikTok a las que se les copió la foto de un producto de Tienda
+     Nube con nombre parecido (TikTok no siempre trae imágenes). */
+  fotos_pobladas: number;
 };
 
 type UnidadTikTok = {
@@ -39,6 +45,8 @@ type UnidadTikTok = {
   precio: number | null;
   stock: number;
   activo: boolean;
+  /* Galería de la unidad (foto de la variante primero, si la trae). */
+  imagenes: string[];
 };
 
 type FilaProducto = {
@@ -47,9 +55,198 @@ type FilaProducto = {
   sku: string | null;
   tiktok_product_id: string | null;
   tiktok_sku_id: string | null;
+  /* Para no pisar las fotos buenas de TN/ML con las de TikTok en fichas unificadas. */
+  tiendanube_variant_id: number | null;
+  meli_item_id: string | null;
 };
 
-const CAMPOS_FILA = "id, stock, sku, tiktok_product_id, tiktok_sku_id";
+const CAMPOS_FILA =
+  "id, stock, sku, tiktok_product_id, tiktok_sku_id, tiendanube_variant_id, meli_item_id";
+
+/* URL utilizable de una imagen de TikTok: primero las grandes (`urls`), luego
+   las miniaturas; se dejan `url_list`/`thumb_url_list` como respaldo de la API
+   vieja. La primera no vacía. */
+function urlImagen(img: ImagenTikTok | null | undefined): string | null {
+  const listas = [img?.urls, img?.url_list, img?.thumb_urls, img?.thumb_url_list];
+  for (const lista of listas) {
+    const u = lista?.find((x) => !!x?.trim());
+    if (u) return u;
+  }
+  return null;
+}
+
+/* Foto propia de la variante por COLOR: en v202309 no viene en `sku.sku_img`
+   (suele estar vacío) sino dentro del atributo de venta "Color"
+   (`sales_attributes[].sku_img`). Se toma la primera que traiga imagen. */
+function imagenColorDe(sku: SkuTikTok): ImagenTikTok | null {
+  for (const a of sku.sales_attributes ?? []) if (a.sku_img) return a.sku_img;
+  return null;
+}
+
+/* Galería de una unidad: la foto del COLOR de la variante al frente, luego la
+   galería principal del producto, sin repetidas ni vacías. */
+function galeriaDe(p: ProductoTikTok, sku: SkuTikTok): string[] {
+  const colorImg = urlImagen(sku.sku_img) ?? urlImagen(imagenColorDe(sku));
+  const urls = [colorImg, ...(p.main_images ?? []).map(urlImagen)].filter(
+    (u): u is string => !!u,
+  );
+  return [...new Set(urls)];
+}
+
+/* Columnas de imagen para el upsert; se omiten si la unidad no trae fotos, para
+   no borrar la que ya tenga la ficha. */
+function fotos(u: UnidadTikTok): Record<string, unknown> {
+  if (u.imagenes.length === 0) return {};
+  return { imagen_url: u.imagenes[0], imagenes: u.imagenes };
+}
+
+/* El `products/search` de TikTok NO devuelve imágenes ni atributos de venta
+   (color/talla): solo vienen en el DETALLE de cada producto. Se traen con una
+   llamada por producto (concurrencia limitada) y se inyectan en `main_images` y
+   en los `sales_attributes` (con su `sku_img` por color) de cada SKU del catálogo
+   en memoria. Sin esto, `variante` queda vacía y las fotos no se guardan. */
+async function enriquecerImagenes(cx: ConexionTikTok, productos: ProductoTikTok[]): Promise<void> {
+  const CONCURRENCIA = 8;
+  for (let i = 0; i < productos.length; i += CONCURRENCIA) {
+    await Promise.all(
+      productos.slice(i, i + CONCURRENCIA).map(async (p) => {
+        const detalle = await obtenerProductoTikTok(cx, p.id);
+        if (!detalle) return;
+        if (detalle.main_images?.length) p.main_images = detalle.main_images;
+        const detPorSku = new Map((detalle.skus ?? []).map((s) => [s.id, s]));
+        for (const s of p.skus ?? []) {
+          const det = detPorSku.get(s.id);
+          if (!det) continue;
+          if (det.sales_attributes?.length) s.sales_attributes = det.sales_attributes;
+          if (det.sku_img) s.sku_img = det.sku_img;
+        }
+      }),
+    );
+  }
+}
+
+/* ---- Poblado de imágenes desde el catálogo de Tienda Nube (por nombre) ------
+   TikTok no siempre trae fotos. Como los productos de Tienda Nube (que sí tienen
+   foto) se llaman casi igual, se copia la imagen del más parecido por nombre. */
+
+function normalizarNombre(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // quita acentos
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* Copia la foto de un producto de Tienda Nube (mismo nombre) a las fichas de
+   TikTok que se quedaron sin imagen propia. Red de seguridad: TikTok ya trae su
+   foto por color; esto solo cubre las contadas fichas sin ninguna. Idempotente.
+   Devuelve cuántas se poblaron. */
+type FuenteTN = { nombre: string; variante: string | null; imagen_url: string; imagenes: string[] | null };
+
+/* Un producto de TN agrupado: sus variantes comparten nombre, y cada COLOR tiene
+   su foto (imagen_url por variante). */
+type GrupoFuente = {
+  porColor: Map<string, string>; // color normalizado → imagen_url
+  distintas: Set<string>; // imágenes distintas del grupo
+};
+
+export async function poblarImagenesTikTokDesdeCatalogo(): Promise<number> {
+  const admin = createAdminClient();
+
+  // Fuente: variantes de Tienda Nube con foto (imagen_url es la foto por color).
+  const { data: fuentesRaw, error: eF } = await admin
+    .from("products")
+    .select("nombre, variante, imagen_url, imagenes")
+    .not("tiendanube_variant_id", "is", null)
+    .not("imagen_url", "is", null);
+  if (eF) throw new Error(eF.message);
+
+  const fuentes = (fuentesRaw ?? []) as FuenteTN[];
+  if (fuentes.length === 0) return 0;
+
+  // URLs que provienen de TN: sirven para saber qué fotos de TikTok pusimos
+  // nosotros (y por tanto se pueden corregir) vs. las reales de TikTok.
+  const urlsTN = new Set(fuentes.map((f) => f.imagen_url));
+
+  // Agrupar por nombre normalizado; dentro, indexar la foto por color.
+  const grupos = new Map<string, GrupoFuente>();
+  for (const f of fuentes) {
+    const clave = normalizarNombre(f.nombre);
+    let g = grupos.get(clave);
+    if (!g) {
+      g = { porColor: new Map(), distintas: new Set() };
+      grupos.set(clave, g);
+    }
+    g.distintas.add(f.imagen_url);
+    const color = colorDeVariante(f.variante);
+    if (color && !g.porColor.has(color)) g.porColor.set(color, f.imagen_url);
+  }
+
+  // Objetivo: fichas SOLO-TikTok (sin foto o con foto que copiamos de TN).
+  const { data: objetivoRaw, error: eO } = await admin
+    .from("products")
+    .select("id, nombre, variante, imagen_url")
+    .not("tiktok_product_id", "is", null)
+    .is("tiendanube_variant_id", null)
+    .is("meli_item_id", null);
+  if (eO) throw new Error(eO.message);
+
+  const cambios: { id: string; imagen_url: string }[] = [];
+  for (const o of (objetivoRaw ?? []) as {
+    id: string;
+    nombre: string;
+    variante: string | null;
+    imagen_url: string | null;
+  }[]) {
+    // Solo tocar filas sin foto o cuya foto la pusimos desde TN (no pisar TikTok real).
+    if (o.imagen_url && !urlsTN.has(o.imagen_url)) continue;
+
+    // Ubicar el grupo por nombre EXACTO normalizado (sin cruces difusos entre
+    // productos distintos, que ponían fotos equivocadas).
+    const grupo = grupos.get(normalizarNombre(o.nombre)) ?? null;
+    if (!grupo) continue;
+
+    let imagen: string | null = null;
+    if (grupo.distintas.size === 1) {
+      // Producto con una sola foto (sin variantes de color): se usa esa.
+      imagen = [...grupo.distintas][0];
+    } else {
+      // Multicolor: la foto del color de esta variante.
+      const color = colorDeVariante(o.variante);
+      if (color) {
+        imagen = grupo.porColor.get(color) ?? null;
+        if (!imagen) {
+          // Tolerancia: color que comparte alguna palabra ("Rosa" vs "Rosa Mexicano").
+          const tks = new Set(color.split(" "));
+          for (const [c, url] of grupo.porColor) {
+            if (c.split(" ").some((t) => tks.has(t))) {
+              imagen = url;
+              break;
+            }
+          }
+        }
+      }
+      // Si no se identifica el color, se deja como está (no forzar un repetido).
+    }
+
+    if (imagen && imagen !== o.imagen_url) cambios.push({ id: o.id, imagen_url: imagen });
+  }
+
+  for (let i = 0; i < cambios.length; i += 20) {
+    await Promise.all(
+      cambios.slice(i, i + 20).map(async ({ id, imagen_url }) => {
+        const { error } = await admin
+          .from("products")
+          .update({ imagen_url, imagenes: [imagen_url] })
+          .eq("id", id);
+        if (error) throw new Error(error.message);
+      }),
+    );
+  }
+  return cambios.length;
+}
 
 function numero(v: string | null | undefined): number | null {
   if (v == null || v === "") return null;
@@ -85,13 +282,14 @@ function unidadesDe(p: ProductoTikTok): UnidadTikTok[] {
     precio: precioDe(s),
     stock: stockDe(s),
     activo,
+    imagenes: galeriaDe(p, s),
   }));
 }
 
 /* Upsert de un lote de productos de TikTok, con matching por SKU. */
 export async function sincronizarProductosTikTok(
   productos: ProductoTikTok[],
-): Promise<Omit<ResumenSyncTikTok, "productos" | "desactivados">> {
+): Promise<Omit<ResumenSyncTikTok, "productos" | "desactivados" | "fotos_pobladas">> {
   const admin = createAdminClient();
   const unidades = productos.flatMap(unidadesDe);
   const skuIds = [...new Set(unidades.map((u) => u.skuId))];
@@ -132,12 +330,25 @@ export async function sincronizarProductosTikTok(
     const existente = vinculadas.get(u.skuId);
 
     if (existente) {
+      /* Un producto que también vive en Tienda Nube o Mercado Libre tiene ahí su
+         dueño del catálogo Y del inventario. TikTok es un canal más, con su stock
+         INDEPENDIENTE: no debe pisar su stock, ni su estado activo, ni su ficha.
+         Ya pasó una vez —la sync dejó MQR004 en stock 0 y desactivado, copiando
+         los valores de su publicación de TikTok encima de los reales de TN/ML—.
+         El vínculo con TikTok ya está puesto (por eso es `existente`), así que
+         para un producto multicanal no hay nada que actualizar aquí. */
+      const soloTikTok = existente.tiendanube_variant_id == null && existente.meli_item_id == null;
+      if (!soloTikTok) continue;
+
+      /* Ficha que vive SOLO en TikTok: aquí TikTok sí es la única fuente de
+         verdad, así que aporta todo (ficha, fotos, estado y su propio stock). */
       const fila: Record<string, unknown> = {
         nombre: u.nombre,
         variante: u.variante,
         precio: u.precio,
         sku: u.sku,
         activo: u.activo,
+        ...fotos(u),
         ...(u.stock !== existente.stock ? { stock: u.stock } : {}),
       };
       cambios.push({ id: existente.id, fila });
@@ -163,6 +374,7 @@ export async function sincronizarProductosTikTok(
       sku: u.sku,
       stock: u.stock,
       activo: u.activo,
+      ...fotos(u),
       ...tiktokIds,
     });
   }
@@ -191,6 +403,7 @@ export async function sincronizarProductoTikTok(productId: string): Promise<void
   const productos = await listarProductosTikTok(cx);
   const p = productos.find((x) => x.id === productId);
   if (p) {
+    await enriquecerImagenes(cx, [p]);
     await sincronizarProductosTikTok([p]);
     return;
   }
@@ -212,6 +425,8 @@ export async function importacionCompletaTikTok(cx?: ConexionTikTok): Promise<Re
   if (!conexion) throw new Error("TikTok Shop no está conectado.");
 
   const productos = await listarProductosTikTok(conexion);
+  // El search no trae imágenes; se leen del detalle antes de guardar.
+  await enriquecerImagenes(conexion, productos);
   const resumenLote = await sincronizarProductosTikTok(productos);
 
   // Renglones solo-TikTok cuyo SKU ya no existe → inactivos.
@@ -233,9 +448,14 @@ export async function importacionCompletaTikTok(cx?: ConexionTikTok): Promise<Re
     if (errBaja) throw new Error(errBaja.message);
   }
 
+  // Rellenar las fichas de TikTok sin foto con la de un producto de Tienda Nube
+  // de nombre parecido (TikTok no siempre trae imágenes).
+  const fotos_pobladas = await poblarImagenesTikTokDesdeCatalogo();
+
   const resumen: ResumenSyncTikTok = {
     productos: productos.length,
     ...resumenLote,
+    fotos_pobladas,
     desactivados: sobrantes.length,
   };
 
