@@ -235,6 +235,7 @@ export function PanelPedidos({ pedidos, rol }: { pedidos: SaleConDetalle[]; rol:
         datos={visibles}
         filaKey={(p) => p.id}
         minW="min-w-[820px]"
+        onRowClick={(p) => setEnvio(p)}
         filaClassName={(p) => (esPedidoAtrasado(p.fecha, p.estado) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
         vacio={
           filtro === "pendientes"

@@ -261,6 +261,7 @@ export function PanelFinanzas({
           datos={visibles}
           filaKey={(g) => g.id}
           minW="min-w-[780px]"
+          onRowClick={(g) => setDialog(g)}
         />
       )}
 

@@ -230,6 +230,7 @@ export function PanelClientes({
           datos={visibles}
           filaKey={(c) => c.id}
           minW="min-w-[880px]"
+          onRowClick={setDetalle}
         />
       )}
 

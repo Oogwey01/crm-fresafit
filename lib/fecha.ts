@@ -90,6 +90,12 @@ function isoMas(fecha: string, n: number): string {
   return aISO(d);
 }
 
+/* Igual que isoMas pero público: suma n días a una fecha ISO "AAAA-MM-DD".
+   Devuelve "" si la fecha de entrada está vacía. */
+export function sumarDias(fecha: string, n: number): string {
+  return fecha ? isoMas(fecha, n) : "";
+}
+
 /* Rango libre elegido a mano y su bloque inmediatamente anterior del MISMO
    largo, para que el Δ de las tarjetas siga teniendo con qué comparar. */
 export function rangoPersonalizado(desde: string, hasta: string): {

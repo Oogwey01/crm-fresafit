@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/compartido/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { CATEGORIAS_GASTO } from "@/lib/catalogos";
@@ -174,12 +175,7 @@ export function GastoDialog({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="gasto-fecha">Fecha</Label>
-              <Input
-                id="gasto-fecha"
-                type="date"
-                value={fecha}
-                onChange={(e) => setFecha(e.target.value)}
-              />
+              <DatePicker id="gasto-fecha" value={fecha} onChange={setFecha} />
             </div>
             <div className="col-span-2 flex flex-col gap-1.5">
               <Label>Categoría</Label>

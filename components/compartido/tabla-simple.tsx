@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type MouseEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /* Tabla compartida con modo dual:
@@ -32,6 +32,7 @@ export function TablaSimple<T>({
   filaClassName,
   minW = "min-w-[760px]",
   vacio = "Sin datos.",
+  onRowClick,
 }: {
   cols: string; // clase grid-cols-[...] común a encabezado y filas (escritorio)
   columnas: Columna<T>[];
@@ -41,9 +42,22 @@ export function TablaSimple<T>({
   filaClassName?: (row: T) => string; // clases extra por fila/tarjeta
   minW?: string;
   vacio?: ReactNode;
+  /* Si se pasa, TODA la fila (o tarjeta en móvil) es clickeable. Los clics sobre
+     controles internos (botones, selects, enlaces, inputs…) NO la disparan. */
+  onRowClick?: (row: T) => void;
 }) {
   const tituloCol = columnas.find((c) => c.esTitulo);
   const camposCard = columnas.filter((c) => !c.esTitulo && !c.ocultarEnCard);
+
+  /* Ignora el clic de fila cuando cae sobre un control interactivo, para no
+     robarle el clic a los +/− de stock, selects de estado, enlaces, etc. */
+  const clicFila = (row: T) => (e: MouseEvent) => {
+    if (!onRowClick) return;
+    if ((e.target as HTMLElement).closest("button,a,select,input,textarea,label,[role=combobox],[role=menuitem]")) {
+      return;
+    }
+    onRowClick(row);
+  };
 
   return (
     <>
@@ -72,9 +86,11 @@ export function TablaSimple<T>({
             datos.map((row) => (
               <div
                 key={filaKey(row)}
+                onClick={onRowClick ? clicFila(row) : undefined}
                 className={cn(
                   "grid items-center gap-2 border-b px-6 py-3 text-sm last:border-b-0 hover:bg-accent/30",
                   cols,
+                  onRowClick && "cursor-pointer",
                   filaClassName?.(row),
                 )}
               >
@@ -100,7 +116,12 @@ export function TablaSimple<T>({
           datos.map((row) => (
             <div
               key={filaKey(row)}
-              className={cn("rounded-2xl border bg-card p-4 shadow-sm", filaClassName?.(row))}
+              onClick={onRowClick ? clicFila(row) : undefined}
+              className={cn(
+                "rounded-2xl border bg-card p-4 shadow-sm",
+                onRowClick && "cursor-pointer",
+                filaClassName?.(row),
+              )}
             >
               {tituloCol && (
                 <div className="mb-2.5 text-[15px] font-semibold">{tituloCol.celda(row)}</div>
