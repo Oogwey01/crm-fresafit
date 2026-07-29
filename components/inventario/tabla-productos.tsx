@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { Image as ImageIcon, Minus, Plus } from "lucide-react";
+import { FilterX, Image as ImageIcon, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
@@ -10,6 +10,7 @@ import { tieneFull, stockFullDe, esTikTokDelegado } from "@/lib/inventario/reaba
 import { portadaProducto } from "@/lib/inventario/fotos";
 import { formatearMXN } from "@/lib/moneda";
 import { BadgeStock } from "@/components/inventario/badge-stock";
+import { Button } from "@/components/ui/button";
 import { ajustarStock } from "@/app/(app)/inventario/actions";
 import type { ProductConProveedor } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
@@ -53,16 +54,29 @@ function Miniatura({ src, alt }: { src: string | null; alt: string }) {
 
 export function TablaProductos({
   productos,
+  totalCatalogo,
   busqueda,
   filtroTipo,
   filtroStock,
+  filtrosActivos,
+  onLimpiarFiltros,
   escrituraCanales,
   onAbrir,
 }: {
+  /* Ya viene recortada por los filtros del panel (almacén, vigencia). */
   productos: ProductConProveedor[];
+  /* Productos del catálogo SIN ningún filtro. Es lo que permite distinguir
+     «no hay productos» de «los filtros los escondieron»: sin este dato, un
+     filtro que no deja pasar nada se leía como un catálogo vacío. */
+  totalCatalogo: number;
   busqueda: string;
   filtroTipo: string;
   filtroStock: string; // "todos" | agotado | por_acabarse | ok
+  /* Nombres legibles de los filtros puestos ("Almacén: Solo Mercado Full"), para
+     poder decir POR QUÉ no salió nada. Los junta el panel, que es quien los
+     conoce todos. */
+  filtrosActivos: string[];
+  onLimpiarFiltros: () => void;
   /* false (el default del sistema) = el ajuste es local, no viaja a los canales. */
   escrituraCanales: boolean;
   onAbrir: (p: ProductConProveedor) => void;
@@ -114,12 +128,38 @@ export function TablaProductos({
     });
 
   if (visibles.length === 0) {
+    /* El catálogo vacío de verdad es el único caso en que corresponde invitar a
+       dar de alta un producto. Si hay catálogo pero no pasó nada, la culpa es de
+       los filtros y hay que decir cuáles: una lista vacía sin explicación se lee
+       como «esto no existe». */
+    if (totalCatalogo === 0) {
+      return (
+        <p className="text-sm italic text-muted-foreground">
+          Aún no hay productos. Da de alta el primero con «+ Nuevo producto».
+        </p>
+      );
+    }
     return (
-      <p className="text-sm italic text-muted-foreground">
-        {productos.length === 0
-          ? "Aún no hay productos. Da de alta el primero con «+ Nuevo producto»."
-          : "Ningún producto coincide con la búsqueda."}
-      </p>
+      <div className="flex flex-col items-start gap-2.5 rounded-xl border bg-muted/30 px-4 py-3.5">
+        <p className="text-sm text-muted-foreground">
+          Ningún producto coincide con lo que tienes filtrado.
+          {filtrosActivos.length > 0 && (
+            <>
+              {" "}
+              Activo ahora: <b className="font-semibold text-foreground">{filtrosActivos.join(" · ")}</b>.
+            </>
+          )}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onLimpiarFiltros}
+          className="gap-1.5 rounded-[10px] text-[13px] font-semibold"
+        >
+          <FilterX className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
+          Limpiar filtros
+        </Button>
+      </div>
     );
   }
 
@@ -161,6 +201,18 @@ export function TablaProductos({
               title="TikTok Shop: inventario delegado (aparte de la bodega). No se suma al stock unificado."
             >
               TikTok
+            </span>
+          )}
+          {/* La marca de descontinuado tiene que verse en la fila: si solo existe
+              como ausencia en un filtro, no hay manera de confirmar que quedó
+              puesta. Sigue vendible —conserva stock y publicaciones—, así que el
+              tono es neutro y no de alerta. */}
+          {p.descontinuado && (
+            <span
+              className="shrink-0 rounded-md bg-slate-200 px-1.5 py-0.5 text-[10.5px] font-bold text-slate-600 dark:bg-slate-700 dark:text-slate-200"
+              title="Descontinuado: ya no se repone. Fuera de «Qué pedir» y de los avisos de stock bajo. Sigue vendiéndose mientras quede stock."
+            >
+              Descontinuado
             </span>
           )}
         </div>

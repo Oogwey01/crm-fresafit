@@ -293,6 +293,31 @@ export function PanelInventario({
     return true;
   });
 
+  /* Los filtros se acumulan, así que una combinación inocente («Solo Mercado
+     Full» + «Descontinuados») puede no dejar pasar nada. Para que la tabla pueda
+     decir POR QUÉ salió vacía, se le pasan los que están puestos con su nombre
+     legible. «Vigentes» cuenta como filtro activo aunque sea el default: es el
+     que esconde los descontinuados, y no saberlo es justo la trampa. */
+  const filtrosActivos = [
+    busqueda.trim() && `Búsqueda: «${busqueda.trim()}»`,
+    filtroTipo !== "todos" && `Tipo: ${obtenerTipoProducto(filtroTipo)?.nombre ?? filtroTipo}`,
+    filtroStock !== "todos" && `Stock: ${obtenerEstadoStock(filtroStock)?.nombre ?? filtroStock}`,
+    filtroLogistica !== "todos" &&
+      `Almacén: ${LOGISTICAS.find(([id]) => id === filtroLogistica)?.[1] ?? filtroLogistica}`,
+    filtroVigencia !== "todos" &&
+      `Vigencia: ${VIGENCIAS.find(([id]) => id === filtroVigencia)?.[1] ?? filtroVigencia}`,
+  ].filter(Boolean) as string[];
+
+  /* Deja ver TODO el catálogo: incluye la vigencia, que si no seguiría
+     escondiendo los descontinuados después de «limpiar». */
+  function limpiarFiltros() {
+    setBusqueda("");
+    setFiltroTipo("todos");
+    setFiltroStock("todos");
+    setFiltroLogistica("todos");
+    setFiltroVigencia("todos");
+  }
+
   /* Reconciliación: se corre a demanda (lee los catálogos en vivo de cada
      canal), así que el resultado vive aquí hasta que se vuelva a pedir. */
   const [revisando, startRevision] = useTransition();
@@ -757,9 +782,12 @@ export function PanelInventario({
       {pestana === "productos" && (
         <TablaProductos
           productos={productosVisibles}
+          totalCatalogo={productos.length}
           busqueda={busqueda}
           filtroTipo={filtroTipo}
           filtroStock={filtroStock}
+          filtrosActivos={filtrosActivos}
+          onLimpiarFiltros={limpiarFiltros}
           escrituraCanales={escrituraCanales}
           onAbrir={(p) => setProductoVistaId(p.id)}
         />
