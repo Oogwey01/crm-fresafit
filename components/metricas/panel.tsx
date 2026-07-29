@@ -3,13 +3,14 @@
 import { useMemo, useState, useTransition } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { CANALES, esGestor, obtenerCanal } from "@/lib/catalogos";
+import { CANALES, TIPOS_PRODUCTO, esGestor, obtenerCanal, obtenerTipoProducto } from "@/lib/catalogos";
 import { diasDesdeHoy, formatearFecha, hoyISO, rangoPersonalizado, rangosDePeriodo } from "@/lib/fecha";
 import { formatearMXN, formatearMXNCorto } from "@/lib/moneda";
+import { tallaDeVariante, compararTallas } from "@/lib/talla";
 import { importarVentasTiendanube } from "@/app/(app)/metricas/actions";
-import type { CanalId, Customer, Product, RolId, SaleConProducto } from "@/lib/types";
+import type { CanalId, Customer, Product, RolId, SaleConProducto, TipoProductoId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/compartido/date-picker";
 import {
   Select,
   SelectContent,
@@ -159,6 +160,9 @@ export function PanelMetricas({
   const [visibles, setVisibles] = useState(VENTAS_POR_PAGINA);
   const [ventaDialog, setVentaDialog] = useState<SaleConProducto | "nueva" | null>(null);
   const [importando, startImportar] = useTransition();
+  /* Desglose de «Productos estrella» por categoría y talla. */
+  const [catEstrella, setCatEstrella] = useState<TipoProductoId | "todas">("todas");
+  const [tallaEstrella, setTallaEstrella] = useState<string>("todas");
 
   const rangos =
     periodo === "personalizado" ? rangoPersonalizado(desde, hasta) : rangosDePeriodo(periodo);
@@ -219,10 +223,30 @@ export function PanelMetricas({
       .sort((a, b) => b.valor - a.valor);
   }, [delPeriodo]);
 
-  /* --- Top productos y sin movimiento (periodo elegido) --- */
+  /* --- Productos estrella, desglosables por categoría y talla --- */
+  /* Ventas del periodo acotadas a la categoría elegida (sin aplicar aún la
+     talla): base para el ranking de tallas y para las tallas disponibles. */
+  const ventasCategoria = useMemo(
+    () => (catEstrella === "todas" ? delPeriodo : delPeriodo.filter((v) => v.producto?.tipo === catEstrella)),
+    [delPeriodo, catEstrella],
+  );
+  /* Tallas presentes en la categoría (para poblar el filtro). */
+  const tallasDisponibles = useMemo(() => {
+    const s = new Set<string>();
+    for (const v of ventasCategoria) {
+      const t = tallaDeVariante(v.producto?.variante);
+      if (t) s.add(t);
+    }
+    return [...s].sort(compararTallas);
+  }, [ventasCategoria]);
+  /* Ventas ya acotadas por categoría Y talla → top de productos. */
   const topProductos = useMemo(() => {
+    const filtradas =
+      tallaEstrella === "todas"
+        ? ventasCategoria
+        : ventasCategoria.filter((v) => tallaDeVariante(v.producto?.variante) === tallaEstrella);
     const grupos = new Map<string, { nombre: string; monto: number; piezas: number }>();
-    for (const v of delPeriodo) {
+    for (const v of filtradas) {
       const clave = v.producto_id ?? `libre:${v.descripcion ?? "otro"}`;
       const g = grupos.get(clave) ?? { nombre: nombreVenta(v), monto: 0, piezas: 0 };
       g.monto += v.monto;
@@ -233,7 +257,18 @@ export function PanelMetricas({
       .map(([id, g]) => ({ id, nombre: g.nombre, valor: g.monto, detalle: `${g.piezas} pzas` }))
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 5);
-  }, [delPeriodo]);
+  }, [ventasCategoria, tallaEstrella]);
+  /* Ranking de tallas más vendidas (por piezas) en la categoría elegida. */
+  const tallasMasVendidas = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of ventasCategoria) {
+      const t = tallaDeVariante(v.producto?.variante) ?? "Sin talla";
+      m.set(t, (m.get(t) ?? 0) + v.cantidad);
+    }
+    return [...m.entries()]
+      .map(([nombre, piezas]) => ({ id: nombre, nombre, valor: piezas }))
+      .sort((a, b) => b.valor - a.valor);
+  }, [ventasCategoria]);
 
   const sinMovimiento = useMemo(() => {
     const vendidos = new Set(delPeriodo.map((v) => v.producto_id).filter(Boolean));
@@ -390,31 +425,31 @@ export function PanelMetricas({
           <label className="text-[13px] font-semibold text-muted-foreground" htmlFor="ventas-desde">
             Del
           </label>
-          <Input
-            id="ventas-desde"
-            type="date"
-            value={desde}
-            max={hasta}
-            onChange={(e) => {
-              setDesde(e.target.value);
-              setVisibles(VENTAS_POR_PAGINA);
-            }}
-            className="h-auto w-auto rounded-[10px] py-2"
-          />
+          <div className="w-[150px]">
+            <DatePicker
+              id="ventas-desde"
+              value={desde}
+              max={hasta}
+              onChange={(v) => {
+                setDesde(v);
+                setVisibles(VENTAS_POR_PAGINA);
+              }}
+            />
+          </div>
           <label className="text-[13px] font-semibold text-muted-foreground" htmlFor="ventas-hasta">
             al
           </label>
-          <Input
-            id="ventas-hasta"
-            type="date"
-            value={hasta}
-            min={desde}
-            onChange={(e) => {
-              setHasta(e.target.value);
-              setVisibles(VENTAS_POR_PAGINA);
-            }}
-            className="h-auto w-auto rounded-[10px] py-2"
-          />
+          <div className="w-[150px]">
+            <DatePicker
+              id="ventas-hasta"
+              value={hasta}
+              min={desde}
+              onChange={(v) => {
+                setHasta(v);
+                setVisibles(VENTAS_POR_PAGINA);
+              }}
+            />
+          </div>
           <span className="text-[12.5px] text-muted-foreground">
             {delPeriodo.length} {delPeriodo.length === 1 ? "venta" : "ventas"} ·{" "}
             {formatearMXN(totalListado)}
@@ -474,9 +509,73 @@ export function PanelMetricas({
           <ListaBarras items={porCanal} formatear={formatearMXN} punto altoBarra={26} />
         </div>
         <div className={cn(TARJETA, "px-6")}>
-          <h2 className={cn(ROTULO, "mb-4")}>Productos estrella</h2>
-          <ListaBarras items={topProductos} formatear={formatearMXN} anchoEtiqueta={190} />
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className={ROTULO}>Productos estrella</h2>
+            <div className="flex items-center gap-1.5">
+              <Select
+                value={catEstrella}
+                onValueChange={(v) => {
+                  setCatEstrella((v ?? "todas") as TipoProductoId | "todas");
+                  setTallaEstrella("todas");
+                }}
+              >
+                <SelectTrigger className="h-8 w-[150px] bg-card text-[12.5px]">
+                  <SelectValue>
+                    {(v: string) =>
+                      v === "todas" ? "Todas las categorías" : (obtenerTipoProducto(v)?.nombre ?? "Categoría")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas las categorías</SelectItem>
+                  {TIPOS_PRODUCTO.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {tallasDisponibles.length > 0 && (
+                <Select value={tallaEstrella} onValueChange={(v) => setTallaEstrella(v ?? "todas")}>
+                  <SelectTrigger className="h-8 w-[110px] bg-card text-[12.5px]">
+                    <SelectValue>{(v: string) => (v === "todas" ? "Todas las tallas" : v)}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todas">Todas las tallas</SelectItem>
+                    {tallasDisponibles.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+          <ListaBarras
+            items={topProductos}
+            formatear={formatearMXN}
+            anchoEtiqueta={190}
+            vacio="Sin ventas con estos filtros en el periodo."
+          />
         </div>
+      </div>
+
+      {/* Tallas más vendidas (de la categoría elegida arriba) */}
+      <div className={cn(TARJETA, "mb-4 px-6")}>
+        <h2 className={cn(ROTULO, "mb-4")}>
+          Tallas más vendidas
+          {catEstrella !== "todas" && (
+            <span className="ml-1.5 font-medium normal-case tracking-normal text-muted-foreground">
+              · {obtenerTipoProducto(catEstrella)?.nombre}
+            </span>
+          )}
+        </h2>
+        <ListaBarras
+          items={tallasMasVendidas}
+          formatear={(n) => `${n} pzas`}
+          anchoEtiqueta={130}
+          vacio="Sin ventas con talla identificable en el periodo."
+        />
       </div>
 
       {/* Sin movimiento */}
@@ -535,6 +634,7 @@ export function PanelMetricas({
             columnas={columnasVenta}
             datos={listadas}
             filaKey={(v) => v.id}
+            onRowClick={(v) => setVentaDialog(v)}
           />
           {listadas.length < delPeriodo.length && (
             <div className="mt-3 flex justify-center">

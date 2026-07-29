@@ -20,7 +20,7 @@ export default async function MetricasPage() {
   const [ventasRes, productosRes, clientesRes, perfilRes, tiendanube] = await Promise.all([
     supabase
       .from("sales")
-      .select("*, producto:products!producto_id(id, nombre, variante)")
+      .select("*, producto:products!producto_id(id, nombre, variante, tipo)")
       .gte("fecha", diasDesdeHoy(-DIAS_VENTANA))
       .or("estado.is.null,estado.neq.cancelado") // los cancelados no cuentan como venta
       .order("fecha", { ascending: false })

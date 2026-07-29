@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/compartido/date-picker";
 import { Label } from "@/components/ui/label";
 import { CANALES } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
@@ -273,7 +274,7 @@ export function VentaDialog({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="venta-fecha">Fecha</Label>
-              <Input id="venta-fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              <DatePicker id="venta-fecha" value={fecha} onChange={setFecha} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="venta-cantidad">Cantidad</Label>
