@@ -83,6 +83,7 @@ export function ProductoDialog({
   const [proveedorId, setProveedorId] = useState(producto?.proveedor_id ?? SIN_PROVEEDOR);
   const [activo, setActivo] = useState(producto?.activo ?? true);
   const [bajoPedido, setBajoPedido] = useState(producto?.bajo_pedido ?? false);
+  const [descontinuado, setDescontinuado] = useState(producto?.descontinuado ?? false);
   const [notas, setNotas] = useState(producto?.notas ?? "");
 
   function guardar() {
@@ -101,6 +102,7 @@ export function ProductoDialog({
       proveedor_id: proveedorId === SIN_PROVEEDOR ? null : proveedorId,
       activo,
       bajo_pedido: bajoPedido,
+      descontinuado,
       notas,
     };
     startTransition(async () => {
@@ -319,6 +321,23 @@ export function ProductoDialog({
               <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
                 Se fabrica cuando alguien lo compra (personalizados). No lleva inventario: queda
                 fuera de los agotados y de «Qué pedir».
+              </span>
+            </span>
+          </label>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={descontinuado}
+              onChange={(e) => setDescontinuado(e.target.checked)}
+              className="mt-0.5 size-4 accent-primary"
+            />
+            <span>
+              Descontinuado (ya no se repone)
+              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
+                Líneas viejas que no se van a volver a maquilar (p. ej. las OG). Conserva su
+                histórico y su stock, pero queda fuera de «Qué pedir» y de los avisos, y se oculta
+                del catálogo vigente.
               </span>
             </span>
           </label>

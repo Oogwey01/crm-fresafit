@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
 import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
-import { esFull } from "@/lib/inventario/reabastecimiento";
+import { tieneFull, stockFullDe, esTikTokDelegado } from "@/lib/inventario/reabastecimiento";
 import { portadaProducto } from "@/lib/inventario/fotos";
 import { formatearMXN } from "@/lib/moneda";
 import { BadgeStock } from "@/components/inventario/badge-stock";
@@ -15,7 +15,7 @@ import type { ProductConProveedor } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { cn } from "@/lib/utils";
 
-const COLS = "grid-cols-[minmax(180px,1fr)_120px_100px_215px]";
+const COLS = "grid-cols-[minmax(180px,1fr)_130px_120px_100px_215px]";
 
 /* Pastilla suave: fondo del color del tipo al 12% de opacidad + texto sólido
    (en vez de fondo sólido + texto blanco), para verse ligera junto a las
@@ -94,16 +94,24 @@ export function TablaProductos({
   }
 
   const q = busqueda.trim().toLowerCase();
-  const visibles = productos.filter(
-    (p) =>
-      (filtroTipo === "todos" || p.tipo === filtroTipo) &&
-      (filtroStock === "todos" || estadoStock(p) === filtroStock) &&
-      (!q ||
-        p.nombre.toLowerCase().includes(q) ||
-        (p.sku ?? "").toLowerCase().includes(q) ||
-        (p.variante ?? "").toLowerCase().includes(q) ||
-        (p.proveedor?.nombre ?? "").toLowerCase().includes(q)),
-  );
+  const visibles = productos
+    .filter(
+      (p) =>
+        (filtroTipo === "todos" || p.tipo === filtroTipo) &&
+        (filtroStock === "todos" || estadoStock(p) === filtroStock) &&
+        (!q ||
+          p.nombre.toLowerCase().includes(q) ||
+          (p.sku ?? "").toLowerCase().includes(q) ||
+          (p.variante ?? "").toLowerCase().includes(q) ||
+          (p.proveedor?.nombre ?? "").toLowerCase().includes(q)),
+    )
+    /* Mismo producto, sus tallas juntas: se agrupan por nombre y, dentro, se
+       ordenan por variante (talla) para que no queden dispersas por la lista. */
+    .sort((a, b) => {
+      const n = a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" });
+      if (n !== 0) return n;
+      return (a.variante ?? "").localeCompare(b.variante ?? "", "es", { numeric: true });
+    });
 
   if (visibles.length === 0) {
     return (
@@ -133,16 +141,42 @@ export function TablaProductos({
             {p.variante && <span className="ml-1.5 text-muted-foreground">· {p.variante}</span>}
             {!p.activo && <span className="ml-1.5 text-xs italic text-muted-foreground">(inactivo)</span>}
           </button>
-          {esFull(p) && (
+          {tieneFull(p) && (
             <span
               className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10.5px] font-bold text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-              title="Mercado Full: este stock está en un centro de Mercado Libre, no en la bodega."
+              title={
+                stockFullDe(p) > 0
+                  ? `Mercado Full: ${stockFullDe(p)} piezas en un centro de Mercado Libre, aparte de la bodega.`
+                  : "Publicación en Mercado Full sin existencias en el centro de Mercado Libre."
+              }
             >
-              Full
+              {/* Sin número mientras el depósito esté vacío: un «Full 0» se lee
+                  como un dato faltante y no como lo que es. */}
+              Full{stockFullDe(p) > 0 ? ` ${stockFullDe(p)}` : ""}
+            </span>
+          )}
+          {esTikTokDelegado(p) && (
+            <span
+              className="shrink-0 rounded-md bg-neutral-800 px-1.5 py-0.5 text-[10.5px] font-bold text-white dark:bg-neutral-200 dark:text-neutral-900"
+              title="TikTok Shop: inventario delegado (aparte de la bodega). No se suma al stock unificado."
+            >
+              TikTok
             </span>
           )}
         </div>
       ),
+    },
+    {
+      clave: "sku",
+      label: "SKU",
+      celda: (p) =>
+        p.sku ? (
+          <span className="font-mono text-[12.5px] text-muted-foreground" title={p.sku}>
+            {p.sku}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/40">—</span>
+        ),
     },
     { clave: "tipo", label: "Tipo", celda: (p) => <PastillaTipo tipo={p.tipo} /> },
     { clave: "precio", label: "Precio", celda: (p) => <div>{formatearMXN(p.precio)}</div> },
@@ -194,6 +228,7 @@ export function TablaProductos({
       filaKey={(p) => p.id}
       filaClassName={(p) => (!p.activo ? "opacity-50" : "")}
       minW="min-w-[650px]"
+      onRowClick={onAbrir}
     />
   );
 }

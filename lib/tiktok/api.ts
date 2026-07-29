@@ -253,18 +253,33 @@ export async function listarWarehousesTikTok(cx: ConexionTikTok): Promise<Wareho
 
 /* ------------------------------ Productos -------------------------------- */
 
+/* Imagen de TikTok. La API v202309 devuelve las URLs grandes en `urls` y las
+   miniaturas en `thumb_urls` (NO `url_list`/`thumb_url_list`, que eran de una
+   versión vieja; se dejan como respaldo). `uri` es el id interno. */
+export type ImagenTikTok = {
+  uri?: string | null;
+  urls?: string[] | null;
+  thumb_urls?: string[] | null;
+  url_list?: string[] | null;
+  thumb_url_list?: string[] | null;
+};
+
 export type SkuTikTok = {
   id: string;
   seller_sku?: string | null;
   price?: { sale_price?: string; tax_exclusive_price?: string; currency?: string } | null;
   inventory?: { quantity: number; warehouse_id: string }[] | null;
-  sales_attributes?: { name?: string; value_name?: string }[] | null;
+  sales_attributes?: { name?: string; value_name?: string; sku_img?: ImagenTikTok | null }[] | null;
+  /* Foto propia de la variante (si la publicación la trae). */
+  sku_img?: ImagenTikTok | null;
 };
 
 export type ProductoTikTok = {
   id: string;
   title?: string;
   status?: string; // ACTIVATE | DEACTIVATED | DELETED | ...
+  /* Galería principal de la publicación (la comparten todos sus SKUs). */
+  main_images?: ImagenTikTok[] | null;
   skus?: SkuTikTok[] | null;
 };
 
@@ -287,6 +302,19 @@ export async function listarProductosTikTok(cx: ConexionTikTok): Promise<Product
     pageToken = data.next_page_token;
   }
   return todos;
+}
+
+/* Detalle completo de un producto (incluye `main_images`, que el search NO
+   devuelve). null = ya no existe. Lo usa la sync para traer las imágenes. */
+export async function obtenerProductoTikTok(
+  cx: ConexionTikTok,
+  productId: string,
+): Promise<ProductoTikTok | null> {
+  try {
+    return await ttFetch<ProductoTikTok>(cx, "GET", `/product/202309/products/${productId}`);
+  } catch {
+    return null;
+  }
 }
 
 /* Stock actual de un SKU en TikTok (suma de sus almacenes). undefined = el

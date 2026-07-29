@@ -40,7 +40,10 @@ export type ParamsReorden = {
 };
 
 export const PARAMS_REORDEN_DEFAULT: ParamsReorden = {
-  diasEntregaDefault: 45,
+  /* 3 meses: la mayoría de las líneas (cinturones, hebillas, muñequeras, straps)
+     tardan ~1 mes de maquila + ~2 de producción/tránsito/aduana. Es el punto de
+     partida cuando el proveedor no tiene su propio tiempo capturado. */
+  diasEntregaDefault: 90,
   diasEnvioFull: 7,
   diasColchon: 10,
   diasCoberturaObjetivo: 60,
@@ -116,6 +119,11 @@ export type GrupoReorden = {
 
   stockBodega: number;
   stockFull: number;
+  /* Inventario delegado a TikTok Shop (renglones solo-TikTok). Va aparte: NO se
+     suma a la bodega ni al total, porque hoy es un almacén separado que no
+     surtimos nosotros. Mientras no se unifique, es solo informativo. */
+  stockTikTok: number;
+  enTikTok: boolean;
   stockTotal: number;
   enCamino: number;
 
@@ -138,9 +146,67 @@ export type GrupoReorden = {
 
 const LOGISTICA_FULL = "fulfillment";
 
-/* ¿El renglón es una publicación de Mercado Full? */
+/* ¿El renglón es una publicación de Mercado Full? (por su modalidad de envío).
+   Sirve para la reconciliación, que excluye cualquier publicación fulfillment de
+   la comparación de stock de Mercado Libre. */
 export function esFull(p: { meli_logistic_type?: string | null }): boolean {
   return p.meli_logistic_type === LOGISTICA_FULL;
+}
+
+/* ¿La columna `stock` de este renglón ES el depósito de Mercado Full?
+   Solo cuando ML gobierna su inventario, es decir, cuando la ficha NO vive
+   también en Tienda Nube: si vive allá, `stock` es la bodega y el depósito de
+   Full va aparte, en `meli_stock_full`. Sirve para no contar el depósito como
+   bodega (ni al revés: mostrar la bodega —p. ej. 356— bajo el filtro de
+   Mercado Full era el bug de la primera versión). */
+export function esDepositoFull(p: {
+  meli_logistic_type?: string | null;
+  tiendanube_variant_id?: number | null;
+}): boolean {
+  return esFull(p) && p.tiendanube_variant_id == null;
+}
+
+/* Unidades de este renglón que están en el centro de Mercado Full. El número lo
+   escribe la sync de ML en `meli_stock_full`; el respaldo cubre las fichas
+   solo-ML que aún no han pasado por una sync desde que existe la columna. */
+export function stockFullDe(p: {
+  meli_logistic_type?: string | null;
+  tiendanube_variant_id?: number | null;
+  meli_stock_full?: number | null;
+  stock: number;
+}): number {
+  if (p.meli_stock_full != null) return p.meli_stock_full;
+  return esDepositoFull(p) ? p.stock : 0;
+}
+
+/* ¿Este renglón tiene inventario en Mercado Full? (aunque además esté en la
+   bodega de Tienda Nube). Es lo que decide el distintivo «Full» y el filtro de
+   almacén del inventario. */
+export function tieneFull(p: {
+  meli_logistic_type?: string | null;
+  tiendanube_variant_id?: number | null;
+  meli_stock_full?: number | null;
+  stock: number;
+}): boolean {
+  return esFull(p) || stockFullDe(p) > 0;
+}
+
+/* ¿El renglón está mapeado a TikTok Shop? (tenga o no otro canal). */
+export function esTikTok(p: { tiktok_product_id?: string | null }): boolean {
+  return p.tiktok_product_id != null;
+}
+
+/* Renglón DELEGADO a TikTok: mapeado a TikTok y a ningún otro canal. Es el
+   inventario aparte (p. ej. el que un revendedor maneja por su cuenta), así que
+   no cuenta como bodega nuestra. Un renglón que además vive en Tienda Nube o
+   Mercado Libre es el MISMO producto físico publicado también en TikTok: ese sí
+   es bodega. */
+export function esTikTokDelegado(p: {
+  tiktok_product_id?: string | null;
+  tiendanube_variant_id?: number | null;
+  meli_item_id?: string | null;
+}): boolean {
+  return esTikTok(p) && p.tiendanube_variant_id == null && p.meli_item_id == null;
 }
 
 /* Producto con lo mínimo que necesita el cálculo (acepta ProductConProveedor). */
@@ -154,9 +220,12 @@ type ProductoReorden = Pick<
   | "stock"
   | "activo"
   | "bajo_pedido"
+  | "descontinuado"
   | "meli_item_id"
   | "meli_logistic_type"
+  | "meli_stock_full"
   | "tiendanube_variant_id"
+  | "tiktok_product_id"
   | "proveedor"
 >;
 
@@ -189,9 +258,10 @@ export function calcularReabastecimiento({
   canal = "todas",
   params = PARAMS_REORDEN_DEFAULT,
 }: OpcionesReabastecimiento): GrupoReorden[] {
-  /* Fuera los inactivos y los de bajo pedido: éstos se fabrican contra el pedido
-     del cliente, así que su stock 0 no es un faltante que haya que reponer. */
-  const activos = productos.filter((p) => p.activo && !p.bajo_pedido);
+  /* Fuera los inactivos, los de bajo pedido y los descontinuados: éstos no son
+     un faltante que haya que reponer (los de bajo pedido se fabrican contra el
+     pedido del cliente; los descontinuados ya no se reponen). */
+  const activos = productos.filter((p) => p.activo && !p.bajo_pedido && !p.descontinuado);
 
   /* 1) Agrupar renglones por SKU (los que no tienen, por su propio id). */
   const grupos = new Map<string, ProductoReorden[]>();
@@ -220,13 +290,20 @@ export function calcularReabastecimiento({
   const filas: GrupoReorden[] = [];
   for (const [clave, renglones] of grupos) {
     const cabeza = mejorRenglon(renglones);
-    const enFullRenglones = renglones.filter(esFull);
+    // Renglones DELEGADOS a TikTok: su stock es un almacén aparte, no la bodega.
+    const enTikTokRenglones = renglones.filter(esTikTokDelegado);
 
-    // Bodega: el MAYOR de los no-Full (mismo inventario publicado en dos lados).
-    // Full: la SUMA (cada publicación tiene su propio depósito en ML).
-    const noFull = renglones.filter((p) => !esFull(p));
-    const stockBodega = noFull.reduce((max, p) => Math.max(max, p.stock), 0);
-    const stockFull = enFullRenglones.reduce((a, p) => a + p.stock, 0);
+    // Bodega: el MAYOR de los renglones que la representan (mismo inventario
+    // físico publicado en varios lados; sumarlo duplicaría). Quedan fuera los
+    // que no son bodega: el depósito de Full que gobierna ML y el inventario
+    // delegado a TikTok.
+    // Full: la SUMA del depósito de cada renglón, venga de `meli_stock_full`
+    // (producto que además está en la bodega) o de su propio `stock`.
+    // TikTok delegado: la SUMA, aparte, solo informativo.
+    const deBodega = renglones.filter((p) => !esDepositoFull(p) && !esTikTokDelegado(p));
+    const stockBodega = deBodega.reduce((max, p) => Math.max(max, p.stock), 0);
+    const stockFull = renglones.reduce((a, p) => a + stockFullDe(p), 0);
+    const stockTikTok = enTikTokRenglones.reduce((a, p) => a + p.stock, 0);
     const stockTotal = stockBodega + stockFull;
 
     const ventasGrupo = vendidas.get(clave) ?? { total: 0, ml: 0 };
@@ -259,7 +336,7 @@ export function calcularReabastecimiento({
         : diasDesdeHoy(Math.max(0, Math.floor(diasCobertura - diasEntrega - params.diasColchon)));
 
     // Full: se reabastece desde la bodega, con su propio (y mucho más corto) plazo.
-    const enFull = enFullRenglones.length > 0;
+    const enFull = renglones.some(tieneFull);
     const coberturaFull = enFull && demandaML > 0 ? stockFull / demandaML : null;
     const enviarAFull =
       enFull && coberturaFull !== null && coberturaFull < params.diasEnvioFull + params.diasColchon;
@@ -288,6 +365,8 @@ export function calcularReabastecimiento({
       enMercadoLibre: renglones.some((p) => p.meli_item_id != null),
       stockBodega,
       stockFull,
+      stockTikTok,
+      enTikTok: enTikTokRenglones.length > 0,
       stockTotal,
       enCamino: camino,
       unidades: ventasGrupo.total,

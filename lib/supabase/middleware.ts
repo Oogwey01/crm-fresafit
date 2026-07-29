@@ -20,6 +20,7 @@ const RUTAS_PUBLICAS = [
   "/api/mercadolibre",
   "/api/tiktok",
   "/api/inventario/foto",
+  "/api/inventario/reconciliacion",
   "/api/tareas/recordatorios",
 ];
 

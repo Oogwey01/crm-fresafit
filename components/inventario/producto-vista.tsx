@@ -18,7 +18,12 @@ import { BadgeStock } from "@/components/inventario/badge-stock";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
 import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
-import { esFull, obtenerUrgencia, type GrupoReorden } from "@/lib/inventario/reabastecimiento";
+import {
+  tieneFull,
+  stockFullDe,
+  obtenerUrgencia,
+  type GrupoReorden,
+} from "@/lib/inventario/reabastecimiento";
 import { galeriaProducto } from "@/lib/inventario/fotos";
 import { hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
@@ -438,6 +443,11 @@ export function ProductoVista({
                   {grupo.stockBodega} en bodega · {grupo.stockFull} en Mercado Full
                 </span>
               )}
+              {grupo.enTikTok && (
+                <span className="text-muted-foreground">
+                  {grupo.stockTikTok} en TikTok (inventario delegado, aparte de la bodega)
+                </span>
+              )}
               {grupo.productoIds.length > 1 && (
                 <span className="text-muted-foreground">
                   Comparte SKU con {grupo.productoIds.length - 1} ficha
@@ -481,12 +491,13 @@ export function ProductoVista({
                 )}
               </Chip>
             )}
-            {esFull(producto) && (
+            {tieneFull(producto) && (
               <span
                 className="rounded-md bg-amber-100 px-2 py-0.5 text-[11.5px] font-bold text-amber-700 dark:bg-amber-950 dark:text-amber-300"
-                title="Mercado Full: este stock está en un centro de Mercado Libre, no en la bodega."
+                title="Mercado Full: estas piezas están en un centro de Mercado Libre, aparte de la bodega."
               >
                 Mercado Full
+                {stockFullDe(producto) > 0 ? ` · ${stockFullDe(producto)} pzas` : ""}
               </span>
             )}
             {producto.tiendanube_variant_id == null && !producto.meli_item_id && (

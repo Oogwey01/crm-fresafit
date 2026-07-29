@@ -14,7 +14,10 @@ import type {
   SupplierOrderConDetalle,
   RolId,
   StockLog,
+  ConteoConProducto,
+  Profile,
 } from "@/lib/types";
+import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 
 export const metadata = { title: "Inventario · Fresafit" };
 
@@ -42,6 +45,9 @@ export default async function InventarioPage() {
     ventasRes,
     enCaminoRes,
     perfilRes,
+    equipoRes,
+    reconSnapRes,
+    conteosRes,
     tiendanube,
     mercadolibre,
     tiktok,
@@ -83,6 +89,17 @@ export default async function InventarioPage() {
     user
       ? supabase.from("profiles").select("rol").eq("id", user.id).single()
       : Promise.resolve({ data: null }),
+    // Equipo (para los selectores de "quién contó/corroboró" en el conteo físico).
+    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    // Última reconciliación guardada: se muestra al instante (la lectura en vivo
+    // de los canales es lo que tarda; se refresca con «Revisar ahora» o el cron).
+    supabase.from("reconciliacion_snapshots").select("resumen, creado_en").eq("id", "actual").maybeSingle(),
+    // Conteos físicos recientes (con el producto para comparar contra el CRM).
+    supabase
+      .from("conteos_fisicos")
+      .select("*, producto:products!producto_id(id, nombre, variante, sku, stock)")
+      .order("fecha", { ascending: false })
+      .limit(200),
     estadoTiendanube(),
     estadoMercadolibre(),
     estadoTiktok(),
@@ -104,6 +121,12 @@ export default async function InventarioPage() {
   const movimientos = (movimientosRes.data ?? []) as unknown as StockLog[];
   const ventas = (ventasRes.data ?? []) as unknown as VentaReorden[];
   const rol = ((perfilRes.data as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
+  const conteos = (conteosRes.data ?? []) as unknown as ConteoConProducto[];
+  const equipo = (equipoRes.data ?? []) as Profile[];
+  const snap = reconSnapRes.data as { resumen: ResumenReconciliacion; creado_en: string } | null;
+  const reconciliacionInicial = snap
+    ? { resumen: snap.resumen, creadoEn: snap.creado_en }
+    : null;
 
   /* Unidades pedidas que siguen sin llegar, por producto. El filtro de estado se
      hace aquí (PostgREST no filtra por columnas de la tabla embebida sin cambiar
@@ -134,6 +157,9 @@ export default async function InventarioPage() {
       tiktok={tiktok}
       escrituraCanales={ESCRITURA_CANALES}
       piloto={piloto}
+      conteos={conteos}
+      equipo={equipo}
+      reconciliacionInicial={reconciliacionInicial}
     />
   );
 }

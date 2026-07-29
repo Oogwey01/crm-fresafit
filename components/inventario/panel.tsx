@@ -20,7 +20,9 @@ import { esGestor } from "@/lib/catalogos";
 import { ESTADOS_STOCK, estadoStock, obtenerEstadoStock } from "@/lib/inventario/stock";
 import {
   calcularReabastecimiento,
-  esFull,
+  esDepositoFull,
+  tieneFull,
+  esTikTokDelegado,
   type EnCamino,
   type GrupoReorden,
   type ParamsReorden,
@@ -39,6 +41,8 @@ import type {
   SupplierOrderConDetalle,
   StockLog,
   RolId,
+  ConteoConProducto,
+  Profile,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +66,7 @@ import { PedidoProvDialog } from "@/components/inventario/pedido-prov-dialog";
 import { TablaMovimientos } from "@/components/inventario/tabla-movimientos";
 import { TablaDescuadres } from "@/components/inventario/tabla-descuadres";
 import { FichasDuplicadas } from "@/components/inventario/fichas-duplicadas";
+import { ConteoFisico } from "@/components/inventario/conteo-fisico";
 import { PanelPiloto } from "@/components/inventario/panel-piloto";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import { TablaReabastecer } from "@/components/inventario/tabla-reabastecer";
@@ -96,12 +101,21 @@ const ETIQUETA_NUEVO: Partial<Record<Pestana, string>> = {
   pedidos: "Nuevo pedido",
 };
 
-/* Filtro de dónde está guardado el stock (solo tiene sentido con ML conectado):
-   Mercado Full es un almacén distinto al de la bodega. */
+/* Filtro de dónde está guardado el stock: Mercado Full y el inventario delegado
+   a TikTok son almacenes distintos al de la bodega. */
 const LOGISTICAS = [
-  ["todos", "Full y bodega"],
-  ["full", "Solo Mercado Full"],
+  ["todos", "Todos los almacenes"],
   ["bodega", "Solo bodega"],
+  ["full", "Solo Mercado Full"],
+  ["tiktok", "Solo TikTok (delegado)"],
+] as const;
+
+/* Filtro de ciclo de vida: por defecto se ocultan los descontinuados para no
+   ensuciar el catálogo vigente (siguen consultables eligiendo su opción). */
+const VIGENCIAS = [
+  ["vigentes", "Vigentes"],
+  ["descontinuados", "Descontinuados"],
+  ["todos", "Todos"],
 ] as const;
 
 /* Filtro de canal para el historial de movimientos. */
@@ -144,6 +158,9 @@ export function PanelInventario({
   tiktok,
   escrituraCanales,
   piloto,
+  conteos,
+  equipo,
+  reconciliacionInicial,
 }: {
   productos: ProductConProveedor[];
   proveedores: Supplier[];
@@ -162,8 +179,17 @@ export function PanelInventario({
   escrituraCanales: boolean;
   /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
   piloto: EstadoPiloto;
+  /* Conteos físicos recientes (con su producto). */
+  conteos: ConteoConProducto[];
+  /* Equipo, para los selectores de "quién contó/corroboró". */
+  equipo: Profile[];
+  /* Última reconciliación guardada, para mostrarla al instante al entrar. */
+  reconciliacionInicial: { resumen: ResumenReconciliacion; creadoEn: string } | null;
 }) {
   const gestor = esGestor(rol);
+  /* Conectar/sincronizar canales queda solo para dirección: es una acción de
+     mantenimiento y da miedo que alguien la pique por error. */
+  const esDireccion = rol === "direccion";
   const [pestana, setPestana] = useState<Pestana>("productos");
   const [sincronizando, startSync] = useTransition();
   const [sincronizandoML, startSyncML] = useTransition();
@@ -250,17 +276,32 @@ export function PanelInventario({
   /* Filtro de semáforo de stock (solo aplica a la pestaña de productos). */
   const [filtroStock, setFiltroStock] = useState("todos");
 
-  /* Filtro de almacén: Mercado Full vs. bodega (solo con ML conectado). */
+  /* Filtro de almacén: bodega / Mercado Full / TikTok delegado. */
   const [filtroLogistica, setFiltroLogistica] = useState("todos");
-  const productosVisibles =
-    filtroLogistica === "todos"
-      ? productos
-      : productos.filter((p) => (filtroLogistica === "full" ? esFull(p) : !esFull(p)));
+  /* Filtro de ciclo de vida: por defecto solo los vigentes. */
+  const [filtroVigencia, setFiltroVigencia] = useState("vigentes");
+  const productosVisibles = productos.filter((p) => {
+    /* «Bodega» deja fuera lo que no está en ella: el depósito que gobierna
+       Mercado Full y el inventario delegado a TikTok. Un producto que está en
+       los dos sitios (bodega + Full) sale en ambos filtros, que es lo correcto:
+       tiene existencias en ambos almacenes. */
+    if (filtroLogistica === "bodega" && (esDepositoFull(p) || esTikTokDelegado(p))) return false;
+    if (filtroLogistica === "full" && !tieneFull(p)) return false;
+    if (filtroLogistica === "tiktok" && !esTikTokDelegado(p)) return false;
+    if (filtroVigencia === "vigentes" && p.descontinuado) return false;
+    if (filtroVigencia === "descontinuados" && !p.descontinuado) return false;
+    return true;
+  });
 
   /* Reconciliación: se corre a demanda (lee los catálogos en vivo de cada
      canal), así que el resultado vive aquí hasta que se vuelva a pedir. */
   const [revisando, startRevision] = useTransition();
-  const [reconciliacion, setReconciliacion] = useState<ResumenReconciliacion | null>(null);
+  const [reconciliacion, setReconciliacion] = useState<ResumenReconciliacion | null>(
+    reconciliacionInicial?.resumen ?? null,
+  );
+  const [ultimaRevision, setUltimaRevision] = useState<string | null>(
+    reconciliacionInicial?.creadoEn ?? null,
+  );
 
   function revisar() {
     startRevision(async () => {
@@ -270,6 +311,7 @@ export function PanelInventario({
         return;
       }
       setReconciliacion(r.resumen);
+      setUltimaRevision(r.creadoEn);
       const n = r.resumen.descuadres.length;
       const dup = r.resumen.duplicados.length;
       const repetidas = dup ? ` · ${dup} artículo${dup === 1 ? "" : "s"} con fichas repetidas` : "";
@@ -375,7 +417,11 @@ export function PanelInventario({
           )}
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-          {tiendanube.conectada ? (
+          {/* Conectar/sincronizar canales: solo dirección, para que nadie más lo
+              pique por error. La sync automática por cron sigue corriendo igual. */}
+          {esDireccion && (
+            <>
+              {tiendanube.conectada ? (
             <Button
               variant="outline"
               onClick={sincronizar}
@@ -440,6 +486,8 @@ export function PanelInventario({
               <Music2 className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
               Conectar TikTok Shop
             </Button>
+          )}
+            </>
           )}
           {ETIQUETA_NUEVO[pestana] && (
             <Button
@@ -569,9 +617,9 @@ export function PanelInventario({
                 ))}
               </SelectContent>
             </Select>
-            {mercadolibre.conectada && (
+            {(mercadolibre.conectada || tiktok.conectada) && (
               <Select value={filtroLogistica} onValueChange={(v) => setFiltroLogistica(v ?? "todos")}>
-                <SelectTrigger className="w-[175px] bg-card">
+                <SelectTrigger className="w-[185px] bg-card">
                   <SelectValue>
                     {(v: string) => LOGISTICAS.find(([id]) => id === v)?.[1] ?? "Almacén"}
                   </SelectValue>
@@ -585,6 +633,20 @@ export function PanelInventario({
                 </SelectContent>
               </Select>
             )}
+            <Select value={filtroVigencia} onValueChange={(v) => setFiltroVigencia(v ?? "vigentes")}>
+              <SelectTrigger className="w-[155px] bg-card">
+                <SelectValue>
+                  {(v: string) => VIGENCIAS.find(([id]) => id === v)?.[1] ?? "Vigencia"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {VIGENCIAS.map(([id, label]) => (
+                  <SelectItem key={id} value={id}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </>
         )}
 
@@ -738,15 +800,22 @@ export function PanelInventario({
               Mercado Libre, y lista solo lo que no coincide. Es de solo lectura: no corrige nada.
               Para arreglar un descuadre, ajústalo con los botones +/− en Productos.
             </p>
-            <Button
-              variant="outline"
-              onClick={revisar}
-              disabled={revisando}
-              className="h-auto shrink-0 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
-            >
-              <RefreshCw className={cn("size-[15px]", revisando && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
-              {revisando ? "Revisando…" : reconciliacion ? "Revisar de nuevo" : "Revisar ahora"}
-            </Button>
+            <div className="flex shrink-0 flex-col items-start gap-1 md:items-end">
+              <Button
+                variant="outline"
+                onClick={revisar}
+                disabled={revisando}
+                className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
+              >
+                <RefreshCw className={cn("size-[15px]", revisando && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
+                {revisando ? "Revisando…" : reconciliacion ? "Revisar de nuevo" : "Revisar ahora"}
+              </Button>
+              {ultimaRevision && (
+                <span className="text-[12px] text-muted-foreground">
+                  Última revisión: {fechaCorta(ultimaRevision)}
+                </span>
+              )}
+            </div>
           </div>
 
           {revisando && !reconciliacion && (
@@ -789,6 +858,8 @@ export function PanelInventario({
               Pulsa «Revisar ahora» para generar el reporte.
             </p>
           )}
+
+          <ConteoFisico conteos={conteos} productos={productos} equipo={equipo} />
         </div>
       )}
 
@@ -833,6 +904,7 @@ export function PanelInventario({
           proveedores={proveedores}
           productos={productos}
           gestor={gestor}
+          diasEntregaDefault={paramsReorden.diasEntregaDefault}
           itemsIniciales={pedidoDialog === "nuevo" ? itemsIniciales : undefined}
           onClose={() => {
             setPedidoDialog(null);

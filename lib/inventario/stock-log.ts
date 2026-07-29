@@ -21,13 +21,24 @@ export type EntradaStockLog = {
   /* true = el hub decidió esta escritura pero NO la aplicó (modo simulacro).
      Sirve para medir si acierta antes de darle permiso de escribir de verdad. */
   simulado?: boolean;
+  /* Id de la operación que agrupa este renglón con los demás que se escribieron
+     en la misma llamada. Casi nunca se pasa: lo asigna `registrarStockLog`. */
+  lote?: string;
 };
 
 export async function registrarStockLog(entradas: EntradaStockLog[]): Promise<void> {
   if (entradas.length === 0) return;
   try {
     const admin = createAdminClient();
-    const { error } = await admin.from("stock_log").insert(entradas);
+    // Un id de lote por llamada. Una operación (una corrida de sync, una
+    // recepción) inserta todos sus renglones de golpe con el mismo `creado_en`
+    // —`now()` es constante dentro de la transacción—, así que sin esto el
+    // historial los muestra como N cambios sueltos a la misma hora. Con el lote,
+    // la pantalla los junta en un bloque. Las entradas que ya traen `lote` lo
+    // conservan (por si algún flujo quiere agrupar entre varias llamadas).
+    const lote = crypto.randomUUID();
+    const filas = entradas.map((e) => ({ ...e, lote: e.lote ?? lote }));
+    const { error } = await admin.from("stock_log").insert(filas);
     if (error) console.error("[stock-log]", error.message);
   } catch (e) {
     console.error("[stock-log]", e);

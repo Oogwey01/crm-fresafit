@@ -16,6 +16,13 @@
    stock por completo y la sync de ML NO lo toca. Mercado Libre nunca escribe
    stock en Tienda Nube; el inventario de TN solo cambia con el ajuste manual
    del CRM (ajustarStock). Al vincular por SKU, ML se alinea hacia el CRM.
+
+   Mercado Full es la excepción, y por eso tiene columna propia: sus unidades
+   están en un centro de ML, no en la bodega. `stock` sigue siendo la bodega
+   —gobernada por Tienda Nube cuando el producto también vive allá— y
+   `meli_stock_full` guarda lo que hay en el depósito. Los dos números conviven
+   en la misma ficha; sumarlos en uno solo era lo que hacía invisible el
+   inventario de Full en el CRM.
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -24,6 +31,7 @@ import {
   listarItemsML,
   obtenerItemML,
   skuML,
+  LOGISTICA_FULL,
   type ConexionML,
   type ItemML,
 } from "@/lib/mercadolibre/api";
@@ -163,6 +171,59 @@ function fotos(u: UnidadML): Record<string, unknown> {
   return { imagen_url: u.imagenes[0], imagenes: u.imagenes };
 }
 
+/* Guarda en `products.meli_stock_full` lo que Mercado Full tiene de cada ficha,
+   y lo borra de las que dejaron de estar en Full. Solo escribe donde el número
+   cambió: en una sync normal casi ninguna ficha lo tiene, así que esto son dos
+   o tres updates, no uno por producto. */
+async function escribirStockFull(
+  fichas: Set<string>,
+  fullPorFicha: Map<string, Map<string, number>>,
+): Promise<void> {
+  if (fichas.size === 0) return;
+  const admin = createAdminClient();
+
+  const conFull = [...fullPorFicha.entries()].map(([id, depositos]) => ({
+    id,
+    total: [...depositos.values()].reduce((a, n) => a + n, 0),
+  }));
+
+  if (conFull.length > 0) {
+    const { data, error } = await admin
+      .from("products")
+      .select("id, meli_stock_full")
+      .in(
+        "id",
+        conFull.map((f) => f.id),
+      );
+    if (error) throw new Error(error.message);
+    const actual = new Map((data ?? []).map((f) => [f.id as string, f.meli_stock_full as number | null]));
+    const cambiaron = conFull.filter((f) => actual.get(f.id) !== f.total);
+    for (let i = 0; i < cambiaron.length; i += 10) {
+      await Promise.all(
+        cambiaron.slice(i, i + 10).map(async ({ id, total }) => {
+          const { error: err } = await admin
+            .from("products")
+            .update({ meli_stock_full: total })
+            .eq("id", id);
+          if (err) throw new Error(err.message);
+        }),
+      );
+    }
+  }
+
+  // Fichas que ya no tienen publicación Full: se limpia el número (un solo
+  // update por tanda, y el `not is null` evita tocar las que ya están en null).
+  const sinFull = [...fichas].filter((id) => !fullPorFicha.has(id));
+  for (let i = 0; i < sinFull.length; i += 200) {
+    const { error } = await admin
+      .from("products")
+      .update({ meli_stock_full: null })
+      .in("id", sinFull.slice(i, i + 200))
+      .not("meli_stock_full", "is", null);
+    if (error) throw new Error(error.message);
+  }
+}
+
 /* Upsert de un lote de items de ML, con matching por SKU y propagación. */
 export async function sincronizarItemsML(
   items: ItemML[],
@@ -251,6 +312,19 @@ export async function sincronizarItemsML(
   const publicaciones: Publicacion[] = [];
   const nuevoPorUnidadInv = new Set<string>(); // bodegas que ya reclamó una fila nueva de este lote
   const gemelasPendientes: UnidadML[] = []; // gemelas de esas filas nuevas
+  /* Fichas vistas en este lote: solo a ellas se les recalcula el depósito de
+     Mercado Full (una sync de un item suelto no debe tocar el resto). */
+  const fichasDelLote = new Set<string>();
+  /* Depósito de Mercado Full por ficha, indexado por unidad de INVENTARIO. Las
+     publicaciones gemelas de catálogo comparten depósito: su cantidad es la
+     MISMA, no una suma, así que se guarda por llave y no se acumula. */
+  const fullPorFicha = new Map<string, Map<string, number>>();
+  const anotarFull = (u: UnidadML, productoId: string) => {
+    if (u.logisticType !== LOGISTICA_FULL) return;
+    const depositos = fullPorFicha.get(productoId) ?? new Map<string, number>();
+    depositos.set(u.userProductId ?? clave(u.itemId, u.variationId), u.stock);
+    fullPorFicha.set(productoId, depositos);
+  };
   const registrar = (u: UnidadML, productoId: string, principal: boolean) => {
     publicaciones.push({
       meli_item_id: u.itemId,
@@ -260,6 +334,8 @@ export async function sincronizarItemsML(
       principal,
     });
     if (u.userProductId) productoPorUnidadInv.set(u.userProductId, productoId);
+    fichasDelLote.add(productoId);
+    anotarFull(u, productoId);
   };
 
   /* Las unidades que ya tienen ficha se procesan primero: así, cuando llega su
@@ -423,7 +499,7 @@ export async function sincronizarItemsML(
     const { data, error } = await admin
       .from("products")
       .insert(nuevos)
-      .select("id, meli_item_id, meli_variation_id, meli_user_product_id");
+      .select("id, meli_item_id, meli_variation_id, meli_user_product_id, meli_logistic_type, stock");
     if (error) throw new Error(error.message);
     for (const f of data ?? []) {
       publicaciones.push({
@@ -435,6 +511,22 @@ export async function sincronizarItemsML(
       });
       const up = f.meli_user_product_id as string | null;
       if (up) productoPorUnidadInv.set(up, f.id as string);
+      fichasDelLote.add(f.id as string);
+      /* Ficha nueva de una publicación Full: su `stock` ES el depósito de ML
+         (no hay bodega detrás), y también se anota como Full para que el
+         inventario lo muestre en su columna. */
+      if (f.meli_logistic_type === LOGISTICA_FULL) {
+        fullPorFicha.set(
+          f.id as string,
+          new Map([
+            [
+              (f.meli_user_product_id as string | null) ??
+                clave(f.meli_item_id as string, (f.meli_variation_id as number | null) ?? null),
+              (f.stock as number) ?? 0,
+            ],
+          ]),
+        );
+      }
     }
     // Ahora sí: las gemelas de esas filas recién creadas ya tienen a quién colgarse.
     for (const u of gemelasPendientes) {
@@ -461,6 +553,15 @@ export async function sincronizarItemsML(
       .upsert(publicaciones.slice(i, i + 200), { onConflict: "unidad" });
     if (error) console.error("[mercadolibre] registro de publicaciones:", error.message);
   }
+
+  /* Depósito de Mercado Full. Va aparte del upsert de arriba porque una ficha
+     puede recibirlo desde una publicación GEMELA, que no genera cambios en
+     `products`. Solo se tocan las fichas de este lote: la sync de un item
+     suelto no debe borrarle el Full a las demás. Se deja para el final —después
+     del registro de publicaciones— para que, si la columna todavía no existe en
+     la base, el fallo no se lleve por delante ese mapeo, que es el que decide a
+     qué ficha pertenece cada venta. */
+  await escribirStockFull(fichasDelLote, fullPorFicha);
 
   // Propagación (nunca rompe la sync a la base: solo se loggea), no-op mientras
   // la escritura a canales esté apagada (el default). Mercado Libre NUNCA

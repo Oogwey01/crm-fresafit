@@ -20,12 +20,17 @@ import {
   type GrupoDuplicado,
 } from "@/lib/inventario/duplicados-ml";
 import { esFull } from "@/lib/inventario/reabastecimiento";
+import type { TipoProductoId } from "@/lib/types";
 
 export type Descuadre = {
   id: string;
   nombre: string;
   variante: string | null;
   sku: string | null;
+  tipo: TipoProductoId;
+  /* Combo/bundle/personalizado: variante sin control de inventario en Tienda
+     Nube, o producto "bajo pedido". No lleva un número de stock comparable. */
+  es_combo: boolean;
   stock_crm: number;
   /* null = el producto no está vinculado a ese canal. */
   stock_tn: number | null;
@@ -41,6 +46,8 @@ export type FilaCRM = {
   nombre: string;
   variante: string | null;
   sku: string | null;
+  tipo: TipoProductoId;
+  bajo_pedido: boolean;
   stock: number;
   tiendanube_variant_id: number | null;
   meli_item_id: string | null;
@@ -74,7 +81,7 @@ export async function leerCanales(): Promise<LecturaCanales> {
   const { data, error } = await admin
     .from("products")
     .select(
-      "id, nombre, variante, sku, stock, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
+      "id, nombre, variante, sku, tipo, bajo_pedido, stock, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
     )
     .eq("activo", true)
     .or("tiendanube_variant_id.not.is.null,meli_item_id.not.is.null")
@@ -155,6 +162,10 @@ export async function reconciliarInventario(): Promise<ResumenReconciliacion> {
         nombre: f.nombre,
         variante: f.variante,
         sku: f.sku,
+        tipo: f.tipo,
+        es_combo:
+          (f.tiendanube_variant_id != null && lectura.sinControlTN.has(f.tiendanube_variant_id)) ||
+          !!f.bajo_pedido,
         stock_crm: f.stock,
         stock_tn: enTN ? tn : null,
         stock_ml: enML ? ml : null,

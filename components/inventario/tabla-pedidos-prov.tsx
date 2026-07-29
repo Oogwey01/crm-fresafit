@@ -111,14 +111,31 @@ export function TablaPedidosProv({
       label: "Proveedor",
       esTitulo: true,
       celda: (p) => (
-        <button
-          type="button"
-          onClick={() => onEditar(p)}
-          className="truncate text-left font-medium hover:underline"
-          title={`Pedido a ${p.proveedor?.nombre ?? "proveedor"}`}
-        >
-          {p.proveedor?.nombre ?? "—"}
-        </button>
+        <div className="flex min-w-0 flex-col">
+          <button
+            type="button"
+            onClick={() => onEditar(p)}
+            className="truncate text-left font-medium hover:underline"
+            title={`Pedido a ${p.proveedor?.nombre ?? "proveedor"}`}
+          >
+            {p.proveedor?.nombre ?? "—"}
+          </button>
+          {(p.url_rastreo || p.num_guia) &&
+            (p.url_rastreo ? (
+              <a
+                href={p.url_rastreo}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="truncate text-[12px] text-primary hover:underline"
+                title={p.num_guia ?? "Rastrear envío"}
+              >
+                📦 {p.num_guia || "Rastrear"}
+              </a>
+            ) : (
+              <span className="truncate text-[12px] text-muted-foreground">📦 {p.num_guia}</span>
+            ))}
+        </div>
       ),
     },
     {
@@ -176,6 +193,7 @@ export function TablaPedidosProv({
         datos={pedidos}
         filaKey={(p) => p.id}
         minW="min-w-[840px]"
+        onRowClick={onEditar}
       />
 
       {/* Pregunta al recibir: ¿sumar los renglones al stock? */}

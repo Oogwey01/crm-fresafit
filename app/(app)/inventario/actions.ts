@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
 import { empujarProductoTN, sincronizacionCompleta } from "@/lib/tiendanube/sync";
@@ -10,7 +11,13 @@ import { propagarStock } from "@/lib/inventario/stock-hub";
 import { registrarStockLog } from "@/lib/inventario/stock-log";
 import { reconciliarInventario, type ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
-import type { EstadoPedidoProvId, ProductPhoto, StockLog, TipoProductoId } from "@/lib/types";
+import type {
+  EstadoPedidoProvId,
+  PedidoProvDetalle,
+  ProductPhoto,
+  StockLog,
+  TipoProductoId,
+} from "@/lib/types";
 
 type Resultado = { ok: true } | { error: string };
 
@@ -26,6 +33,8 @@ export type ProductoInput = {
   activo: boolean;
   /* Se fabrica contra pedido: no lleva inventario ni alertas de stock. */
   bajo_pedido: boolean;
+  /* Línea que ya no se repone (p. ej. OG): fuera de «Qué pedir» y de los avisos. */
+  descontinuado: boolean;
   notas: string;
 };
 
@@ -33,6 +42,8 @@ export type ProveedorInput = {
   nombre: string;
   telefono: string;
   correo: string;
+  pais: string;
+  contacto: string;
   /* Días que tarda en llegar un pedido de este proveedor (null = default global
      del reabastecimiento). */
   dias_entrega: number | null;
@@ -52,6 +63,9 @@ export type PedidoProvInput = {
   fecha_estimada: string | null;
   estado: EstadoPedidoProvId;
   costo_total: number | null;
+  paqueteria: string;
+  num_guia: string;
+  url_rastreo: string;
   notas: string;
   items: PedidoProvItemInput[];
 };
@@ -80,14 +94,22 @@ export async function sincronizarTiendanube(): Promise<{ ok: true; detalle: stri
 /* Reporte de descuadres: compara el stock EN VIVO de cada canal contra el del
    CRM y devuelve solo lo que no coincide. Solo lectura: no corrige nada. */
 export async function revisarDescuadres(): Promise<
-  { ok: true; resumen: ResumenReconciliacion } | { error: string }
+  { ok: true; resumen: ResumenReconciliacion; creadoEn: string } | { error: string }
 > {
-  const { user, rol } = await usuarioActual();
+  const { supabase, user, rol } = await usuarioActual();
   if (!user) return { error: "No autenticado." };
   if (!esInterno(rol)) return { error: "Solo el equipo interno puede revisar el inventario." };
 
   try {
-    return { ok: true, resumen: await reconciliarInventario() };
+    const resumen = await reconciliarInventario();
+    const creadoEn = new Date().toISOString();
+    // Se guarda el resultado para que la próxima carga del panel lo muestre al
+    // instante (la lectura en vivo de los canales es lo que tarda).
+    await supabase
+      .from("reconciliacion_snapshots")
+      .upsert({ id: "actual", resumen, creado_en: creadoEn });
+    revalidatePath("/inventario");
+    return { ok: true, resumen, creadoEn };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Falló la revisión de inventario." };
   }
@@ -122,7 +144,7 @@ export async function sincronizarTiktok(): Promise<{ ok: true; detalle: string }
     revalidatePath("/inventario");
     return {
       ok: true,
-      detalle: `Sincronizado: ${r.productos} productos (${r.creados} nuevos, ${r.vinculados} vinculados por SKU, ${r.actualizados} actualizados${r.desactivados ? `, ${r.desactivados} desactivados` : ""}).`,
+      detalle: `Sincronizado: ${r.productos} productos (${r.creados} nuevos, ${r.vinculados} vinculados por SKU, ${r.actualizados} actualizados${r.desactivados ? `, ${r.desactivados} desactivados` : ""}${r.fotos_pobladas ? `, ${r.fotos_pobladas} fotos copiadas de Tienda Nube` : ""}).`,
     };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Falló la sincronización con TikTok Shop." };
@@ -203,6 +225,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     proveedor_id: input.proveedor_id,
     activo: input.activo,
     bajo_pedido: input.bajo_pedido,
+    descontinuado: input.descontinuado,
     notas: input.notas.trim() || null,
   };
 
@@ -409,6 +432,8 @@ export async function guardarProveedor(id: string | null, input: ProveedorInput)
     nombre,
     telefono: input.telefono.trim() || null,
     correo: input.correo.trim() || null,
+    pais: input.pais.trim() || null,
+    contacto: input.contacto.trim() || null,
     dias_entrega: input.dias_entrega,
     notas: input.notas.trim() || null,
   };
@@ -459,6 +484,9 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     fecha_estimada: input.fecha_estimada || null,
     estado: input.estado,
     costo_total: input.costo_total,
+    paqueteria: input.paqueteria.trim() || null,
+    num_guia: input.num_guia.trim() || null,
+    url_rastreo: input.url_rastreo.trim() || null,
     notas: input.notas.trim() || null,
   };
 
@@ -530,6 +558,169 @@ export async function borrarPedidoProv(id: string): Promise<Resultado> {
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar pedidos." };
 
   const { error } = await supabase.from("supplier_orders").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+/* ========== Seguimiento del pedido: pagos e incidencias ================== */
+
+const BUCKET_PEDIDOS = "pedidos-proveedor";
+
+/* Carga los pagos y las incidencias de un pedido (para el diálogo). */
+export async function cargarDetallePedido(pedidoId: string): Promise<PedidoProvDetalle> {
+  const supabase = await createClient();
+  const [pagos, incidencias] = await Promise.all([
+    supabase.from("supplier_order_payments").select("*").eq("pedido_id", pedidoId).order("fecha", { ascending: true }),
+    supabase.from("supplier_order_incidents").select("*").eq("pedido_id", pedidoId).order("created_at", { ascending: false }),
+  ]);
+  return { pagos: pagos.data ?? [], incidencias: incidencias.data ?? [] };
+}
+
+/* Registra un pago del pedido, con comprobante opcional (imagen/PDF). */
+export async function registrarPagoPedido(
+  pedidoId: string,
+  formData: FormData,
+): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar pagos." };
+
+  const monto = Number(formData.get("monto"));
+  if (!Number.isFinite(monto) || monto < 0) return { error: "El monto no es válido." };
+  const fecha = String(formData.get("fecha") || "").trim() || null;
+  const nota = String(formData.get("nota") || "").trim() || null;
+
+  // Comprobante opcional: se sube primero; si falla el insert, se limpia.
+  let comprobante: { path: string; nombre: string; tipo: string | null } | null = null;
+  const file = formData.get("file");
+  if (file instanceof File && file.size > 0) {
+    if (file.size > 10 * 1024 * 1024) return { error: "El comprobante supera 10 MB." };
+    const limpio = file.name.replace(/[^\w.\-]+/g, "_");
+    const path = `${pedidoId}/${Date.now()}-${limpio}`;
+    const { error: upErr } = await supabase.storage
+      .from(BUCKET_PEDIDOS)
+      .upload(path, file, { contentType: file.type || undefined, upsert: false });
+    if (upErr) return { error: upErr.message };
+    comprobante = { path, nombre: file.name, tipo: file.type || null };
+  }
+
+  const { error } = await supabase.from("supplier_order_payments").insert({
+    pedido_id: pedidoId,
+    fecha,
+    monto,
+    nota,
+    comprobante_path: comprobante?.path ?? null,
+    comprobante_nombre: comprobante?.nombre ?? null,
+    comprobante_tipo: comprobante?.tipo ?? null,
+    created_by: user.id,
+  });
+  if (error) {
+    if (comprobante) await supabase.storage.from(BUCKET_PEDIDOS).remove([comprobante.path]);
+    return { error: error.message };
+  }
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+export async function borrarPagoPedido(id: string, comprobantePath: string | null): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar pagos." };
+  if (comprobantePath) await supabase.storage.from(BUCKET_PEDIDOS).remove([comprobantePath]);
+  const { error } = await supabase.from("supplier_order_payments").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+/* URL firmada temporal (1 h) para ver/descargar un comprobante de pago. */
+export async function urlComprobantePedido(
+  storagePath: string,
+): Promise<{ url: string } | { error: string }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(BUCKET_PEDIDOS)
+    .createSignedUrl(storagePath, 60 * 60);
+  if (error || !data) return { error: error?.message ?? "No se pudo generar el enlace." };
+  return { url: data.signedUrl };
+}
+
+export async function agregarIncidenciaPedido(pedidoId: string, texto: string): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar incidencias." };
+  const t = texto.trim();
+  if (!t) return { error: "La incidencia está vacía." };
+  const { error } = await supabase
+    .from("supplier_order_incidents")
+    .insert({ pedido_id: pedidoId, texto: t, created_by: user.id });
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+export async function resolverIncidenciaPedido(id: string, resuelto: boolean): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede actualizar incidencias." };
+  const { error } = await supabase.from("supplier_order_incidents").update({ resuelto }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+export async function borrarIncidenciaPedido(id: string): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar incidencias." };
+  const { error } = await supabase.from("supplier_order_incidents").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+/* ============================ Conteo físico ============================== */
+
+export type ConteoInput = {
+  producto_id: string | null;
+  descripcion: string;
+  cantidad: number;
+  contado_por: string;
+  corroborado_por: string;
+  nota: string;
+  fecha: string;
+};
+
+export async function registrarConteo(input: ConteoInput): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar conteos." };
+  if (!input.producto_id && !input.descripcion.trim())
+    return { error: "Elige un producto o describe qué se contó." };
+  if (!Number.isInteger(input.cantidad) || input.cantidad < 0)
+    return { error: "La cantidad contada debe ser un entero ≥ 0." };
+
+  const { error } = await supabase.from("conteos_fisicos").insert({
+    producto_id: input.producto_id,
+    descripcion: input.descripcion.trim() || null,
+    cantidad: input.cantidad,
+    contado_por: input.contado_por.trim() || null,
+    corroborado_por: input.corroborado_por.trim() || null,
+    nota: input.nota.trim() || null,
+    fecha: input.fecha || undefined,
+    created_by: user.id,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/inventario");
+  return { ok: true };
+}
+
+export async function borrarConteo(id: string): Promise<Resultado> {
+  const { supabase, user, rol } = await usuarioActual();
+  if (!user) return { error: "No autenticado." };
+  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar conteos." };
+  const { error } = await supabase.from("conteos_fisicos").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };

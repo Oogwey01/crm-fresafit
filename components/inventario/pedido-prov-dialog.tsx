@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { Paperclip, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -22,19 +23,28 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ESTADOS_PEDIDO_PROVEEDOR } from "@/lib/catalogos";
-import { hoyISO } from "@/lib/fecha";
+import { hoyISO, formatearFecha, sumarDias } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
   guardarPedidoProv,
   borrarPedidoProv,
+  cargarDetallePedido,
+  registrarPagoPedido,
+  borrarPagoPedido,
+  urlComprobantePedido,
+  agregarIncidenciaPedido,
+  resolverIncidenciaPedido,
+  borrarIncidenciaPedido,
   type PedidoProvInput,
 } from "@/app/(app)/inventario/actions";
 import type {
   EstadoPedidoProvId,
+  PedidoProvDetalle,
   ProductConProveedor,
   Supplier,
   SupplierOrderConDetalle,
 } from "@/lib/types";
+import { DatePicker } from "@/components/compartido/date-picker";
 
 const PRODUCTO_LIBRE = "libre";
 
@@ -65,6 +75,7 @@ export function PedidoProvDialog({
   proveedores,
   productos,
   gestor,
+  diasEntregaDefault,
   itemsIniciales,
   onClose,
 }: {
@@ -72,6 +83,8 @@ export function PedidoProvDialog({
   proveedores: Supplier[];
   productos: ProductConProveedor[];
   gestor: boolean;
+  /* Días de entrega global (para autocalcular la ETA si el proveedor no tiene el suyo). */
+  diasEntregaDefault: number;
   /* Solo en el alta: precarga renglones (sugerencia de reabastecimiento). */
   itemsIniciales?: ItemInicialPedido[];
   onClose: () => void;
@@ -82,7 +95,15 @@ export function PedidoProvDialog({
     itemsIniciales?.map((i) => productos.find((p) => p.id === i.producto_id)?.proveedor_id).find(Boolean) ?? "";
   const [proveedorId, setProveedorId] = useState(pedido?.proveedor_id ?? proveedorSugerido);
   const [fechaPedido, setFechaPedido] = useState(pedido?.fecha_pedido ?? hoyISO());
-  const [fechaEstimada, setFechaEstimada] = useState(pedido?.fecha_estimada ?? "");
+  /* ETA: se autocalcula (fecha del pedido + días de entrega del proveedor). Si el
+     usuario la fija a mano, su valor manda (etaOverride ≠ null). Se deriva en
+     render, sin efecto, para no disparar renders en cascada. */
+  const [etaOverride, setEtaOverride] = useState<string | null>(pedido?.fecha_estimada ?? null);
+  const provElegido = proveedores.find((p) => p.id === proveedorId);
+  const etaAuto = fechaPedido
+    ? sumarDias(fechaPedido, provElegido?.dias_entrega ?? diasEntregaDefault)
+    : "";
+  const fechaEstimada = etaOverride ?? etaAuto;
   const [estado, setEstado] = useState<EstadoPedidoProvId>(pedido?.estado ?? "pedido");
   const [notas, setNotas] = useState(pedido?.notas ?? "");
   const [renglones, setRenglones] = useState<Renglon[]>(() => {
@@ -107,6 +128,81 @@ export function PedidoProvDialog({
   /* Total: se sugiere la suma de renglones, pero se puede escribir a mano. */
   const [totalManual, setTotalManual] = useState(pedido?.costo_total?.toString() ?? "");
 
+  /* Rastreo del envío (una guía principal). */
+  const [paqueteria, setPaqueteria] = useState(pedido?.paqueteria ?? "");
+  const [numGuia, setNumGuia] = useState(pedido?.num_guia ?? "");
+  const [urlRastreo, setUrlRastreo] = useState(pedido?.url_rastreo ?? "");
+
+  /* Pagos + incidencias: solo se gestionan sobre un pedido ya guardado (necesitan
+     su id). Se cargan al abrir en modo edición. */
+  const [detalle, setDetalle] = useState<PedidoProvDetalle | null>(null);
+  useEffect(() => {
+    if (!pedido) return;
+    let vivo = true;
+    cargarDetallePedido(pedido.id).then((d) => vivo && setDetalle(d));
+    return () => {
+      vivo = false;
+    };
+  }, [pedido]);
+  async function recargarDetalle() {
+    if (pedido) setDetalle(await cargarDetallePedido(pedido.id));
+  }
+
+  const [pagoMonto, setPagoMonto] = useState("");
+  const [pagoFecha, setPagoFecha] = useState(hoyISO());
+  const [pagoNota, setPagoNota] = useState("");
+  const pagoFileRef = useRef<HTMLInputElement>(null);
+  const [incidenciaTexto, setIncidenciaTexto] = useState("");
+
+  const totalPagado = (detalle?.pagos ?? []).reduce((a, p) => a + Number(p.monto), 0);
+
+  function accion(fn: () => Promise<{ ok: true } | { error: string }>, okMsg?: string) {
+    startTransition(async () => {
+      try {
+        const r = await fn();
+        if ("error" in r) {
+          toast.error(r.error);
+          return;
+        }
+        if (okMsg) toast.success(okMsg);
+        await recargarDetalle();
+      } catch {
+        toast.error("Algo falló. Revisa tu conexión.");
+      }
+    });
+  }
+
+  function agregarPago() {
+    if (!pedido) return;
+    const monto = Number(pagoMonto);
+    if (!Number.isFinite(monto) || monto <= 0) {
+      toast.error("Escribe el monto del pago.");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("monto", String(monto));
+    fd.append("fecha", pagoFecha);
+    fd.append("nota", pagoNota);
+    const file = pagoFileRef.current?.files?.[0];
+    if (file) fd.append("file", file);
+    accion(() => registrarPagoPedido(pedido.id, fd), "Pago registrado.");
+    setPagoMonto("");
+    setPagoNota("");
+    if (pagoFileRef.current) pagoFileRef.current.value = "";
+  }
+
+  async function verComprobante(path: string) {
+    const r = await urlComprobantePedido(path);
+    if ("error" in r) return toast.error(r.error);
+    window.open(r.url, "_blank");
+  }
+
+  function agregarIncidencia() {
+    if (!pedido || !incidenciaTexto.trim()) return;
+    accion(() => agregarIncidenciaPedido(pedido.id, incidenciaTexto), "Incidencia registrada.");
+    setIncidenciaTexto("");
+  }
+
   const sumaRenglones = renglones.reduce((acc, r) => {
     const cant = Number(r.cantidad) || 0;
     const costo = Number(r.costo_unitario) || 0;
@@ -125,6 +221,9 @@ export function PedidoProvDialog({
       fecha_estimada: fechaEstimada || null,
       estado,
       costo_total: total,
+      paqueteria,
+      num_guia: numGuia,
+      url_rastreo: urlRastreo,
       notas,
       items: renglones.map((r) => ({
         producto_id: r.producto_id,
@@ -168,7 +267,7 @@ export function PedidoProvDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{pedido ? "Editar pedido a proveedor" : "Nuevo pedido a proveedor"}</DialogTitle>
         </DialogHeader>
@@ -194,21 +293,11 @@ export function PedidoProvDialog({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ped-fecha">Fecha del pedido</Label>
-              <Input
-                id="ped-fecha"
-                type="date"
-                value={fechaPedido}
-                onChange={(e) => setFechaPedido(e.target.value)}
-              />
+              <DatePicker id="ped-fecha" value={fechaPedido} onChange={setFechaPedido} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ped-eta">Llega (aprox.)</Label>
-              <Input
-                id="ped-eta"
-                type="date"
-                value={fechaEstimada}
-                onChange={(e) => setFechaEstimada(e.target.value)}
-              />
+              <DatePicker id="ped-eta" value={fechaEstimada} onChange={setEtaOverride} limpiable />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>Estado</Label>
@@ -234,9 +323,10 @@ export function PedidoProvDialog({
             <Label>Qué se pidió</Label>
             <div className="flex flex-col gap-2">
               {renglones.map((r, idx) => (
-                <div key={idx} className="flex flex-col gap-2 md:flex-row md:items-center">
-                  {/* Producto del catálogo o descripción libre */}
-                  <div className="flex items-center gap-2 md:flex-1">
+                <div key={idx} className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-2">
+                  {/* Producto del catálogo o descripción libre (renglón completo
+                      para que el nombre no se corte) */}
+                  <div className="flex items-center gap-2">
                     <Select
                       value={r.producto_id ?? PRODUCTO_LIBRE}
                       onValueChange={(v) =>
@@ -344,12 +434,153 @@ export function PedidoProvDialog({
               <Textarea
                 id="ped-notas"
                 rows={1}
-                placeholder="Guía, condiciones, aduana…"
+                placeholder="Condiciones, aduana…"
                 value={notas}
                 onChange={(e) => setNotas(e.target.value)}
               />
             </div>
           </div>
+
+          {/* Rastreo del envío */}
+          <div className="flex flex-col gap-1.5">
+            <Label>Rastreo del envío</Label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <Input
+                placeholder="Paquetería"
+                value={paqueteria}
+                onChange={(e) => setPaqueteria(e.target.value)}
+              />
+              <Input
+                placeholder="Nº de guía"
+                value={numGuia}
+                onChange={(e) => setNumGuia(e.target.value)}
+              />
+              <Input
+                placeholder="Link de rastreo (https://…)"
+                value={urlRastreo}
+                onChange={(e) => setUrlRastreo(e.target.value)}
+                className="col-span-2 sm:col-span-1"
+              />
+            </div>
+          </div>
+
+          {/* Pagos e incidencias: solo sobre un pedido ya guardado. */}
+          {pedido && (
+            <>
+              <div className="mt-1 border-t pt-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Pagos</h3>
+                  <span className="text-[12.5px] text-muted-foreground">
+                    Pagado <b className="text-foreground">{formatearMXN(totalPagado)}</b>
+                    {total != null && total > 0 && ` de ${formatearMXN(total)}`}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  {(detalle?.pagos ?? []).map((p) => (
+                    <div key={p.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                      <span className="tabular-nums font-semibold">{formatearMXN(Number(p.monto))}</span>
+                      <span className="text-muted-foreground">{formatearFecha(p.fecha)}</span>
+                      {p.nota && <span className="truncate text-muted-foreground">· {p.nota}</span>}
+                      {p.comprobante_path && (
+                        <button
+                          type="button"
+                          onClick={() => verComprobante(p.comprobante_path!)}
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                          title={p.comprobante_nombre ?? "Ver comprobante"}
+                        >
+                          <Paperclip className="size-3.5" /> comprobante
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => accion(() => borrarPagoPedido(p.id, p.comprobante_path))}
+                        className="ml-auto text-muted-foreground hover:text-destructive"
+                        aria-label="Borrar pago"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {detalle && detalle.pagos.length === 0 && (
+                    <p className="text-[13px] text-muted-foreground">Sin pagos registrados.</p>
+                  )}
+                </div>
+                {/* Alta de pago */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="$ monto"
+                    className="w-28"
+                    value={pagoMonto}
+                    onChange={(e) => setPagoMonto(e.target.value)}
+                  />
+                  <div className="w-40">
+                    <DatePicker value={pagoFecha} onChange={setPagoFecha} />
+                  </div>
+                  <Input
+                    placeholder="Nota (opcional)"
+                    className="min-w-[120px] flex-1"
+                    value={pagoNota}
+                    onChange={(e) => setPagoNota(e.target.value)}
+                  />
+                  <input ref={pagoFileRef} type="file" className="hidden" />
+                  <Button variant="outline" size="sm" onClick={() => pagoFileRef.current?.click()}>
+                    <Paperclip className="size-3.5" /> Comprobante
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={agregarPago} disabled={pending}>
+                    Registrar pago
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-1 border-t pt-3">
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                  Incidencias
+                </h3>
+                <div className="flex flex-col gap-1">
+                  {(detalle?.incidencias ?? []).map((inc) => (
+                    <div key={inc.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={inc.resuelto}
+                        onChange={(e) => accion(() => resolverIncidenciaPedido(inc.id, e.target.checked))}
+                        title="Marcar resuelta"
+                        className="size-4 accent-primary"
+                      />
+                      <span className={cn("min-w-0 flex-1 truncate", inc.resuelto && "text-muted-foreground line-through")} title={inc.texto}>
+                        {inc.texto}
+                      </span>
+                      <span className="shrink-0 text-[12px] text-muted-foreground">{formatearFecha(inc.fecha)}</span>
+                      <button
+                        type="button"
+                        onClick={() => accion(() => borrarIncidenciaPedido(inc.id))}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label="Borrar incidencia"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {detalle && detalle.incidencias.length === 0 && (
+                    <p className="text-[13px] text-muted-foreground">Sin incidencias.</p>
+                  )}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    placeholder="Describe una incidencia…"
+                    value={incidenciaTexto}
+                    onChange={(e) => setIncidenciaTexto(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && agregarIncidencia()}
+                  />
+                  <Button variant="outline" size="sm" onClick={agregarIncidencia} disabled={pending}>
+                    Agregar
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">

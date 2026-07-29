@@ -46,6 +46,11 @@ export type Task = {
   prioridad: PrioridadId;
   estado: EstadoId;
   fecha_limite: string | null; // "AAAA-MM-DD"
+  /* Fecha en que arrancó la tarea (por defecto el día en que se creó). */
+  fecha_inicio: string | null; // "AAAA-MM-DD"
+  /* Por qué está atorada (obligatorio al pasar a "atorado"): qué recurso se
+     necesita de vuelta de quien la delegó. null cuando no está atorada. */
+  motivo_atorado: string | null;
   etiquetas: string[];
   orden: number;
   /* Recordatorio opcional: momento (fecha+hora) en que avisar al responsable.
@@ -113,7 +118,7 @@ export type Notificacion = {
   id: string;
   user_id: string;
   task_id: string | null;
-  tipo: "asignacion" | "recordatorio";
+  tipo: "asignacion" | "recordatorio" | "atorado";
   texto: string;
   leida: boolean;
   created_at: string;
@@ -136,6 +141,10 @@ export type Supplier = {
   nombre: string;
   telefono: string | null;
   correo: string | null;
+  /* País de origen (China / México / …) para separar la lista. */
+  pais: string | null;
+  /* Contacto directo: persona, WeChat, WhatsApp… */
+  contacto: string | null;
   /* Días que tarda en llegar un pedido de este proveedor (incluye producción,
      tránsito y aduana). null = usar el default global del reabastecimiento. */
   dias_entrega: number | null;
@@ -161,6 +170,9 @@ export type Product = {
   /* Se fabrica cuando alguien lo compra (personalizados): no lleva inventario,
      así que queda fuera del semáforo de stock y de «Qué pedir». */
   bajo_pedido: boolean;
+  /* Línea que ya no se repone (p. ej. muñequeras OG). Conserva su histórico y su
+     stock, pero queda fuera de «Qué pedir» y de los avisos de stock. */
+  descontinuado: boolean;
   notas: string | null;
   imagen_url: string | null; // portada (miniatura); URL del CDN de Tienda Nube
   imagenes: string[]; // galería completa, ordenada
@@ -172,6 +184,16 @@ export type Product = {
   /* Modalidad de envío de la publicación de ML: "fulfillment" (Mercado Full,
      el stock vive en un centro de ML), "cross_docking", "drop_off"… */
   meli_logistic_type: string | null;
+  /* Unidades en el centro de Mercado Full. Va APARTE de `stock` porque son dos
+     almacenes distintos: `stock` es la bodega (la que gobierna Tienda Nube
+     cuando el producto también vive allá) y esto es lo que Mercado Libre tiene
+     guardado. null = la ficha no tiene publicación Full. */
+  meli_stock_full: number | null;
+  /* Mapeo a TikTok Shop. Un renglón con tiktok_product_id pero sin vínculo a
+     Tienda Nube/Mercado Libre es inventario DELEGADO (p. ej. lo que un revendedor
+     tiene aparte): se muestra en su propia columna y NO se suma a la bodega. */
+  tiktok_product_id: string | null;
+  tiktok_sku_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -207,6 +229,7 @@ export type StockLog = {
   stock_anterior: number | null; // null = empuje saliente (no se conoce el previo)
   stock_nuevo: number;
   creado_en: string;
+  lote: string | null; // id de la operación que escribió este renglón junto a otros
   producto: Pick<Product, "nombre" | "variante"> | null;
 };
 
@@ -228,6 +251,10 @@ export type SupplierOrder = {
   fecha_estimada: string | null;
   estado: EstadoPedidoProvId;
   costo_total: number | null;
+  /* Rastreo del envío (una guía principal). */
+  paqueteria: string | null;
+  num_guia: string | null;
+  url_rastreo: string | null;
   notas: string | null;
   created_by: string | null;
   created_at: string;
@@ -237,6 +264,57 @@ export type SupplierOrder = {
 export type SupplierOrderConDetalle = SupplierOrder & {
   proveedor: Pick<Supplier, "id" | "nombre"> | null;
   items: (SupplierOrderItem & { producto: Pick<Product, "id" | "nombre" | "variante"> | null })[];
+};
+
+/* Pago de un pedido a proveedor (tabla `supplier_order_payments`). El
+   comprobante (opcional) vive en el bucket privado `pedidos-proveedor`. */
+export type SupplierOrderPayment = {
+  id: string;
+  pedido_id: string;
+  fecha: string; // "AAAA-MM-DD"
+  monto: number;
+  nota: string | null;
+  comprobante_path: string | null;
+  comprobante_nombre: string | null;
+  comprobante_tipo: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* Incidencia de un pedido a proveedor (tabla `supplier_order_incidents`). */
+export type SupplierOrderIncident = {
+  id: string;
+  pedido_id: string;
+  fecha: string; // "AAAA-MM-DD"
+  texto: string;
+  resuelto: boolean;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* Pagos + incidencias de un pedido (para el diálogo de pedido). */
+export type PedidoProvDetalle = {
+  pagos: SupplierOrderPayment[];
+  incidencias: SupplierOrderIncident[];
+};
+
+/* Conteo físico de inventario (tabla `conteos_fisicos`): quién contó qué y quién
+   lo corroboró. */
+export type ConteoFisico = {
+  id: string;
+  producto_id: string | null;
+  descripcion: string | null;
+  cantidad: number;
+  contado_por: string | null;
+  corroborado_por: string | null;
+  nota: string | null;
+  fecha: string; // "AAAA-MM-DD"
+  created_by: string | null;
+  created_at: string;
+};
+
+export type ConteoConProducto = ConteoFisico & {
+  producto: Pick<Product, "id" | "nombre" | "variante" | "sku" | "stock"> | null;
 };
 
 /* --- Módulo Métricas / Ventas (Fase 2) --- */
@@ -265,7 +343,7 @@ export type Sale = {
 };
 
 export type SaleConProducto = Sale & {
-  producto: Pick<Product, "id" | "nombre" | "variante"> | null;
+  producto: Pick<Product, "id" | "nombre" | "variante" | "tipo"> | null;
 };
 
 /* Pedido = venta con su cliente resuelto (para la vista de Pedidos y envíos). */

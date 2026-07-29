@@ -3,7 +3,7 @@
 import type { ProductConProveedor, Supplier } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 
-const COLS = "grid-cols-[minmax(160px,1fr)_140px_190px_100px_110px_minmax(120px,1fr)]";
+const COLS = "grid-cols-[minmax(160px,1fr)_100px_130px_180px_90px_100px_minmax(110px,1fr)]";
 
 export function TablaProveedores({
   proveedores,
@@ -36,14 +36,30 @@ export function TablaProveedores({
       label: "Proveedor",
       esTitulo: true,
       celda: (p) => (
-        <button
-          type="button"
-          onClick={() => onEditar(p)}
-          className="truncate text-left font-medium hover:underline"
-          title={p.nombre}
-        >
-          {p.nombre}
-        </button>
+        <div className="flex min-w-0 flex-col">
+          <button
+            type="button"
+            onClick={() => onEditar(p)}
+            className="truncate text-left font-medium hover:underline"
+            title={p.nombre}
+          >
+            {p.nombre}
+          </button>
+          {p.contacto && (
+            <span className="truncate text-[12px] text-muted-foreground" title={p.contacto}>
+              {p.contacto}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      clave: "pais",
+      label: "País",
+      celda: (p) => (
+        <div className="truncate" title={p.pais ?? undefined}>
+          {p.pais ?? <span className="text-muted-foreground/50">—</span>}
+        </div>
       ),
     },
     {
@@ -108,6 +124,6 @@ export function TablaProveedores({
   ];
 
   return (
-    <TablaSimple cols={COLS} columnas={columnas} datos={proveedores} filaKey={(p) => p.id} />
+    <TablaSimple cols={COLS} columnas={columnas} datos={proveedores} filaKey={(p) => p.id} onRowClick={onEditar} />
   );
 }

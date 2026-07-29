@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Truck, Warehouse } from "lucide-react";
+import { Music2, Truck, Warehouse } from "lucide-react";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { formatearFecha, hoyISO } from "@/lib/fecha";
 import {
@@ -153,6 +153,15 @@ export function TablaReabastecer({
               {g.stockFull} <span className="text-muted-foreground">en Full</span>
             </span>
           )}
+          {g.enTikTok && (
+            <span
+              className="inline-flex items-center gap-1.5 tabular-nums text-muted-foreground"
+              title="Inventario delegado a TikTok Shop: es un almacén aparte, no se suma a la bodega."
+            >
+              <Music2 className="size-3.5" strokeWidth={1.9} aria-hidden="true" />
+              {g.stockTikTok} <span>en TikTok (aparte)</span>
+            </span>
+          )}
           {g.enCamino > 0 && (
             <span className="tabular-nums text-muted-foreground">+{g.enCamino} en camino</span>
           )}
@@ -245,7 +254,7 @@ export function TablaReabastecer({
         <p className="text-[13.5px] leading-relaxed text-muted-foreground">
           Cuánto se vende de cada producto, cuánto queda y cuándo hay que pedirlo para que no se
           agote mientras llega. Un mismo producto publicado en varias plataformas cuenta como uno
-          solo (se agrupa por SKU). Tiempo de entrega: el del proveedor, o{" "}
+          solo (se agrupa por SKU). Tiempo aproximado de maquila y entrega: el del proveedor, o{" "}
           <b className="font-semibold text-foreground">{params.diasEntregaDefault} días</b> si no
           está capturado.
         </p>

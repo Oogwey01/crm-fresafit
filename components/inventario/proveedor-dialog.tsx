@@ -35,6 +35,8 @@ export function ProveedorDialog({
 }) {
   const [pending, startTransition] = useTransition();
   const [nombre, setNombre] = useState(proveedor?.nombre ?? "");
+  const [pais, setPais] = useState(proveedor?.pais ?? "");
+  const [contacto, setContacto] = useState(proveedor?.contacto ?? "");
   const [telefono, setTelefono] = useState(proveedor?.telefono ?? "");
   const [correo, setCorreo] = useState(proveedor?.correo ?? "");
   const [diasEntrega, setDiasEntrega] = useState(proveedor?.dias_entrega?.toString() ?? "");
@@ -50,7 +52,7 @@ export function ProveedorDialog({
       toast.error("Los días de entrega deben ser un número de días.");
       return;
     }
-    const input: ProveedorInput = { nombre, telefono, correo, dias_entrega: dias, notas };
+    const input: ProveedorInput = { nombre, pais, contacto, telefono, correo, dias_entrega: dias, notas };
     startTransition(async () => {
       try {
         const r = await guardarProveedor(proveedor?.id ?? null, input);
@@ -92,14 +94,35 @@ export function ProveedorDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="prov-nombre">Nombre</Label>
+              <Input
+                id="prov-nombre"
+                autoFocus
+                placeholder="Nancy"
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="prov-pais">País</Label>
+              <Input
+                id="prov-pais"
+                placeholder="China / México…"
+                value={pais}
+                onChange={(e) => setPais(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="prov-nombre">Nombre</Label>
+            <Label htmlFor="prov-contacto">Contacto (persona, WeChat, WhatsApp…)</Label>
             <Input
-              id="prov-nombre"
-              autoFocus
-              placeholder="Nancy"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              id="prov-contacto"
+              placeholder="Nancy · WeChat: nancy_belts"
+              value={contacto}
+              onChange={(e) => setContacto(e.target.value)}
             />
           </div>
 
@@ -127,7 +150,7 @@ export function ProveedorDialog({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="prov-dias">Días que tarda en llegar un pedido</Label>
+            <Label htmlFor="prov-dias">Tiempo aproximado de maquila y entrega (días)</Label>
             <Input
               id="prov-dias"
               type="number"
@@ -138,9 +161,9 @@ export function ProveedorDialog({
               onChange={(e) => setDiasEntrega(e.target.value)}
             />
             <p className="text-[12px] leading-relaxed text-muted-foreground">
-              Desde que se hace el pedido hasta que entra a la bodega (producción, tránsito y
-              aduana). Es lo que usa «Qué pedir» para avisar con tiempo; si se deja vacío se toman{" "}
-              {diasEntregaDefault} días.
+              Desde que se hace el pedido hasta que entra a la bodega: maquila, producción, tránsito
+              y aduana. Es lo que usa «Qué pedir» para avisar con tiempo; si se deja vacío se toman{" "}
+              {diasEntregaDefault} días (≈ 3 meses).
             </p>
           </div>
 
