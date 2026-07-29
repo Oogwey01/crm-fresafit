@@ -12,12 +12,13 @@ import { cn } from "@/lib/utils";
    tabla/tablero/calendario que manda en escritorio. Comparte el estado global
    (alcance / solo vencidas) y los modales con el <Board>. */
 
-type Alcance = "mis" | "todas";
+type Alcance = "mis" | "delegadas" | "todas";
 
 /* Pastilla de estado — tintes suaves tomados del diseño móvil. */
 const ESTILO_ESTADO: Record<EstadoId, { nombre: string; bg: string; color: string; dot: string }> = {
   por_hacer: { nombre: "Por hacer", bg: "#F1F3F6", color: "#5A6474", dot: "#94A3B8" },
   en_proceso: { nombre: "En proceso", bg: "#FEF3E2", color: "#B45309", dot: "#F59E0B" },
+  atorado: { nombre: "Atorado", bg: "#FEE9DC", color: "#C2410C", dot: "#F97316" },
   en_revision: { nombre: "En revisión", bg: "#F1ECFE", color: "#6D28D9", dot: "#8B5CF6" },
   hecho: { nombre: "Hecho", bg: "#E9F8F1", color: "#0E8A5F", dot: "#12B981" },
 };
@@ -39,6 +40,7 @@ export function VistaMovil({
   setSoloVencidas,
   onAbrir,
   onNueva,
+  checklistPorTarea,
 }: {
   tareas: TaskConResponsable[];
   currentUserId: string;
@@ -50,11 +52,16 @@ export function VistaMovil({
   setSoloVencidas: (fn: (v: boolean) => boolean) => void;
   onAbrir: (t: TaskConResponsable) => void;
   onNueva: () => void;
+  checklistPorTarea?: Record<string, { total: number; hechos: number }>;
 }) {
-  /* "mis" = solo lo asignado a mí; "todas" = todo (los filtros de persona/área
-     son de escritorio y aquí no aplican). */
+  /* "mis" = lo asignado a mí; "delegadas" = lo que yo delegué; "todas" = todo
+     (los filtros de persona/área son de escritorio y aquí no aplican). */
   const base =
-    alcance === "mis" ? tareas.filter((t) => t.responsable_id === currentUserId) : tareas;
+    alcance === "mis"
+      ? tareas.filter((t) => t.responsable_id === currentUserId)
+      : alcance === "delegadas"
+        ? tareas.filter((t) => t.created_by === currentUserId)
+        : tareas;
 
   const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
   const filtradas = soloVencidas
@@ -115,6 +122,21 @@ export function VistaMovil({
         >
           Mis tareas
         </button>
+        {gestor && (
+          <button
+            type="button"
+            onClick={() => setAlcance("delegadas")}
+            aria-pressed={alcance === "delegadas"}
+            className={cn(
+              "shrink-0 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition-colors",
+              alcance === "delegadas"
+                ? "bg-foreground text-background"
+                : "border bg-card text-foreground",
+            )}
+          >
+            Delegadas por mí
+          </button>
+        )}
         {(vencidas > 0 || soloVencidas) && (
           <button
             type="button"
@@ -253,6 +275,14 @@ export function VistaMovil({
                             {prioridad.nombre}
                           </span>
                         )}
+                        {(() => {
+                          const chk = checklistPorTarea?.[t.id];
+                          return chk && chk.total > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                              ☑ {chk.hechos}/{chk.total}
+                            </span>
+                          ) : null;
+                        })()}
                         {t.fecha_limite && (
                           <span
                             className={cn(

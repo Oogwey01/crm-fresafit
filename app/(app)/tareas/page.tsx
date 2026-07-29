@@ -11,7 +11,7 @@ export default async function TareasPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [tareasRes, borradasRes, equipoRes, perfilRes] = await Promise.all([
+  const [tareasRes, borradasRes, equipoRes, perfilRes, checklistRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("*, responsable:profiles!responsable_id(id, nombre, color)")
@@ -27,12 +27,22 @@ export default async function TareasPage() {
     user
       ? supabase.from("profiles").select("rol").eq("id", user.id).single()
       : Promise.resolve({ data: null }),
+    // Resumen de subtareas por tarea (para el chip de progreso en las tarjetas).
+    supabase.from("task_checklist").select("task_id, hecho"),
   ]);
 
   const tareas = (tareasRes.data ?? []) as unknown as TaskConResponsable[];
   const borradas = (borradasRes.data ?? []) as unknown as TaskConResponsable[];
   const equipo = (equipoRes.data ?? []) as Profile[];
   const rol = ((perfilRes.data as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
+
+  /* {task_id: {total, hechos}} — el resumen que alimenta el chip de subtareas. */
+  const checklistPorTarea: Record<string, { total: number; hechos: number }> = {};
+  for (const c of (checklistRes.data ?? []) as { task_id: string; hecho: boolean }[]) {
+    const r = (checklistPorTarea[c.task_id] ??= { total: 0, hechos: 0 });
+    r.total += 1;
+    if (c.hecho) r.hechos += 1;
+  }
 
   return (
     <Board
@@ -41,6 +51,7 @@ export default async function TareasPage() {
       equipo={equipo}
       currentUserId={user?.id ?? ""}
       rol={rol}
+      checklistPorTarea={checklistPorTarea}
     />
   );
 }

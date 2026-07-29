@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS, esGestor } from "@/lib/catalogos";
-import { isoALocalInput, localInputAIso } from "@/lib/fecha";
+import { isoALocalInput, localInputAIso, formatearFecha } from "@/lib/fecha";
 import {
   editarTarea,
   moverTarea,
@@ -48,6 +48,8 @@ import type {
   TaskDetalle,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
+import { DatePicker } from "@/components/compartido/date-picker";
 
 const SIN_ASIGNAR = "none";
 
@@ -94,7 +96,19 @@ export function TaskDetail({
   const [estado, setEstado] = useState<EstadoId>(tarea.estado);
   const [fecha, setFecha] = useState(tarea.fecha_limite ?? "");
   const [recordatorio, setRecordatorio] = useState(isoALocalInput(tarea.recordatorio_at));
+  const [motivoAtorado, setMotivoAtorado] = useState(tarea.motivo_atorado ?? "");
+  const [atorarAbierto, setAtorarAbierto] = useState(false);
   const [etiquetas, setEtiquetas] = useState<string[]>(tarea.etiquetas ?? []);
+
+  /* Al cambiar el responsable, el área se autollena con la de su perfil. */
+  function elegirResponsable(v: string) {
+    const id = v ?? SIN_ASIGNAR;
+    setResponsable(id);
+    if (id !== SIN_ASIGNAR) {
+      const p = equipo.find((x) => x.id === id);
+      if (p?.area) setArea(p.area);
+    }
+  }
 
   const [nuevoComentario, setNuevoComentario] = useState("");
   const [nuevaSubtarea, setNuevaSubtarea] = useState("");
@@ -149,6 +163,7 @@ export function TaskDetail({
       estado,
       fecha_limite: fecha || null,
       recordatorio_at: localInputAIso(recordatorio),
+      motivo_atorado: estado === "atorado" ? motivoAtorado : null,
       etiquetas,
     };
     startTransition(async () => {
@@ -163,9 +178,16 @@ export function TaskDetail({
   }
 
   /* --- Estado (miembro responsable): mover al vuelo --- */
-  function cambiarEstadoMiembro(nuevo: EstadoId) {
+  function ejecutarEstadoMiembro(nuevo: EstadoId, motivo: string | null) {
     setEstado(nuevo);
-    accion(() => moverTarea(tarea.id, nuevo));
+    accion(() => moverTarea(tarea.id, nuevo, motivo));
+  }
+  function cambiarEstadoMiembro(nuevo: EstadoId) {
+    if (nuevo === "atorado") {
+      setAtorarAbierto(true);
+      return;
+    }
+    ejecutarEstadoMiembro(nuevo, null);
   }
 
   function toggleEtiquetaGestor(id: string) {
@@ -206,6 +228,7 @@ export function TaskDetail({
   const hechos = checklist.filter((c) => c.hecho).length;
 
   return (
+    <>
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
@@ -224,7 +247,7 @@ export function TaskDetail({
             />
             <div className="grid grid-cols-2 gap-3">
               <Meta label="Responsable">
-                <Select value={responsable} onValueChange={(v) => setResponsable(v ?? SIN_ASIGNAR)}>
+                <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
                   <SelectTrigger className="w-full"><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
@@ -232,7 +255,7 @@ export function TaskDetail({
                   </SelectContent>
                 </Select>
               </Meta>
-              <Meta label="Área">
+              <Meta label="Área (según responsable)">
                 <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
                   <SelectTrigger className="w-full"><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
                   <SelectContent>
@@ -257,7 +280,7 @@ export function TaskDetail({
                 </Select>
               </Meta>
               <Meta label="Fecha límite">
-                <Input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+                <DatePicker value={fecha} onChange={setFecha} limpiable />
               </Meta>
               <Meta label="Recordatorio">
                 <Input
@@ -267,6 +290,20 @@ export function TaskDetail({
                 />
               </Meta>
             </div>
+
+            {estado === "atorado" && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Motivo (atorado)
+                </span>
+                <Textarea
+                  rows={2}
+                  value={motivoAtorado}
+                  onChange={(e) => setMotivoAtorado(e.target.value)}
+                  placeholder="Qué se necesita de vuelta para poder avanzar…"
+                />
+              </div>
+            )}
 
             <Seccion titulo="Etiquetas">
               <div className="flex flex-wrap gap-1.5">
@@ -301,6 +338,9 @@ export function TaskDetail({
               <span className="text-muted-foreground">
                 Responsable: <b className="text-foreground">{nombrePorId(tarea.responsable_id)}</b>
               </span>
+              <span className="text-muted-foreground">
+                Te la puso: <b className="text-foreground">{nombrePorId(tarea.created_by)}</b>
+              </span>
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground">Estado:</span>
                 <Select
@@ -315,6 +355,11 @@ export function TaskDetail({
                 </Select>
               </div>
             </div>
+            {estado === "atorado" && tarea.motivo_atorado && (
+              <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-300">
+                <b className="font-semibold">Atorada:</b> {tarea.motivo_atorado}
+              </div>
+            )}
             {!puedeMover && (
               <p className="text-xs italic text-muted-foreground">
                 Solo puedes comentar. El cambio de estado lo hace la persona responsable o un coordinador.
@@ -470,7 +515,8 @@ export function TaskDetail({
         {/* ===== Pie ===== */}
         <div className="mt-4 flex items-center gap-2 border-t pt-4">
           <span className="text-xs text-muted-foreground">
-            Creada por {nombrePorId(tarea.created_by)}
+            Delegada por {nombrePorId(tarea.created_by)}
+            {tarea.fecha_inicio && ` · Inicio ${formatearFecha(tarea.fecha_inicio)}`}
           </span>
           <div className="ml-auto flex gap-2">
             {gestor && (
@@ -484,6 +530,17 @@ export function TaskDetail({
         </div>
       </DialogContent>
     </Dialog>
+
+    <MotivoAtoradoDialog
+      open={atorarAbierto}
+      motivoInicial={tarea.motivo_atorado ?? ""}
+      onConfirmar={(motivo) => {
+        ejecutarEstadoMiembro("atorado", motivo || null);
+        setAtorarAbierto(false);
+      }}
+      onCancelar={() => setAtorarAbierto(false)}
+    />
+    </>
   );
 }
 

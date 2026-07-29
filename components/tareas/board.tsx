@@ -38,12 +38,14 @@ import { VistaCalendario } from "@/components/tareas/vista-calendario";
 import { VistaMovil } from "@/components/tareas/vista-movil";
 import { ImportarTareas } from "@/components/tareas/importar";
 import { Papelera } from "@/components/tareas/papelera";
+import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
 
 /* Carril del tablero cuando se agrupa (por área o por persona). */
 type Grupo = { id: string; nombre: string; color: string; tareas: TaskConResponsable[] };
 
-/* Alcance global: "mis" = solo lo asignado a mí; aplica en las TRES vistas. */
-type Alcance = "mis" | "todas";
+/* Alcance global: "mis" = lo asignado a mí; "delegadas" = lo que yo delegué a
+   otros; "todas" = todo. Aplica en las TRES vistas. */
+type Alcance = "mis" | "delegadas" | "todas";
 type VistaTop = "tabla" | "tablero" | "calendario";
 
 const VISTAS_TOP = [
@@ -58,14 +60,29 @@ export function Board({
   equipo,
   currentUserId,
   rol,
+  checklistPorTarea = {},
 }: {
   tareas: TaskConResponsable[];
   borradas?: TaskConResponsable[];
   equipo: Profile[];
   currentUserId: string;
   rol: RolId;
+  /* {task_id: {total, hechos}} para el chip de subtareas en las tarjetas. */
+  checklistPorTarea?: Record<string, { total: number; hechos: number }>;
 }) {
   const gestor = esGestor(rol);
+
+  /* "Delegadas por mí" solo tiene sentido para quien delega (gestor). */
+  const opcionesAlcance: [Alcance, string][] = gestor
+    ? [
+        ["mis", "Mis tareas"],
+        ["delegadas", "Delegadas por mí"],
+        ["todas", "Todas"],
+      ]
+    : [
+        ["mis", "Mis tareas"],
+        ["todas", "Todas"],
+      ];
 
   /* Parche optimista genérico: mover de estado y/o reasignar responsable. */
   const [tareas, aplicarMovimiento] = useOptimistic(
@@ -85,6 +102,8 @@ export function Board({
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
   const [detalle, setDetalle] = useState<TaskConResponsable | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /* Tarea en espera de motivo para atorarse (abre MotivoAtoradoDialog). */
+  const [atorarPendiente, setAtorarPendiente] = useState<{ id: string; motivoInicial: string } | null>(null);
 
   /* Tablero agrupado por área: los temas arrancan COLAPSADOS (guardamos las
      áreas ABIERTAS; conjunto vacío = todo colapsado). */
@@ -102,18 +121,31 @@ export function Board({
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
   );
 
-  function mover(id: string, nuevoEstado: EstadoId) {
-    const actual = tareas.find((t) => t.id === id);
-    if (!actual || actual.estado === nuevoEstado) return;
+  function ejecutarMover(id: string, nuevoEstado: EstadoId, motivo: string | null) {
     startTransition(async () => {
-      aplicarMovimiento({ id, patch: { estado: nuevoEstado } });
+      aplicarMovimiento({
+        id,
+        patch: { estado: nuevoEstado, motivo_atorado: nuevoEstado === "atorado" ? motivo : null },
+      });
       try {
-        const r = await moverTarea(id, nuevoEstado);
+        const r = await moverTarea(id, nuevoEstado, motivo);
         if ("error" in r) toast.error("No se pudo mover: " + r.error);
       } catch {
         toast.error("No se pudo mover la tarea. Revisa tu conexión.");
       }
     });
+  }
+
+  function mover(id: string, nuevoEstado: EstadoId) {
+    const actual = tareas.find((t) => t.id === id);
+    if (!actual || actual.estado === nuevoEstado) return;
+    /* Al atorar se pide el motivo (qué se necesita de vuelta) con un diálogo de la
+       app; le llega un aviso a quien delegó la tarea. */
+    if (nuevoEstado === "atorado") {
+      setAtorarPendiente({ id, motivoInicial: actual.motivo_atorado ?? "" });
+      return;
+    }
+    ejecutarMover(id, nuevoEstado, null);
   }
 
   /* Reasignar arrastrando entre carriles de persona (solo gestor). */
@@ -184,11 +216,13 @@ export function Board({
   const base =
     alcance === "mis"
       ? tareas.filter((t) => t.responsable_id === currentUserId)
-      : tareas.filter(
-          (t) =>
-            (filtroResponsable === "todos" || t.responsable_id === filtroResponsable) &&
-            (filtroArea === "todas" || t.area === filtroArea),
-        );
+      : alcance === "delegadas"
+        ? tareas.filter((t) => t.created_by === currentUserId)
+        : tareas.filter(
+            (t) =>
+              (filtroResponsable === "todos" || t.responsable_id === filtroResponsable) &&
+              (filtroArea === "todas" || t.area === filtroArea),
+          );
 
   /* Contador de vencidas sobre lo mostrado (antes del filtro "solo vencidas"). */
   const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
@@ -242,6 +276,7 @@ export function Board({
           setSoloVencidas={setSoloVencidas}
           onAbrir={setDetalle}
           onNueva={() => setNuevaAbierta(true)}
+          checklistPorTarea={checklistPorTarea}
         />
       </div>
 
@@ -290,14 +325,9 @@ export function Board({
           </button>
         )}
 
-        {/* Alcance global: Mis tareas / Todas — aplica en las TRES vistas. */}
+        {/* Alcance global: Mis tareas / Delegadas por mí / Todas — aplica en las TRES vistas. */}
         <div className="inline-flex rounded-lg bg-muted p-0.5">
-          {(
-            [
-              ["mis", "Mis tareas"],
-              ["todas", "Todas"],
-            ] as const
-          ).map(([id, label]) => (
+          {opcionesAlcance.map(([id, label]) => (
             <button
               key={id}
               onClick={() => setAlcance(id)}
@@ -413,6 +443,7 @@ export function Board({
           onAbrir={setDetalle}
           onMoverEstado={mover}
           onCambiarPrioridad={cambiarPrio}
+          checklistPorTarea={checklistPorTarea}
         />
       )}
 
@@ -432,7 +463,7 @@ export function Board({
               </p>
             )}
             {/* Móvil: carril horizontal con snap (columnas lado a lado). Escritorio: grid. */}
-            <div className="-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">
+            <div className="-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-5">
               {ESTADOS.map((estado) => (
                 <div key={estado.id} className="w-[85%] shrink-0 snap-start md:w-auto">
                   <Column
@@ -441,6 +472,7 @@ export function Board({
                     tareas={filtradas.filter((t) => t.estado === estado.id)}
                     onMover={mover}
                     onEditar={setDetalle}
+                    checklistPorTarea={checklistPorTarea}
                   />
                 </div>
               ))}
@@ -454,7 +486,7 @@ export function Board({
           <div className="flex flex-col gap-6">
             {/* Encabezado de columnas (una vez, arriba) — solo si hay algún carril abierto */}
             {grupos.some((g) => areasAbiertas.has(g.id)) && (
-              <div className="hidden gap-4 xl:grid xl:grid-cols-4">
+              <div className="hidden gap-4 xl:grid xl:grid-cols-5">
                 {ESTADOS.map((e) => (
                   <div key={e.id} className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                     {e.nombre}
@@ -498,7 +530,7 @@ export function Board({
                     <div className="overflow-hidden">
                       <div
                         className={cn(
-                          "-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 pt-2 transition-opacity duration-300 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4",
+                          "-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 pt-2 transition-opacity duration-300 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-5",
                           abierta ? "opacity-100" : "opacity-0",
                         )}
                       >
@@ -512,6 +544,7 @@ export function Board({
                               tareas={g.tareas.filter((t) => t.estado === estado.id)}
                               onMover={mover}
                               onEditar={setDetalle}
+                              checklistPorTarea={checklistPorTarea}
                             />
                           </div>
                         ))}
@@ -524,7 +557,9 @@ export function Board({
           </div>
         )}
 
-        <DragOverlay>{activa ? <TaskCard tarea={activa} overlay /> : null}</DragOverlay>
+        <DragOverlay>
+          {activa ? <TaskCard tarea={activa} overlay checklist={checklistPorTarea[activa.id]} /> : null}
+        </DragOverlay>
       </DndContext>
       )}
       </div>
@@ -547,6 +582,16 @@ export function Board({
           onClose={() => setDetalle(null)}
         />
       )}
+
+      <MotivoAtoradoDialog
+        open={!!atorarPendiente}
+        motivoInicial={atorarPendiente?.motivoInicial ?? ""}
+        onConfirmar={(motivo) => {
+          if (atorarPendiente) ejecutarMover(atorarPendiente.id, "atorado", motivo || null);
+          setAtorarPendiente(null);
+        }}
+        onCancelar={() => setAtorarPendiente(null)}
+      />
     </div>
   );
 }

@@ -65,6 +65,7 @@ export function VistaTabla({
   onAbrir,
   onMoverEstado,
   onCambiarPrioridad,
+  checklistPorTarea,
 }: {
   tareas: TaskConResponsable[];
   currentUserId: string;
@@ -72,6 +73,7 @@ export function VistaTabla({
   onAbrir: (t: TaskConResponsable) => void;
   onMoverEstado: (id: string, estado: EstadoId) => void;
   onCambiarPrioridad: (id: string, prioridad: PrioridadId) => void;
+  checklistPorTarea?: Record<string, { total: number; hechos: number }>;
 }) {
   const [colapsados, setColapsados] = useState<Set<string>>(new Set());
   function toggle(areaId: string) {
@@ -153,14 +155,27 @@ export function VistaTabla({
                         )}
                       >
                         {/* Tarea (encabezado de la tarjeta en móvil) */}
-                        <button
-                          type="button"
-                          onClick={() => onAbrir(t)}
-                          className="truncate text-left font-medium hover:underline"
-                          title={t.titulo}
-                        >
-                          {t.titulo}
-                        </button>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onAbrir(t)}
+                            className="truncate text-left font-medium hover:underline"
+                            title={t.titulo}
+                          >
+                            {t.titulo}
+                          </button>
+                          {(() => {
+                            const chk = checklistPorTarea?.[t.id];
+                            return chk && chk.total > 0 ? (
+                              <span
+                                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+                                title="Subtareas completadas"
+                              >
+                                ☑ {chk.hechos}/{chk.total}
+                              </span>
+                            ) : null;
+                          })()}
+                        </div>
 
                         {/* Responsable */}
                         <Celda label="Responsable">

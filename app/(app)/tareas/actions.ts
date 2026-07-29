@@ -20,10 +20,31 @@ export type TaskInput = {
   estado: EstadoId;
   fecha_limite: string | null;
   recordatorio_at: string | null;
+  /* Motivo cuando la tarea se guarda como "atorado" (se ignora en otros estados). */
+  motivo_atorado?: string | null;
   etiquetas: string[];
 };
 
 type Resultado = { ok: true } | { error: string };
+
+/* El área de una tarea sigue a su responsable: si se asigna a alguien, se toma
+   el área de su perfil (lo pidió Armando en la junta). Sin responsable —o si su
+   perfil no tiene área— se conserva la que venga en el formulario. */
+async function areaDeResponsable(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  responsableId: string | null,
+  fallback: AreaId,
+): Promise<AreaId> {
+  if (!responsableId) return fallback;
+  const { data } = await supabase.from("profiles").select("area").eq("id", responsableId).single();
+  return ((data?.area as AreaId | null) ?? fallback);
+}
+
+/* El motivo solo aplica cuando la tarea queda "atorado"; en cualquier otro estado
+   se limpia. */
+function motivoParaEstado(estado: EstadoId, motivo: string | null | undefined): string | null {
+  return estado === "atorado" ? (motivo?.trim() || null) : null;
+}
 
 /* Registra una línea en el historial de actividad de la tarea.
    Los cambios de estado / comentarios / adjuntos ya los registran triggers en la BD;
@@ -53,11 +74,12 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
     titulo,
     descripcion: input.descripcion.trim() || null,
     responsable_id: input.responsable_id,
-    area: input.area,
+    area: await areaDeResponsable(supabase, input.responsable_id, input.area),
     prioridad: input.prioridad,
     estado: input.estado,
     fecha_limite: input.fecha_limite || null,
     recordatorio_at: input.recordatorio_at || null,
+    motivo_atorado: motivoParaEstado(input.estado, input.motivo_atorado),
     etiquetas: input.etiquetas ?? [],
     created_by: user.id,
   });
@@ -81,11 +103,12 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
       titulo,
       descripcion: input.descripcion.trim() || null,
       responsable_id: input.responsable_id,
-      area: input.area,
+      area: await areaDeResponsable(supabase, input.responsable_id, input.area),
       prioridad: input.prioridad,
       estado: input.estado,
       fecha_limite: input.fecha_limite || null,
       recordatorio_at: input.recordatorio_at || null,
+      motivo_atorado: motivoParaEstado(input.estado, input.motivo_atorado),
       etiquetas: input.etiquetas ?? [],
     })
     .eq("id", id);
@@ -95,10 +118,20 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
   return { ok: true };
 }
 
-/* Mover de estado: gestor (cualquiera) o miembro responsable (RLS + trigger lo refuerzan). */
-export async function moverTarea(id: string, estado: EstadoId): Promise<Resultado> {
+/* Mover de estado: gestor (cualquiera) o miembro responsable (RLS + trigger lo
+   refuerzan). Al pasar a "atorado" se guarda el motivo (qué se necesita de
+   vuelta); al salir de "atorado" el motivo se limpia. El aviso a quien delegó lo
+   dispara el trigger `notificar_atorado` en la BD. */
+export async function moverTarea(
+  id: string,
+  estado: EstadoId,
+  motivoAtorado?: string | null,
+): Promise<Resultado> {
   const supabase = await createClient();
-  const { error } = await supabase.from("tasks").update({ estado }).eq("id", id);
+  const { error } = await supabase
+    .from("tasks")
+    .update({ estado, motivo_atorado: motivoParaEstado(estado, motivoAtorado) })
+    .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -122,7 +155,15 @@ export async function reasignarTarea(id: string, responsableId: string | null): 
   const { supabase, user, rol } = await usuarioActual();
   if (!user) return { error: "No autenticado." };
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede reasignar tareas." };
-  const { error } = await supabase.from("tasks").update({ responsable_id: responsableId }).eq("id", id);
+  /* Al reasignar, el área sigue al nuevo responsable (si tiene perfil con área).
+     Sin responsable se conserva el área actual de la tarea. */
+  const patch: { responsable_id: string | null; area?: AreaId } = { responsable_id: responsableId };
+  if (responsableId) {
+    const { data } = await supabase.from("profiles").select("area").eq("id", responsableId).single();
+    const area = data?.area as AreaId | null;
+    if (area) patch.area = area;
+  }
+  const { error } = await supabase.from("tasks").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };

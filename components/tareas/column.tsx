@@ -13,6 +13,7 @@ export function Column({
   onMover,
   onEditar,
   ocultarNombreXl,
+  checklistPorTarea,
 }: {
   estadoId: EstadoId;
   /** Id único del droppable (por si hay varios carriles con el mismo estado). */
@@ -23,6 +24,7 @@ export function Column({
   onEditar: (t: TaskConResponsable) => void;
   /** En xl la fila de encabezados va arriba una sola vez: aquí ocultamos el nombre repetido. */
   ocultarNombreXl?: boolean;
+  checklistPorTarea?: Record<string, { total: number; hechos: number }>;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? estadoId });
 
@@ -63,7 +65,13 @@ export function Column({
           </div>
         ) : (
           tareas.map((t) => (
-            <TaskCard key={t.id} tarea={t} onMover={onMover} onEditar={onEditar} />
+            <TaskCard
+              key={t.id}
+              tarea={t}
+              onMover={onMover}
+              onEditar={onEditar}
+              checklist={checklistPorTarea?.[t.id]}
+            />
           ))
         )}
       </div>

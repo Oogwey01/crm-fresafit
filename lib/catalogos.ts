@@ -14,6 +14,7 @@
 export const ESTADOS = [
   { id: "por_hacer", nombre: "Por hacer", color: "#94a3b8" },   // gris
   { id: "en_proceso", nombre: "En proceso", color: "#f59e0b" }, // ámbar
+  { id: "atorado", nombre: "Atorado", color: "#f97316" },       // naranja: bloqueada, necesita algo de vuelta
   { id: "en_revision", nombre: "En revisión", color: "#8b5cf6" },// morado
   { id: "hecho", nombre: "Hecho", color: "#22c55e" },           // verde
 ] as const;
@@ -39,7 +40,7 @@ export const AREAS = [
 export const ROLES = [
   { id: "direccion", nombre: "Dirección", desc: "Ve y edita todo." },
   { id: "coordinador", nombre: "Coordinador", desc: "Ve todas las tareas del equipo; crea, asigna y edita." },
-  { id: "miembro", nombre: "Miembro", desc: "Ve su área y sus tareas; mueve el estado de las suyas, comenta y adjunta." },
+  { id: "miembro", nombre: "Miembro", desc: "Ve solo sus tareas (asignadas o creadas); mueve el estado de las suyas, comenta y adjunta." },
   { id: "externo", nombre: "Externo", desc: "Solo ve lo que se le comparte." },
 ] as const;
 
