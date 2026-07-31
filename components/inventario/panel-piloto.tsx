@@ -1,4 +1,4 @@
-import { CheckCircle2, CircleAlert, FlaskConical, PenLine } from "lucide-react";
+import { CheckCircle2, CircleAlert, FlaskConical, Lock, PenLine } from "lucide-react";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import { cn } from "@/lib/utils";
 
@@ -67,6 +67,10 @@ function Celda({ valor, crm }: { valor: number | null; crm: number }) {
 export function PanelPiloto({ estado }: { estado: EstadoPiloto }) {
   if (!estado.activo) return null;
 
+  /* Con la escritura bloqueada el panel no desaparece: sigue sirviendo como
+     monitor —muestra si los canales cuadran con el CRM y qué escribió antes de
+     que se cerrara la llave—, pero no puede decir que está escribiendo. */
+  const bloqueado = estado.modo === "off";
   const simulacro = estado.modo === "simulacro";
   const todoElCatalogo = estado.skus.length === 0;
   const desviados = estado.filas.filter((f) => !f.cuadrado);
@@ -74,32 +78,44 @@ export function PanelPiloto({ estado }: { estado: EstadoPiloto }) {
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
-        {simulacro ? (
+        {bloqueado ? (
+          <Lock className="size-[18px] text-muted-foreground" strokeWidth={1.9} aria-hidden="true" />
+        ) : simulacro ? (
           <FlaskConical className="size-[18px] text-amber-600" strokeWidth={1.9} aria-hidden="true" />
         ) : (
           <PenLine className="size-[18px] text-green-600" strokeWidth={1.9} aria-hidden="true" />
         )}
         <h3 className="text-[14.5px] font-semibold">
-          {simulacro ? "Piloto en simulacro" : "El CRM está escribiendo en los canales"}
+          {bloqueado
+            ? "Escritura a canales desactivada"
+            : simulacro
+              ? "Piloto en simulacro"
+              : "El CRM está escribiendo en los canales"}
         </h3>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <Chip tono={estado.hubVentas ? "ok" : "neutro"}>
             ventas {estado.hubVentas ? "descuentan" : "no descuentan"}
           </Chip>
-          {estado.canales.map((c) => (
-            <Chip key={c} tono={simulacro ? "aviso" : "ok"}>
-              {NOMBRE_CANAL[c] ?? c}
-            </Chip>
-          ))}
+          {bloqueado ? (
+            <Chip>solo lectura</Chip>
+          ) : (
+            estado.canales.map((c) => (
+              <Chip key={c} tono={simulacro ? "aviso" : "ok"}>
+                {NOMBRE_CANAL[c] ?? c}
+              </Chip>
+            ))
+          )}
         </div>
       </div>
 
       <p className="text-[13px] leading-relaxed text-muted-foreground">
-        {simulacro
-          ? "El CRM calcula lo que escribiría y lo anota, pero no toca ninguna plataforma. Sirve para medir si acierta antes de darle permiso."
-          : todoElCatalogo
-            ? "El CRM manda el stock de TODO el catálogo y lo empuja a los canales."
-            : `El CRM manda el stock de ${estado.skus.length} producto${estado.skus.length === 1 ? "" : "s"} (${estado.skus.join(", ")}). El resto del catálogo sigue como siempre.`}
+        {bloqueado
+          ? "El CRM no modifica el stock ni ningún otro dato en Tienda Nube, Mercado Libre ni TikTok Shop. Lo de abajo es solo observación: cómo va cada canal y qué escribió el CRM cuando tenía permiso."
+          : simulacro
+            ? "El CRM calcula lo que escribiría y lo anota, pero no toca ninguna plataforma. Sirve para medir si acierta antes de darle permiso."
+            : todoElCatalogo
+              ? "El CRM manda el stock de TODO el catálogo y lo empuja a los canales."
+              : `El CRM manda el stock de ${estado.skus.length} producto${estado.skus.length === 1 ? "" : "s"} (${estado.skus.join(", ")}). El resto del catálogo sigue como siempre.`}
       </p>
 
       {estado.filas.length > 0 && (
@@ -150,7 +166,10 @@ export function PanelPiloto({ estado }: { estado: EstadoPiloto }) {
       {desviados.length > 0 && (
         <p className="text-[12.5px] text-amber-700 dark:text-amber-400">
           {desviados.length === 1 ? "Un canal está" : `${desviados.length} canales están`} fuera del número
-          del CRM. La próxima sincronización debería devolverlo; si no, revísalo.
+          del CRM.{" "}
+          {bloqueado
+            ? "Con la escritura desactivada el CRM no lo va a corregir: si el número del canal está mal, ajústalo en la plataforma."
+            : "La próxima sincronización debería devolverlo; si no, revísalo."}
         </p>
       )}
 

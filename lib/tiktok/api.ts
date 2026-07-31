@@ -14,6 +14,7 @@
 
 import { createHmac } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
 const AUTH_BASE = "https://auth.tiktok-shops.com";
@@ -331,13 +332,23 @@ export async function stockActualTikTok(
 }
 
 /* Actualiza el stock de un SKU en el almacén principal (el inventario en TikTok
-   es por almacén: hay que decir a cuál va la cantidad). */
+   es por almacén: hay que decir a cuál va la cantidad).
+
+   CANDADO: con la escritura a canales apagada (hoy, por `CANALES_SOLO_LECTURA`)
+   esto es un no-op. Esta función nació SIN el candado que ya tenían sus gemelas
+   de Tienda Nube y Mercado Libre, y por ahí se coló el inventario que el CRM
+   movió en TikTok. Es la única función que escribe en TikTok Shop, así que el
+   candado cubre toda ruta presente y futura. */
 export async function actualizarStockTikTok(
   cx: ConexionTikTok,
   productId: string,
   skuId: string,
   cantidad: number,
 ): Promise<void> {
+  if (!ESCRITURA_CANALES) {
+    console.warn("[solo-lectura] escritura a TikTok Shop omitida", { productId, skuId, cantidad });
+    return;
+  }
   if (!cx.warehouseId) throw new Error("TikTok Shop sin almacén configurado; reconecta la cuenta.");
   await ttFetch(cx, "POST", `/product/202309/products/${productId}/inventory/update`, {
     body: { skus: [{ id: skuId, inventory: [{ warehouse_id: cx.warehouseId, quantity: cantidad }] }] },

@@ -24,19 +24,45 @@
 
    Cambiarlo es editar variables en Vercel y redesplegar: no hay que tocar
    código para avanzar ni para dar marcha atrás.
-   ============================================================================ */
+
+   ─────────────────────────────────────────────────────────────────────────────
+   ALTO — CANDADO GENERAL ACTIVO (30/07/2026)
+
+   Se reportó que el CRM estaba moviendo inventario en TikTok Shop. El piloto
+   solo contemplaba MQR004 (el único SKU excluido de Astroselling), así que
+   cualquier escritura fuera de eso pisa a un segundo escritor: exactamente lo
+   que borró 27 unidades el 18/07.
+
+   Por decisión de negocio, el CRM NO escribe en Tienda Nube, Mercado Libre ni
+   TikTok Shop hasta nuevo aviso. El candado vive AQUÍ, en el código, y no en
+   una variable de Vercel: las variables se quedan puestas y se olvidan, y basta
+   con que alguien redespliegue para que el CRM vuelva a escribir sin que nadie
+   lo haya decidido. Mientras `CANALES_SOLO_LECTURA` sea true, `SYNC_ESCRITURA_
+   CANALES` y `SYNC_ESCRITURA_SKUS` quedan ignoradas por completo.
+
+   PARA REACTIVAR (cuando el piloto vuelva a arrancar): poner la constante en
+   false y confirmar en Vercel que SYNC_ESCRITURA_CANALES / SYNC_ESCRITURA_SKUS
+   dicen justo lo que se quiere encender — canal por canal y SKU por SKU. Se
+   recomienda volver por `simulacro` antes que por `canales`.
+   ───────────────────────────────────────────────────────────────────────────── */
 
 export type CanalEscritura = "tiendanube" | "mercadolibre" | "tiktok";
 
 export type ModoEscritura = "off" | "simulacro" | "canales";
 
+/* Interruptor general. En true, el CRM es solo lectura frente a los tres
+   canales, pase lo que pase en el entorno. Ver la nota de arriba. */
+export const CANALES_SOLO_LECTURA = true;
+
 const TODOS: CanalEscritura[] = ["tiendanube", "mercadolibre", "tiktok"];
 
 function crudo(): string {
+  if (CANALES_SOLO_LECTURA) return "";
   return (process.env.SYNC_ESCRITURA_CANALES ?? "").trim().toLowerCase();
 }
 
 export function modoEscritura(): ModoEscritura {
+  if (CANALES_SOLO_LECTURA) return "off";
   const v = crudo();
   if (!v || v === "off" || v === "no" || v === "false") return "off";
   if (v === "simulacro" || v === "dry-run" || v === "dryrun") return "simulacro";

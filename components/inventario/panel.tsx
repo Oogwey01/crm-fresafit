@@ -768,16 +768,18 @@ export function PanelInventario({
       {/* Modo solo lectura: el CRM importa de las plataformas pero no escribe
           nada allá. Se avisa donde se edita el stock, para que nadie espere que
           el ajuste viaje a la tienda. */}
-      {!escrituraCanales && (tiendanube.conectada || mercadolibre.conectada) && pestana === "productos" && (
-        <div className="mb-4 flex items-start gap-3 rounded-xl border bg-muted/40 px-4 py-3">
-          <Lock className="mt-0.5 size-[16px] shrink-0 text-muted-foreground" strokeWidth={1.9} aria-hidden="true" />
-          <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-            <b className="font-semibold text-foreground">Modo solo lectura.</b> El CRM importa el inventario de
-            Tienda Nube y Mercado Libre, pero no modifica nada allá. Los ajustes de stock, precio y costo que
-            hagas aquí se quedan en el CRM.
-          </p>
-        </div>
-      )}
+      {!escrituraCanales &&
+        (tiendanube.conectada || mercadolibre.conectada || tiktok.conectada) &&
+        pestana === "productos" && (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border bg-muted/40 px-4 py-3">
+            <Lock className="mt-0.5 size-[16px] shrink-0 text-muted-foreground" strokeWidth={1.9} aria-hidden="true" />
+            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
+              <b className="font-semibold text-foreground">Modo solo lectura.</b> El CRM importa el inventario de
+              Tienda Nube, Mercado Libre y TikTok Shop, pero no modifica nada allá. Los ajustes de stock, precio y
+              costo que hagas aquí se quedan en el CRM.
+            </p>
+          </div>
+        )}
 
       {pestana === "productos" && (
         <TablaProductos
