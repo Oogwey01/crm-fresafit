@@ -5,7 +5,7 @@ const BUCKET = "fotos-productos";
 
 /* URL pública de una foto subida a mano. El bucket es público, así que no hay
    que firmar nada: la URL se sirve igual que las del CDN de los canales. */
-export function urlFotoProducto(storagePath: string): string {
+function urlFotoProducto(storagePath: string): string {
   return createClient().storage.from(BUCKET).getPublicUrl(storagePath).data.publicUrl;
 }
 

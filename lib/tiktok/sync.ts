@@ -152,7 +152,7 @@ type GrupoFuente = {
   distintas: Set<string>; // imágenes distintas del grupo
 };
 
-export async function poblarImagenesTikTokDesdeCatalogo(): Promise<number> {
+async function poblarImagenesTikTokDesdeCatalogo(): Promise<number> {
   const admin = createAdminClient();
 
   // Fuente: variantes de Tienda Nube con foto (imagen_url es la foto por color).

@@ -12,8 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // App Fase 1 archivada (JS vanilla): no se lintea.
-    "legacy/**",
     // Scripts de Node (seed/import).
     "scripts/**",
   ]),

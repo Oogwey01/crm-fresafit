@@ -52,7 +52,7 @@ export type ModoEscritura = "off" | "simulacro" | "canales";
 
 /* Interruptor general. En true, el CRM es solo lectura frente a los tres
    canales, pase lo que pase en el entorno. Ver la nota de arriba. */
-export const CANALES_SOLO_LECTURA = true;
+const CANALES_SOLO_LECTURA = true;
 
 const TODOS: CanalEscritura[] = ["tiendanube", "mercadolibre", "tiktok"];
 

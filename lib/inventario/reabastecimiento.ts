@@ -39,7 +39,7 @@ export type ParamsReorden = {
   diasCoberturaObjetivo: number;
 };
 
-export const PARAMS_REORDEN_DEFAULT: ParamsReorden = {
+const PARAMS_REORDEN_DEFAULT: ParamsReorden = {
   /* 3 meses: la mayoría de las líneas (cinturones, hebillas, muñequeras, straps)
      tardan ~1 mes de maquila + ~2 de producción/tránsito/aduana. Es el punto de
      partida cuando el proveedor no tiene su propio tiempo capturado. */
@@ -84,7 +84,7 @@ export type EnCamino = Record<string, number>;
 
 export type UrgenciaReorden = "pedir_ya" | "pedir_pronto" | "ok" | "sin_ventas";
 
-export const URGENCIAS = [
+const URGENCIAS = [
   { id: "pedir_ya", nombre: "Pedir ya", color: "#d63031" },
   { id: "pedir_pronto", nombre: "Pedir pronto", color: "#f59e0b" },
   { id: "ok", nombre: "Alcanza", color: "#22c55e" },
@@ -192,7 +192,7 @@ export function tieneFull(p: {
 }
 
 /* ¿El renglón está mapeado a TikTok Shop? (tenga o no otro canal). */
-export function esTikTok(p: { tiktok_product_id?: string | null }): boolean {
+function esTikTok(p: { tiktok_product_id?: string | null }): boolean {
   return p.tiktok_product_id != null;
 }
 

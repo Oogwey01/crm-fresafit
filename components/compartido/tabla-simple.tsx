@@ -17,8 +17,6 @@ export type Columna<T> = {
   celda: (row: T) => ReactNode;
   /** Encabezado de la tarjeta en móvil (y celda normal en escritorio). */
   esTitulo?: boolean;
-  /** No mostrar este campo en la tarjeta móvil (p. ej. columnas decorativas). */
-  ocultarEnCard?: boolean;
   /** Clases del valor en la tarjeta móvil. */
   cardValorClassName?: string;
 };
@@ -47,7 +45,7 @@ export function TablaSimple<T>({
   onRowClick?: (row: T) => void;
 }) {
   const tituloCol = columnas.find((c) => c.esTitulo);
-  const camposCard = columnas.filter((c) => !c.esTitulo && !c.ocultarEnCard);
+  const camposCard = columnas.filter((c) => !c.esTitulo);
 
   /* Ignora el clic de fila cuando cae sobre un control interactivo, para no
      robarle el clic a los +/− de stock, selects de estado, enlaces, etc. */

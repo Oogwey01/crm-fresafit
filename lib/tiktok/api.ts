@@ -411,5 +411,3 @@ export async function obtenerOrdenTikTok(cx: ConexionTikTok, orderId: string): P
   });
   return data.orders?.[0] ?? null;
 }
-
-export { ttFetch };
