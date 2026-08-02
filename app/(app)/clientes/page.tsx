@@ -1,40 +1,30 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { PanelClientes } from "@/components/clientes/panel";
-import type { Customer, CustomerConStats, RolId, SaleConProducto } from "@/lib/types";
+import type { Customer, CustomerConStats, RolId } from "@/lib/types";
 
 export const metadata = { title: "Clientes · Fresafit" };
+
+/* Fila de la RPC stats_por_cliente() (agregado en la base; mismo criterio que
+   el cálculo en JS que sustituye: ventas con cliente y no canceladas). */
+type StatCliente = { cliente_id: string; compras: number; total: number; ultima: string | null };
 
 export default async function ClientesPage() {
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const [clientesRes, ventasRes] = await Promise.all([
+  const [clientesRes, statsRes] = await Promise.all([
     supabase.from("customers").select("*").order("nombre"),
-    /* Ventas con cliente: alimentan las estadísticas y el historial. Se
-       calculan aquí (no se guardan) para que nunca se desincronicen. */
-    supabase
-      .from("sales")
-      .select("*, producto:products!producto_id(id, nombre, variante)")
-      .not("cliente_id", "is", null)
-      .or("estado.is.null,estado.neq.cancelado") // los cancelados no cuentan
-      .order("fecha", { ascending: false })
-      .limit(10000),
+    /* Estadísticas por cliente calculadas en Postgres: antes se bajaban hasta
+       10.000 ventas con join solo para sumarlas aquí (y se serializaban
+       íntegras al navegador; el historial ahora se carga al abrir la ficha). */
+    supabase.rpc("stats_por_cliente"),
   ]);
 
   const clientes = (clientesRes.data ?? []) as Customer[];
-  const ventas = (ventasRes.data ?? []) as unknown as SaleConProducto[];
-
-  /* Estadísticas por cliente (compras, total gastado, última compra). */
-  const stats = new Map<string, { compras: number; total: number; ultima: string | null }>();
-  for (const v of ventas) {
-    if (!v.cliente_id) continue;
-    const s = stats.get(v.cliente_id) ?? { compras: 0, total: 0, ultima: null };
-    s.compras += 1;
-    s.total += v.monto;
-    if (!s.ultima || v.fecha > s.ultima) s.ultima = v.fecha;
-    stats.set(v.cliente_id, s);
-  }
+  const stats = new Map(
+    ((statsRes.data ?? []) as StatCliente[]).map((s) => [s.cliente_id, s]),
+  );
 
   const conStats: CustomerConStats[] = clientes.map((c) => {
     const s = stats.get(c.id);
@@ -47,5 +37,5 @@ export default async function ClientesPage() {
     };
   });
 
-  return <PanelClientes clientes={conStats} ventas={ventas} rol={rol} />;
+  return <PanelClientes clientes={conStats} rol={rol} />;
 }

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
-import type { CanalId, Customer } from "@/lib/types";
+import type { CanalId, Customer, SaleConProducto } from "@/lib/types";
 
 export type ClienteInput = {
   nombre: string;
@@ -50,6 +50,26 @@ export async function borrarCliente(id: string): Promise<Resultado> {
   if (error) return { error: error.message };
   revalidar();
   return { ok: true };
+}
+
+/* Historial de compras de UN cliente, cargado al abrir su ficha. Antes la
+   página serializaba las ~10.000 ventas de todos los clientes al navegador
+   solo para que el diálogo filtrara las del abierto. RLS limita igual que
+   limitaba la query de la página. */
+export async function ventasDeCliente(
+  clienteId: string,
+): Promise<{ ok: true; ventas: SaleConProducto[] } | { error: string }> {
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+
+  const { data, error } = await cx.supabase
+    .from("sales")
+    .select("id, fecha, cantidad, monto, descripcion, cliente_id, producto:products!producto_id(id, nombre, variante)")
+    .eq("cliente_id", clienteId)
+    .or("estado.is.null,estado.neq.cancelado")
+    .order("fecha", { ascending: false });
+  if (error) return { error: error.message };
+  return { ok: true, ventas: (data ?? []) as unknown as SaleConProducto[] };
 }
 
 /* Alta rápida desde el diálogo de venta: solo el nombre. Devuelve el cliente

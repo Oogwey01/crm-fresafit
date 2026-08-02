@@ -35,7 +35,9 @@ $$;
 --    Mismas columnas que la query directa que sustituye (fecha, canal,
 --    cantidad, producto_id) pero agrupadas por día/canal/producto, que es la
 --    granularidad que el panel realmente usa: menos renglones, mismo resultado.
-create or replace function public.ventas_reorden(dias int)
+--    `desde` la calcula el caller con la zona del negocio (México), igual que
+--    hacía la query directa — current_date aquí sería UTC.
+create or replace function public.ventas_reorden(desde date)
 returns table (
   fecha       date,
   canal       text,
@@ -51,7 +53,11 @@ as $$
     sum(s.cantidad)::bigint as cantidad,
     s.producto_id
   from public.sales s
-  where s.fecha >= (current_date - make_interval(days => dias))::date
+  where s.fecha >= desde
     and (s.estado is null or s.estado <> 'cancelado')
   group by s.fecha, s.canal, s.producto_id;
 $$;
+
+-- Limpieza de la firma previa de ventas_reorden(dias int) si se aplicó una
+-- versión anterior de esta migración (idempotente: no falla si no existe).
+drop function if exists public.ventas_reorden(int);

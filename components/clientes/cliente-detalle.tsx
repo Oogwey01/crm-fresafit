@@ -24,11 +24,13 @@ function nombreVenta(v: SaleConProducto): string {
 export function ClienteDetalle({
   cliente,
   historial,
+  cargandoHistorial = false,
   onEditar,
   onClose,
 }: {
   cliente: CustomerConStats;
   historial: SaleConProducto[];
+  cargandoHistorial?: boolean;
   onEditar: () => void;
   onClose: () => void;
 }) {
@@ -137,7 +139,9 @@ export function ClienteDetalle({
             <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Historial de compras
             </div>
-            {historial.length === 0 ? (
+            {cargandoHistorial ? (
+              <p className="text-sm italic text-muted-foreground">Cargando…</p>
+            ) : historial.length === 0 ? (
               <p className="text-sm italic text-muted-foreground">
                 Todavía no tiene compras registradas.
               </p>

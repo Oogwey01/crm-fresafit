@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Plus, Repeat, Search, UserPlus, Users } from "lucide-react";
+import { ventasDeCliente } from "@/app/(app)/clientes/actions";
+import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { esGestor, obtenerCanal } from "@/lib/catalogos";
 import { formatearFecha } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
@@ -34,11 +37,9 @@ const COLS = "grid-cols-[minmax(180px,1fr)_140px_130px_90px_120px_110px]";
 
 export function PanelClientes({
   clientes,
-  ventas,
   rol,
 }: {
   clientes: CustomerConStats[];
-  ventas: SaleConProducto[];
   rol: RolId;
 }) {
   const gestor = esGestor(rol);
@@ -72,10 +73,19 @@ export function PanelClientes({
     return copia;
   }, [clientes, busqueda, orden]);
 
-  /* Historial del cliente abierto (todas sus ventas, de la más reciente). */
-  const historial = useMemo(
-    () => (detalle ? ventas.filter((v) => v.cliente_id === detalle.id) : []),
-    [detalle, ventas],
+  /* Historial del cliente abierto, cargado al abrir su ficha (antes venía
+     serializado completo — todas las ventas de todos — desde el servidor). */
+  const { datos: historial, cargando: cargandoHistorial } = useDetalleRemoto<SaleConProducto[]>(
+    async () => {
+      if (!detalle) return [];
+      const r = await ventasDeCliente(detalle.id);
+      if ("error" in r) {
+        toast.error(r.error);
+        return [];
+      }
+      return r.ventas;
+    },
+    detalle?.id ?? "",
   );
 
   const columnas: Columna<CustomerConStats>[] = [
@@ -245,7 +255,8 @@ export function PanelClientes({
       {detalle && (
         <ClienteDetalle
           cliente={detalle}
-          historial={historial}
+          historial={historial ?? []}
+          cargandoHistorial={cargandoHistorial}
           onEditar={() => {
             const c = detalle;
             setDetalle(null);

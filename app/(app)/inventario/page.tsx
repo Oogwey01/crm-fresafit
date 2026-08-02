@@ -67,13 +67,11 @@ export default async function InventarioPage() {
       .order("creado_en", { ascending: false })
       .limit(300),
     // Ventas de la ventana: alimentan la velocidad de salida de cada producto.
-    // Los cancelados no cuentan (mismo criterio que Métricas).
-    supabase
-      .from("sales")
-      .select("fecha, canal, cantidad, producto_id")
-      .gte("fecha", diasDesdeHoy(-DIAS_VENTAS))
-      .or("estado.is.null,estado.neq.cancelado")
-      .limit(20000),
+    // Agregadas por día/canal/producto en la base (RPC ventas_reorden), que es
+    // la granularidad que usa el panel: mismo resultado, muchas menos filas
+    // que bajar cada venta. Los cancelados no cuentan (mismo criterio que
+    // Métricas, dentro de la RPC).
+    supabase.rpc("ventas_reorden", { desde: diasDesdeHoy(-DIAS_VENTAS) }),
     // Renglones de pedidos a proveedor que aún no llegan.
     supabase
       .from("supplier_order_items")
