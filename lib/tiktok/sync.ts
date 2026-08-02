@@ -13,11 +13,13 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionTiktok,
   listarProductosTikTok,
   obtenerProductoTikTok,
+  obtenerProductoTikTokEstricto,
   type ConexionTikTok,
   type ImagenTikTok,
   type ProductoTikTok,
@@ -157,14 +159,15 @@ async function poblarImagenesTikTokDesdeCatalogo(): Promise<number> {
   const admin = createAdminClient();
 
   // Fuente: variantes de Tienda Nube con foto (imagen_url es la foto por color).
-  const { data: fuentesRaw, error: eF } = await admin
-    .from("products")
-    .select("nombre, variante, imagen_url, imagenes")
-    .not("tiendanube_variant_id", "is", null)
-    .not("imagen_url", "is", null);
-  if (eF) throw new Error(eF.message);
-
-  const fuentes = (fuentesRaw ?? []) as FuenteTN[];
+  // Paginado con traerTodo: sin él, PostgREST corta en ~1000 filas sin avisar.
+  const fuentes = await traerTodo<FuenteTN>((desde, hasta) =>
+    admin
+      .from("products")
+      .select("nombre, variante, imagen_url, imagenes")
+      .not("tiendanube_variant_id", "is", null)
+      .not("imagen_url", "is", null)
+      .range(desde, hasta),
+  );
   if (fuentes.length === 0) return 0;
 
   // URLs que provienen de TN: sirven para saber qué fotos de TikTok pusimos
@@ -186,21 +189,23 @@ async function poblarImagenesTikTokDesdeCatalogo(): Promise<number> {
   }
 
   // Objetivo: fichas SOLO-TikTok (sin foto o con foto que copiamos de TN).
-  const { data: objetivoRaw, error: eO } = await admin
-    .from("products")
-    .select("id, nombre, variante, imagen_url")
-    .not("tiktok_product_id", "is", null)
-    .is("tiendanube_variant_id", null)
-    .is("meli_item_id", null);
-  if (eO) throw new Error(eO.message);
-
-  const cambios: { id: string; imagen_url: string }[] = [];
-  for (const o of (objetivoRaw ?? []) as {
+  const objetivos = await traerTodo<{
     id: string;
     nombre: string;
     variante: string | null;
     imagen_url: string | null;
-  }[]) {
+  }>((desde, hasta) =>
+    admin
+      .from("products")
+      .select("id, nombre, variante, imagen_url")
+      .not("tiktok_product_id", "is", null)
+      .is("tiendanube_variant_id", null)
+      .is("meli_item_id", null)
+      .range(desde, hasta),
+  );
+
+  const cambios: { id: string; imagen_url: string }[] = [];
+  for (const o of objetivos) {
     // Solo tocar filas sin foto o cuya foto la pusimos desde TN (no pisar TikTok real).
     if (o.imagen_url && !urlsTN.has(o.imagen_url)) continue;
 
@@ -400,11 +405,13 @@ export async function sincronizarProductosTikTok(
 export async function sincronizarProductoTikTok(productId: string): Promise<void> {
   const cx = await conexionTiktok();
   if (!cx) return;
-  // El search no filtra por id, así que traemos el catálogo y tomamos el que toca.
-  const productos = await listarProductosTikTok(cx);
-  const p = productos.find((x) => x.id === productId);
+  /* El DETALLE trae exactamente ese producto, con `main_images` y los
+     `sales_attributes` (sku_img por color) que el search no da: no hace falta
+     paginar el catálogo completo ni pasar por enriquecerImagenes (que hace esta
+     misma llamada por producto). Estricto: null SOLO si TikTok confirma que no
+     existe — un error transitorio se propaga y NO desactiva fichas. */
+  const p = await obtenerProductoTikTokEstricto(cx, productId);
   if (p) {
-    await enriquecerImagenes(cx, [p]);
     await sincronizarProductosTikTok([p]);
     return;
   }

@@ -14,6 +14,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionMercadolibre,
@@ -159,24 +160,28 @@ function filasDeOrden(
    Se lee de `meli_publicaciones` y no de `products` porque una misma ficha puede
    tener VARIAS publicaciones sobre el mismo inventario: cuando ML suma un
    artículo a su catálogo crea una publicación gemela, y la venta puede entrar
-   por cualquiera de las dos. `products` solo conoce la principal. */
-async function mapaUnidades(): Promise<Map<string, string>> {
+   por cualquiera de las dos. `products` solo conoce la principal.
+
+   Con pocos ítems en juego (webhook de una orden) trae SOLO sus publicaciones;
+   con muchos (sync completa) carga la tabla entera, paginada con traerTodo. */
+async function mapaUnidades(itemIds: string[]): Promise<Map<string, string>> {
   const admin = createAdminClient();
+  const ids = [...new Set(itemIds)];
+  const acotado = ids.length <= 50;
+  const data = await traerTodo<{
+    meli_item_id: string;
+    meli_variation_id: number | null;
+    producto_id: string;
+  }>((desde, hasta) => {
+    const q = admin.from("meli_publicaciones").select("meli_item_id, meli_variation_id, producto_id");
+    return (acotado ? q.in("meli_item_id", ids) : q).range(desde, hasta);
+  });
   const m = new Map<string, string>();
-  const TAM = 1000;
-  for (let desde = 0; ; desde += TAM) {
-    const { data, error } = await admin
-      .from("meli_publicaciones")
-      .select("meli_item_id, meli_variation_id, producto_id")
-      .range(desde, desde + TAM - 1);
-    if (error) throw new Error(error.message);
-    for (const p of data ?? []) {
-      m.set(
-        claveUnidad(p.meli_item_id as string, (p.meli_variation_id as number | null) ?? null),
-        p.producto_id as string,
-      );
-    }
-    if ((data ?? []).length < TAM) break;
+  for (const p of data) {
+    m.set(
+      claveUnidad(p.meli_item_id as string, (p.meli_variation_id as number | null) ?? null),
+      p.producto_id as string,
+    );
   }
   return m;
 }
@@ -222,17 +227,18 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
 
-  const unidades = await mapaUnidades();
-  // La sync de clientes NUNCA tira la importación: registrar la venta es lo
-  // prioritario (y la columna mercadolibre_buyer_id podría no estar aún).
-  let clientes = new Map<number, string>();
-  try {
-    clientes = await sincronizarClientes(vendibles);
-  } catch (e) {
-    console.error("[mercadolibre] sync de clientes:", e);
-  }
-
-  const infoEnvio = await infoEnvioDeOrdenes(cx, vendibles);
+  /* Los tres preparativos solo dependen de `vendibles`, así que corren en
+     paralelo (mismo patrón que Tienda Nube). La sync de clientes NUNCA tira la
+     importación: registrar la venta es lo prioritario (y la columna
+     mercadolibre_buyer_id podría no estar aún). */
+  const [unidades, clientes, infoEnvio] = await Promise.all([
+    mapaUnidades(vendibles.flatMap((o) => (o.order_items ?? []).map((l) => l.item.id))),
+    sincronizarClientes(vendibles).catch((e): Map<number, string> => {
+      console.error("[mercadolibre] sync de clientes:", e);
+      return new Map();
+    }),
+    infoEnvioDeOrdenes(cx, vendibles),
+  ]);
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes, infoEnvio));
   let insertadas = 0;
   if (filas.length > 0) {

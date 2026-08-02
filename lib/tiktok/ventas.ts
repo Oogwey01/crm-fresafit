@@ -14,6 +14,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionTiktok,
@@ -98,15 +99,22 @@ function filasDeOrden(
   });
 }
 
-/* Mapa sku de TikTok → id de producto del CRM (tiktok_sku_id es único). */
-async function mapaUnidades(): Promise<Map<string, string>> {
+/* Mapa sku de TikTok → id de producto del CRM (tiktok_sku_id es único).
+   Con pocos SKUs en juego (webhook de una orden) trae SOLO esas filas; con
+   muchos (sync completa) carga la tabla entera, paginada con traerTodo para
+   que PostgREST no la trunque en ~1000 filas sin avisar. */
+async function mapaUnidades(skuIds: string[]): Promise<Map<string, string>> {
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("products")
-    .select("id, tiktok_sku_id")
-    .not("tiktok_sku_id", "is", null);
-  if (error) throw new Error(error.message);
-  return new Map((data ?? []).map((p) => [p.tiktok_sku_id as string, p.id as string]));
+  const ids = [...new Set(skuIds)];
+  const acotado = ids.length <= 50;
+  const data = await traerTodo<{ id: string; tiktok_sku_id: string }>((desde, hasta) => {
+    const q = admin
+      .from("products")
+      .select("id, tiktok_sku_id")
+      .not("tiktok_sku_id", "is", null);
+    return (acotado ? q.in("tiktok_sku_id", ids) : q).range(desde, hasta);
+  });
+  return new Map(data.map((p) => [p.tiktok_sku_id as string, p.id as string]));
 }
 
 /* Crea/actualiza clientes por buyer_email (única identidad que da TikTok). */
@@ -137,13 +145,19 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
 
-  const unidades = await mapaUnidades();
-  let clientes = new Map<string, string>();
-  try {
-    clientes = await sincronizarClientes(vendibles);
-  } catch (e) {
-    console.error("[tiktok] sync de clientes:", e);
-  }
+  /* Independientes entre sí → en paralelo (mismo patrón que Tienda Nube). La
+     sync de clientes sigue siendo NO fatal: la venta se registra igual. */
+  const [unidades, clientes] = await Promise.all([
+    mapaUnidades(
+      vendibles
+        .flatMap((o) => (o.line_items ?? []).map((li) => li.sku_id))
+        .filter((s): s is string => !!s),
+    ),
+    sincronizarClientes(vendibles).catch((e): Map<string, string> => {
+      console.error("[tiktok] sync de clientes:", e);
+      return new Map();
+    }),
+  ]);
 
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes));
   let insertadas = 0;

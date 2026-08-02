@@ -11,6 +11,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { conexionTiendanube, listarProductosTN, type ProductoTN } from "@/lib/tiendanube/api";
 import { conexionMercadolibre, listarItemsML, type ItemML } from "@/lib/mercadolibre/api";
 import { clave, unidadesDe } from "@/lib/mercadolibre/sync";
@@ -77,21 +78,25 @@ export async function leerCanales(): Promise<LecturaCanales> {
     throw new Error("No hay ningún canal conectado con el cual comparar.");
   }
 
-  // Catálogo del CRM: solo productos activos y vinculados a algún canal.
-  const { data, error } = await admin
-    .from("products")
-    .select(
-      "id, nombre, variante, sku, tipo, bajo_pedido, stock, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
-    )
-    .eq("activo", true)
-    .or("tiendanube_variant_id.not.is.null,meli_item_id.not.is.null")
-    .order("nombre");
-  if (error) throw new Error(error.message);
-
-  // Stock en vivo de cada canal (en paralelo; cada uno pagina su catálogo).
-  const [productosTN, itemsML] = await Promise.all([
-    cxTN ? listarProductosTN(cxTN) : Promise.resolve(null),
-    cxML ? listarItemsML(cxML) : Promise.resolve(null),
+  /* Catálogo del CRM (solo productos activos y vinculados a algún canal) y
+     stock en vivo de cada canal: lecturas independientes, así que corren en
+     paralelo. traerTodo protege al catálogo del corte de ~1000 filas. */
+  const [filas, [productosTN, itemsML]] = await Promise.all([
+    traerTodo<FilaCRM>((desde, hasta) =>
+      admin
+        .from("products")
+        .select(
+          "id, nombre, variante, sku, tipo, bajo_pedido, stock, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type",
+        )
+        .eq("activo", true)
+        .or("tiendanube_variant_id.not.is.null,meli_item_id.not.is.null")
+        .order("nombre")
+        .range(desde, hasta),
+    ),
+    Promise.all([
+      cxTN ? listarProductosTN(cxTN) : Promise.resolve(null),
+      cxML ? listarItemsML(cxML) : Promise.resolve(null),
+    ]),
   ]);
 
   const stockTN = new Map<number, number>();
@@ -109,7 +114,7 @@ export async function leerCanales(): Promise<LecturaCanales> {
     for (const u of unidadesDe(item)) stockML.set(clave(u.itemId, u.variationId), u.stock);
   }
 
-  return { filas: (data ?? []) as FilaCRM[], productosTN, itemsML, stockTN, sinControlTN, stockML };
+  return { filas, productosTN, itemsML, stockTN, sinControlTN, stockML };
 }
 
 /* Qué dice cada canal del stock de una fila, con las tres exclusiones que el

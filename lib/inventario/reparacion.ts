@@ -109,17 +109,29 @@ export async function repararDesviaciones(
 
   const habilitados = candidatas.map((d) => d.producto_id);
 
-  /* Movimientos propios del CRM: la prueba de que su número tiene origen. */
-  const movimientos = new Map<string, MovimientoCRM[]>();
-  {
-    const { data, error } = await admin
+  /* Los dos ledgers se leen sobre el mismo set `habilitados` y no dependen uno
+     del otro: en paralelo. */
+  const [ledgerCRM, ledgerCanales] = await Promise.all([
+    admin
       .from("stock_log")
       .select("producto_id, stock_anterior, stock_nuevo, creado_en")
       .in("producto_id", habilitados)
       .eq("canal", "crm")
       .eq("simulado", false)
       .gte("creado_en", desde)
-      .order("creado_en", { ascending: true });
+      .order("creado_en", { ascending: true }),
+    admin
+      .from("stock_canal_log")
+      .select("producto_id, stock_tn_ant, stock_tn, stock_ml_ant, stock_ml, detectado_en")
+      .in("producto_id", habilitados)
+      .gte("detectado_en", desde)
+      .order("detectado_en", { ascending: true }),
+  ]);
+
+  /* Movimientos propios del CRM: la prueba de que su número tiene origen. */
+  const movimientos = new Map<string, MovimientoCRM[]>();
+  {
+    const { data, error } = ledgerCRM;
     if (error) throw new Error(error.message);
     for (const m of data ?? []) {
       const id = m.producto_id as string;
@@ -137,12 +149,7 @@ export async function repararDesviaciones(
      movió. Solo interesa QUÉ canal se movió y CUÁNDO. */
   const observados = new Map<string, CambioCanal[]>();
   {
-    const { data, error } = await admin
-      .from("stock_canal_log")
-      .select("producto_id, stock_tn_ant, stock_tn, stock_ml_ant, stock_ml, detectado_en")
-      .in("producto_id", habilitados)
-      .gte("detectado_en", desde)
-      .order("detectado_en", { ascending: true });
+    const { data, error } = ledgerCanales;
     if (error) throw new Error(error.message);
     const movio = (a: unknown, b: unknown) =>
       a !== null && b !== null && a !== undefined && b !== undefined && a !== b;

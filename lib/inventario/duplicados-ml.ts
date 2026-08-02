@@ -20,6 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traerTodo } from "@/lib/canales/paginacion";
 import type { ItemML } from "@/lib/mercadolibre/api";
 import { unidadesDe } from "@/lib/mercadolibre/sync";
 
@@ -139,13 +140,15 @@ export async function detectarDuplicadosPorSku(
   yaCubiertas: Set<string> = new Set(),
 ): Promise<GrupoDuplicado[]> {
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("products")
-    .select("id, nombre, sku, stock, activo, tiendanube_variant_id, meli_item_id")
-    .not("sku", "is", null)
-    .not("meli_item_id", "is", null);
-  if (error) throw new Error(error.message);
-  const soloML = ((data ?? []) as FilaCRM[]).filter((f) => f.tiendanube_variant_id == null);
+  const conML = await traerTodo<FilaCRM>((desde, hasta) =>
+    admin
+      .from("products")
+      .select("id, nombre, sku, stock, activo, tiendanube_variant_id, meli_item_id")
+      .not("sku", "is", null)
+      .not("meli_item_id", "is", null)
+      .range(desde, hasta),
+  );
+  const soloML = conML.filter((f) => f.tiendanube_variant_id == null);
   if (soloML.length === 0) return [];
 
   // Contraparte: las fichas de Tienda Nube con esos mismos SKU.
@@ -214,19 +217,22 @@ function ficha(f: FilaCRM, ventas: Map<string, number>): FichaDuplicada {
 async function ventasPorFicha(ids: string[]): Promise<Map<string, number>> {
   const admin = createAdminClient();
   const unicos = [...new Set(ids)];
-  const ventas = new Map<string, number>();
-  for (let i = 0; i < unicos.length; i += 100) {
-    const { data, error } = await admin
-      .from("sales")
-      .select("producto_id")
-      .in("producto_id", unicos.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const v of data ?? []) {
-      const id = v.producto_id as string;
-      ventas.set(id, (ventas.get(id) ?? 0) + 1);
-    }
-  }
-  return ventas;
+  /* Un conteo en el servidor por ficha (head:true → no viaja ninguna fila), en
+     paralelo. Se elige esto y no un solo select con .in() porque las fichas
+     duplicadas son pocas —son anomalías pendientes de fusionar—, mientras que
+     su historial de ventas puede ser largo: salen más baratas N consultas que
+     no bajan nada que una que baja una fila por venta solo para contarlas. */
+  const conteos = await Promise.all(
+    unicos.map(async (id) => {
+      const { count, error } = await admin
+        .from("sales")
+        .select("producto_id", { count: "exact", head: true })
+        .eq("producto_id", id);
+      if (error) throw new Error(error.message);
+      return [id, count ?? 0] as const;
+    }),
+  );
+  return new Map(conteos);
 }
 
 /* Primero los que se pueden unir sin pensarlo, y dentro de esos los que más

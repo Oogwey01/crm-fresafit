@@ -67,23 +67,45 @@ export async function estadoPiloto(): Promise<EstadoPiloto> {
 
   const admin = createAdminClient();
 
+  /* Los movimientos salientes no dependen de nada de lo demás, y la lista de
+     productos solo de `skus`: se leen en paralelo. Las queries de stock_canal y
+     stock_log de la tabla sí esperan, porque necesitan los ids de productos. */
+  const [{ data: productos }, { data: movs }] = await Promise.all([
+    skus.length > 0
+      ? admin.from("products").select("id, sku, nombre, stock").in("sku", skus)
+      : Promise.resolve({ data: null }),
+    admin
+      .from("stock_log")
+      .select("id, producto_id, canal, origen, stock_anterior, stock_nuevo, simulado, creado_en, producto:products!producto_id(sku)")
+      .neq("canal", "crm")
+      .order("creado_en", { ascending: false })
+      .limit(30),
+  ]);
+
   /* Sin lista de SKUs el piloto es todo el catálogo: listar 600 productos aquí
      no ayudaría a nadie, así que la tabla se deja vacía y la pantalla muestra
      solo la configuración y los movimientos. */
   let filas: FilaPiloto[] = [];
   if (skus.length > 0) {
-    const { data: productos } = await admin
-      .from("products")
-      .select("id, sku, nombre, stock")
-      .in("sku", skus);
-
     const ids = (productos ?? []).map((p) => p.id as string);
     const fotos = new Map<string, { stock_tn: number | null; stock_ml: number | null; visto_en: string }>();
+    const escrituras = new Map<string, { tn?: number; ml?: number; en: string }>();
     if (ids.length > 0) {
-      const { data: sc } = await admin
-        .from("stock_canal")
-        .select("producto_id, stock_tn, stock_ml, visto_en")
-        .in("producto_id", ids);
+      /* Ambas dependen solo de `ids`: en paralelo. El armado de `escrituras`
+         sí lee `fotos`, por eso se procesa después de llenarlas. */
+      const [{ data: sc }, { data: sl }] = await Promise.all([
+        admin
+          .from("stock_canal")
+          .select("producto_id, stock_tn, stock_ml, visto_en")
+          .in("producto_id", ids),
+        admin
+          .from("stock_log")
+          .select("producto_id, canal, stock_nuevo, creado_en")
+          .in("producto_id", ids)
+          .neq("canal", "crm")
+          .eq("simulado", false)
+          .order("creado_en", { ascending: true }),
+      ]);
       for (const f of sc ?? []) {
         fotos.set(f.producto_id as string, {
           stock_tn: f.stock_tn as number | null,
@@ -91,21 +113,11 @@ export async function estadoPiloto(): Promise<EstadoPiloto> {
           visto_en: f.visto_en as string,
         });
       }
-    }
 
-    /* La foto es horaria, así que puede ser más vieja que la última escritura
-       del CRM. Cuando el ledger registra un empuje POSTERIOR a la foto, ese
-       valor es el más fresco que conocemos: si no, el monitor marcaría en rojo
-       una desviación que el propio CRM ya corrigió. */
-    const escrituras = new Map<string, { tn?: number; ml?: number; en: string }>();
-    if (ids.length > 0) {
-      const { data: sl } = await admin
-        .from("stock_log")
-        .select("producto_id, canal, stock_nuevo, creado_en")
-        .in("producto_id", ids)
-        .neq("canal", "crm")
-        .eq("simulado", false)
-        .order("creado_en", { ascending: true });
+      /* La foto es horaria, así que puede ser más vieja que la última escritura
+         del CRM. Cuando el ledger registra un empuje POSTERIOR a la foto, ese
+         valor es el más fresco que conocemos: si no, el monitor marcaría en rojo
+         una desviación que el propio CRM ya corrigió. */
       for (const e of sl ?? []) {
         const id = e.producto_id as string;
         const foto = fotos.get(id);
@@ -140,15 +152,9 @@ export async function estadoPiloto(): Promise<EstadoPiloto> {
     });
   }
 
-  /* Últimas escrituras SALIENTES del CRM (canal ≠ crm): lo que de verdad le
-     mandó a las plataformas, incluidas las simuladas. */
-  const { data: movs } = await admin
-    .from("stock_log")
-    .select("id, producto_id, canal, origen, stock_anterior, stock_nuevo, simulado, creado_en, producto:products!producto_id(sku)")
-    .neq("canal", "crm")
-    .order("creado_en", { ascending: false })
-    .limit(30);
-
+  /* `movs` (leído arriba en paralelo) son las últimas escrituras SALIENTES del
+     CRM (canal ≠ crm): lo que de verdad le mandó a las plataformas, incluidas
+     las simuladas. */
   /* PostgREST devuelve la relación embebida como arreglo aunque sea 1:1. */
   const skuDe = (p: unknown): string | null => {
     const fila = Array.isArray(p) ? p[0] : p;

@@ -9,6 +9,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { HUB_VENTAS_ACTIVO, productosDelPiloto } from "@/lib/inventario/hub-config";
 import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
@@ -136,15 +137,22 @@ async function sincronizarClientes(ordenes: OrdenTN[]): Promise<Map<string, stri
   return new Map((data ?? []).map((c) => [c.correo as string, c.id as string]));
 }
 
-/* Mapa variante de Tienda Nube → id de producto del CRM. */
-async function mapaVariantes(): Promise<Map<number, string>> {
+/* Mapa variante de Tienda Nube → id de producto del CRM. Con pocas variantes
+   en juego (webhook de una orden) trae SOLO esas filas; con muchas (sync
+   completa) carga la tabla entera, paginada con traerTodo para que PostgREST
+   no la trunque en ~1000 filas sin avisar. */
+async function mapaVariantes(variantIds: number[]): Promise<Map<number, string>> {
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("products")
-    .select("id, tiendanube_variant_id")
-    .not("tiendanube_variant_id", "is", null);
-  if (error) throw new Error(error.message);
-  return new Map((data ?? []).map((p) => [p.tiendanube_variant_id as number, p.id as string]));
+  const ids = [...new Set(variantIds)];
+  const acotado = ids.length <= 50;
+  const data = await traerTodo<{ id: string; tiendanube_variant_id: number }>((desde, hasta) => {
+    const q = admin
+      .from("products")
+      .select("id, tiendanube_variant_id")
+      .not("tiendanube_variant_id", "is", null);
+    return (acotado ? q.in("tiendanube_variant_id", ids) : q).range(desde, hasta);
+  });
+  return new Map(data.map((p) => [p.tiendanube_variant_id as number, p.id as string]));
 }
 
 /* Inserta los renglones nuevos (ignora los ya importados) y retira los de
@@ -153,7 +161,7 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
   const [variantes, clientes] = await Promise.all([
-    mapaVariantes(),
+    mapaVariantes(vendibles.flatMap((o) => (o.products ?? []).map((l) => l.variant_id))),
     sincronizarClientes(vendibles),
   ]);
 

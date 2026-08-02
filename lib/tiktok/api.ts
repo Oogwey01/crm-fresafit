@@ -216,10 +216,28 @@ async function ttFetch<T>(
   });
   const json = (await res.json().catch(() => null)) as RespuestaTT<T> | null;
   if (!json || json.code !== 0) {
-    throw new Error(`TikTok Shop ${path} respondió code ${json?.code}: ${json?.message ?? res.status}`);
+    throw new ErrorTikTok(
+      json?.code ?? null,
+      `TikTok Shop ${path} respondió code ${json?.code}: ${json?.message ?? res.status}`,
+    );
   }
   return json.data as T;
 }
+
+/* Error de la API con su `code`, para que los callers distingan causas
+   (p. ej. "producto inexistente" vs. token vencido / rate limit). */
+export class ErrorTikTok extends Error {
+  constructor(
+    public readonly code: number | null,
+    mensaje: string,
+  ) {
+    super(mensaje);
+  }
+}
+
+/* code que devuelve el detalle de producto cuando el id no existe (verificado
+   contra la API real: "This product does not exist."). */
+const CODE_PRODUCTO_NO_EXISTE = 12052032;
 
 /* ------------------------- Shops (shop_cipher) --------------------------- */
 
@@ -309,6 +327,24 @@ export async function obtenerProductoTikTok(
     return await ttFetch<ProductoTikTok>(cx, "GET", `/product/202309/products/${productId}`);
   } catch {
     return null;
+  }
+}
+
+/* Variante estricta para el webhook de producto: null SOLO si TikTok confirma
+   que el producto no existe (→ el caller hace la baja lógica); cualquier otro
+   fallo (token vencido, rate limit, red) se propaga en vez de confundirse con
+   una eliminación. La variante tolerante de arriba se queda para el
+   enriquecimiento masivo de imágenes, donde un fallo puntual no debe tirar la
+   sincronización completa. */
+export async function obtenerProductoTikTokEstricto(
+  cx: ConexionTikTok,
+  productId: string,
+): Promise<ProductoTikTok | null> {
+  try {
+    return await ttFetch<ProductoTikTok>(cx, "GET", `/product/202309/products/${productId}`);
+  } catch (e) {
+    if (e instanceof ErrorTikTok && e.code === CODE_PRODUCTO_NO_EXISTE) return null;
+    throw e;
   }
 }
 
