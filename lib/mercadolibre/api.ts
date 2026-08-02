@@ -9,6 +9,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { estadoIntegracion } from "@/lib/canales/integraciones";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 
 const API_BASE = "https://api.mercadolibre.com";
@@ -172,19 +173,7 @@ async function refrescarToken(userId: string, refreshViejo: string | null): Prom
 }
 
 export async function estadoMercadolibre(): Promise<{ conectada: boolean; ultimaSync: string | null }> {
-  try {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("integraciones")
-      .select("datos")
-      .eq("id", "mercadolibre")
-      .maybeSingle();
-    if (!data) return { conectada: false, ultimaSync: null };
-    const datos = data.datos as { ultima_sync?: string } | null;
-    return { conectada: true, ultimaSync: datos?.ultima_sync ?? null };
-  } catch {
-    return { conectada: false, ultimaSync: null };
-  }
+  return estadoIntegracion("mercadolibre");
 }
 
 /* ------------------------------ OAuth ------------------------------------ */

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarCron, respuestaError } from "@/lib/canales/http";
 import { tomarFotoCanales } from "@/lib/inventario/foto-canales";
 import { repararDesviaciones } from "@/lib/inventario/reparacion";
 
@@ -15,14 +15,8 @@ import { repararDesviaciones } from "@/lib/inventario/reparacion";
    `Authorization: Bearer <CRON_SECRET>`. Un usuario interno también puede
    dispararla a mano desde el navegador. */
 export async function GET(request: Request) {
-  const auth = request.headers.get("authorization");
-  const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (!esCron) {
-    const { user, rol } = await usuarioActual();
-    if (!user || !esInterno(rol)) {
-      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-    }
-  }
+  const noAutorizado = await autorizarCron(request);
+  if (noAutorizado) return noAutorizado;
 
   try {
     const { estables, ...foto } = await tomarFotoCanales();
@@ -37,8 +31,6 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ ok: true, ...foto, estables: estables.length, reparacion });
   } catch (e) {
-    console.error("[inventario] foto de canales:", e);
-    const detalle = e instanceof Error ? e.message : "Falló la foto de inventario.";
-    return NextResponse.json({ error: detalle }, { status: 500 });
+    return respuestaError(e, "inventario foto de canales", "Falló la foto de inventario.");
   }
 }

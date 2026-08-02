@@ -14,6 +14,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionMercadolibre,
   listarOrdenesML,
@@ -395,9 +396,7 @@ export async function importarVentasML(
   const cx = cxParam ?? (await conexionMercadolibre());
   if (!cx) throw new Error("Mercado Libre no está conectado.");
 
-  const admin = createAdminClient();
-  const { data: fila } = await admin.from("integraciones").select("datos").eq("id", "mercadolibre").maybeSingle();
-  const datos = (fila?.datos ?? {}) as Record<string, unknown>;
+  const datos = await leerDatosIntegracion("mercadolibre");
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
@@ -407,10 +406,7 @@ export async function importarVentasML(
   const ordenes = await listarOrdenesML(cx, desde.toISOString());
   const resumen = await aplicarOrdenes(cx, ordenes);
 
-  await admin
-    .from("integraciones")
-    .update({ datos: { ...datos, ventas_ultima_sync: new Date().toISOString() } })
-    .eq("id", "mercadolibre");
+  await mezclarDatosIntegracion("mercadolibre", { ventas_ultima_sync: new Date().toISOString() }, datos);
 
   return resumen;
 }

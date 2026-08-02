@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarCron, respuestaError } from "@/lib/canales/http";
 import { reconciliarInventario } from "@/lib/inventario/reconciliacion";
 
 /* Reconciliación en segundo plano: lee el stock en vivo de los canales, lo
@@ -11,14 +11,8 @@ import { reconciliarInventario } from "@/lib/inventario/reconciliacion";
    `Authorization: Bearer <CRON_SECRET>`. Un usuario interno también puede
    dispararlo a mano. */
 export async function GET(request: Request) {
-  const auth = request.headers.get("authorization");
-  const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (!esCron) {
-    const { user, rol } = await usuarioActual();
-    if (!user || !esInterno(rol)) {
-      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-    }
-  }
+  const noAutorizado = await autorizarCron(request);
+  if (noAutorizado) return noAutorizado;
 
   try {
     const resumen = await reconciliarInventario();
@@ -33,8 +27,6 @@ export async function GET(request: Request) {
       descuadres: resumen.descuadres.length,
     });
   } catch (e) {
-    console.error("[inventario] reconciliacion:", e);
-    const detalle = e instanceof Error ? e.message : "Falló la reconciliación.";
-    return NextResponse.json({ error: detalle }, { status: 500 });
+    return respuestaError(e, "inventario reconciliacion", "Falló la reconciliación.");
   }
 }

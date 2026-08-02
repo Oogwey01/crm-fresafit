@@ -9,6 +9,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { HUB_VENTAS_ACTIVO, productosDelPiloto } from "@/lib/inventario/hub-config";
 import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
 import {
@@ -312,9 +313,7 @@ export async function importarVentasTN(
   const cx = cxParam ?? (await conexionTiendanube());
   if (!cx) throw new Error("Tienda Nube no está conectada.");
 
-  const admin = createAdminClient();
-  const { data: fila } = await admin.from("integraciones").select("datos").eq("id", "tiendanube").maybeSingle();
-  const datos = (fila?.datos ?? {}) as Record<string, unknown>;
+  const datos = await leerDatosIntegracion("tiendanube");
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
@@ -324,10 +323,7 @@ export async function importarVentasTN(
   const ordenes = await listarOrdenesTN(cx, desde.toISOString());
   const resumen = await aplicarOrdenes(ordenes);
 
-  await admin
-    .from("integraciones")
-    .update({ datos: { ...datos, ventas_ultima_sync: new Date().toISOString() } })
-    .eq("id", "tiendanube");
+  await mezclarDatosIntegracion("tiendanube", { ventas_ultima_sync: new Date().toISOString() }, datos);
 
   return resumen;
 }

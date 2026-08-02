@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarCron, respuestaError } from "@/lib/canales/http";
 import { conexionTiendanube, registrarWebhooksTN } from "@/lib/tiendanube/api";
 import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
@@ -7,14 +7,8 @@ import { importarVentasTN } from "@/lib/tiendanube/ventas";
 /* Reconciliación completa del catálogo + ventas recientes. La dispara el cron
    diario de Vercel (Authorization: Bearer CRON_SECRET) o un usuario interno. */
 export async function GET(request: Request) {
-  const auth = request.headers.get("authorization");
-  const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (!esCron) {
-    const { user, rol } = await usuarioActual();
-    if (!user || !esInterno(rol)) {
-      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-    }
-  }
+  const noAutorizado = await autorizarCron(request);
+  if (noAutorizado) return noAutorizado;
 
   const cx = await conexionTiendanube();
   if (!cx) return NextResponse.json({ error: "Tienda Nube no está conectada." }, { status: 409 });
@@ -42,8 +36,6 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ ok: true, ...resumen, ventas });
   } catch (e) {
-    console.error("[tiendanube] sync:", e);
-    const detalle = e instanceof Error ? e.message : "Falló la sincronización.";
-    return NextResponse.json({ error: detalle }, { status: 500 });
+    return respuestaError(e, "tiendanube sync", "Falló la sincronización.");
   }
 }

@@ -26,6 +26,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionMercadolibre,
   listarItemsML,
@@ -638,17 +639,7 @@ export async function importacionCompletaML(cx?: ConexionML): Promise<ResumenSyn
   const resumen: ResumenSyncML = { items: items.length, ...resumenLote, desactivados: sobrantes.length };
 
   // `datos` se escribe con merge para no perder nada más que viva ahí.
-  const { data: filaInt } = await admin
-    .from("integraciones")
-    .select("datos")
-    .eq("id", "mercadolibre")
-    .maybeSingle();
-  await admin
-    .from("integraciones")
-    .update({
-      datos: { ...((filaInt?.datos as object) ?? {}), ultima_sync: new Date().toISOString(), ...resumen },
-    })
-    .eq("id", "mercadolibre");
+  await mezclarDatosIntegracion("mercadolibre", { ultima_sync: new Date().toISOString(), ...resumen });
 
   return resumen;
 }

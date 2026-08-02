@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarCron, respuestaError } from "@/lib/canales/http";
 
 /* Recordatorios de tarea: genera un aviso in-app para el responsable cuando su
    `recordatorio_at` ya llegó. Igual que /api/inventario/foto, NO va en los crons
@@ -9,14 +9,8 @@ import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
    `Authorization: Bearer <CRON_SECRET>`. Un usuario interno también puede
    dispararlo a mano. Usa service role (salta RLS) para insertar en otros. */
 export async function GET(request: Request) {
-  const auth = request.headers.get("authorization");
-  const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (!esCron) {
-    const { user, rol } = await usuarioActual();
-    if (!user || !esInterno(rol)) {
-      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-    }
-  }
+  const noAutorizado = await autorizarCron(request);
+  if (noAutorizado) return noAutorizado;
 
   try {
     const admin = createAdminClient();
@@ -65,8 +59,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ ok: true, enviados: filas.length });
   } catch (e) {
-    console.error("[tareas] recordatorios:", e);
-    const detalle = e instanceof Error ? e.message : "Falló el envío de recordatorios.";
-    return NextResponse.json({ error: detalle }, { status: 500 });
+    return respuestaError(e, "tareas recordatorios", "Falló el envío de recordatorios.");
   }
 }

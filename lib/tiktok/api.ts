@@ -14,6 +14,11 @@
 
 import { createHmac } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  estadoIntegracion,
+  leerDatosIntegracion,
+  mezclarDatosIntegracion,
+} from "@/lib/canales/integraciones";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 
 const API_BASE = "https://open-api.tiktokglobalshop.com";
@@ -68,14 +73,16 @@ export async function guardarConexionTikTok(
   shop: { cipher: string; id: string },
 ): Promise<void> {
   const admin = createAdminClient();
-  const { data: fila } = await admin.from("integraciones").select("datos").eq("id", "tiktok").maybeSingle();
+  // Upsert (crea la fila si no existe), así que solo la LECTURA previa del blob
+  // pasa por el helper; el merge sigue dentro del upsert.
+  const datos = await leerDatosIntegracion("tiktok");
   const { error } = await admin.from("integraciones").upsert({
     id: "tiktok",
     access_token: t.access_token,
     refresh_token: t.refresh_token,
     external_id: shop.id,
     expires_at: expiraEn(t.access_token_expire_in),
-    datos: { ...((fila?.datos as object) ?? {}), shop_cipher: shop.cipher, shop_id: shop.id },
+    datos: { ...datos, shop_cipher: shop.cipher, shop_id: shop.id },
   });
   if (error) throw new Error(error.message);
 }
@@ -143,24 +150,11 @@ async function refrescarToken(refreshViejo: string | null): Promise<string> {
 
 /* Guarda el almacén principal en integraciones.datos (se elige al conectar). */
 export async function guardarWarehouseTikTok(warehouseId: string): Promise<void> {
-  const admin = createAdminClient();
-  const { data } = await admin.from("integraciones").select("datos").eq("id", "tiktok").maybeSingle();
-  await admin
-    .from("integraciones")
-    .update({ datos: { ...((data?.datos as object) ?? {}), warehouse_id: warehouseId } })
-    .eq("id", "tiktok");
+  await mezclarDatosIntegracion("tiktok", { warehouse_id: warehouseId });
 }
 
 export async function estadoTiktok(): Promise<{ conectada: boolean; ultimaSync: string | null }> {
-  try {
-    const admin = createAdminClient();
-    const { data } = await admin.from("integraciones").select("datos").eq("id", "tiktok").maybeSingle();
-    if (!data) return { conectada: false, ultimaSync: null };
-    const datos = data.datos as { ultima_sync?: string } | null;
-    return { conectada: true, ultimaSync: datos?.ultima_sync ?? null };
-  } catch {
-    return { conectada: false, ultimaSync: null };
-  }
+  return estadoIntegracion("tiktok");
 }
 
 /* ------------------------------ OAuth ------------------------------------ */

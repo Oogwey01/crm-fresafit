@@ -13,6 +13,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionTiktok,
   listarProductosTikTok,
@@ -459,11 +460,7 @@ export async function importacionCompletaTikTok(cx?: ConexionTikTok): Promise<Re
     desactivados: sobrantes.length,
   };
 
-  const { data: filaInt } = await admin.from("integraciones").select("datos").eq("id", "tiktok").maybeSingle();
-  await admin
-    .from("integraciones")
-    .update({ datos: { ...((filaInt?.datos as object) ?? {}), ultima_sync: new Date().toISOString(), ...resumen } })
-    .eq("id", "tiktok");
+  await mezclarDatosIntegracion("tiktok", { ultima_sync: new Date().toISOString(), ...resumen });
 
   return resumen;
 }

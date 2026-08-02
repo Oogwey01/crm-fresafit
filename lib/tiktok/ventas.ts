@@ -14,6 +14,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionTiktok,
   listarOrdenesTikTok,
@@ -226,9 +227,7 @@ export async function importarVentasTikTok(
   const cx = cxParam ?? (await conexionTiktok());
   if (!cx) throw new Error("TikTok Shop no está conectado.");
 
-  const admin = createAdminClient();
-  const { data: fila } = await admin.from("integraciones").select("datos").eq("id", "tiktok").maybeSingle();
-  const datos = (fila?.datos ?? {}) as Record<string, unknown>;
+  const datos = await leerDatosIntegracion("tiktok");
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
@@ -239,10 +238,7 @@ export async function importarVentasTikTok(
   const ordenes = await listarOrdenesTikTok(cx, desdeUnix);
   const resumen = await aplicarOrdenes(ordenes);
 
-  await admin
-    .from("integraciones")
-    .update({ datos: { ...datos, ventas_ultima_sync: new Date().toISOString() } })
-    .eq("id", "tiktok");
+  await mezclarDatosIntegracion("tiktok", { ventas_ultima_sync: new Date().toISOString() }, datos);
 
   return resumen;
 }

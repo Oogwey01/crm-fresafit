@@ -1,7 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
-import { estadoTiendanube } from "@/lib/tiendanube/api";
-import { estadoMercadolibre } from "@/lib/mercadolibre/api";
-import { estadoTiktok } from "@/lib/tiktok/api";
+import { estadoCanales } from "@/lib/canales/integraciones";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelInventario } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
@@ -45,9 +43,7 @@ export default async function InventarioPage() {
     equipoRes,
     reconSnapRes,
     conteosRes,
-    tiendanube,
-    mercadolibre,
-    tiktok,
+    canales,
     piloto,
   ] = await Promise.all([
     supabase
@@ -94,9 +90,8 @@ export default async function InventarioPage() {
       .select("*, producto:products!producto_id(id, nombre, variante, sku, stock)")
       .order("fecha", { ascending: false })
       .limit(200),
-    estadoTiendanube(),
-    estadoMercadolibre(),
-    estadoTiktok(),
+    // Estado de los tres canales para la UI, en una sola query.
+    estadoCanales(),
     // Monitor del piloto: sale de la foto horaria y del ledger, sin llamar a
     // las APIs de los canales.
     estadoPiloto(),
@@ -145,9 +140,9 @@ export default async function InventarioPage() {
       enCamino={enCamino}
       paramsReorden={paramsReordenDesdeEnv()}
       rol={rol}
-      tiendanube={tiendanube}
-      mercadolibre={mercadolibre}
-      tiktok={tiktok}
+      tiendanube={canales.tiendanube}
+      mercadolibre={canales.mercadolibre}
+      tiktok={canales.tiktok}
       escrituraCanales={ESCRITURA_CANALES}
       piloto={piloto}
       conteos={conteos}

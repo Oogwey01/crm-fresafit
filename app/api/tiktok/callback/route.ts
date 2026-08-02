@@ -40,7 +40,11 @@ export async function GET(request: Request) {
       }
     }
 
-    const resumen = await importacionCompletaTikTok();
+    // Se reutiliza la conexión ya leída para ahorrar la relectura interna. Que
+    // `cx` sea anterior al guardado del warehouse no importa: la importación es
+    // solo lectura (token + shop_cipher) y no usa warehouseId. Si `cx` vino
+    // null, la función relee (y falla) igual que antes.
+    const resumen = await importacionCompletaTikTok(cx ?? undefined);
     return NextResponse.redirect(
       `${origin}/inventario?tiktok=conectada&productos=${resumen.productos}&vinculados=${resumen.vinculados}`,
     );

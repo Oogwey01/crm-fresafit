@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarCron, respuestaError } from "@/lib/canales/http";
 import { conexionTiktok } from "@/lib/tiktok/api";
 import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
 import { importarVentasTikTok } from "@/lib/tiktok/ventas";
@@ -7,14 +7,8 @@ import { importarVentasTikTok } from "@/lib/tiktok/ventas";
 /* Reconciliación completa (catálogo + ventas) de TikTok Shop. La dispara el
    cron diario de Vercel (Authorization: Bearer CRON_SECRET) o un interno. */
 export async function GET(request: Request) {
-  const auth = request.headers.get("authorization");
-  const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (!esCron) {
-    const { user, rol } = await usuarioActual();
-    if (!user || !esInterno(rol)) {
-      return NextResponse.json({ error: "No autorizado." }, { status: 401 });
-    }
-  }
+  const noAutorizado = await autorizarCron(request);
+  if (noAutorizado) return noAutorizado;
 
   const cx = await conexionTiktok();
   if (!cx) return NextResponse.json({ error: "TikTok Shop no está conectado." }, { status: 409 });
@@ -30,8 +24,6 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({ ok: true, ...resumen, ventas });
   } catch (e) {
-    console.error("[tiktok] sync:", e);
-    const detalle = e instanceof Error ? e.message : "Falló la sincronización.";
-    return NextResponse.json({ error: detalle }, { status: 500 });
+    return respuestaError(e, "tiktok sync", "Falló la sincronización.");
   }
 }

@@ -6,6 +6,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { estadoIntegracion } from "@/lib/canales/integraciones";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 
 const API_BASE = "https://api.tiendanube.com/2025-03";
@@ -67,19 +68,7 @@ export async function guardarConexion(token: string, storeId: string): Promise<v
 /* Estado para la UI (sin exponer el token). Si el entorno no tiene service
    role key, simplemente se reporta como no conectada. */
 export async function estadoTiendanube(): Promise<{ conectada: boolean; ultimaSync: string | null }> {
-  try {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("integraciones")
-      .select("datos")
-      .eq("id", "tiendanube")
-      .maybeSingle();
-    if (!data) return { conectada: false, ultimaSync: null };
-    const datos = data.datos as { ultima_sync?: string } | null;
-    return { conectada: true, ultimaSync: datos?.ultima_sync ?? null };
-  } catch {
-    return { conectada: false, ultimaSync: null };
-  }
+  return estadoIntegracion("tiendanube");
 }
 
 /* ------------------------------ OAuth ------------------------------------ */

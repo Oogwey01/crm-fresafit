@@ -8,6 +8,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   actualizarVarianteTN,
   conexionTiendanube,
@@ -285,11 +286,7 @@ export async function sincronizacionCompleta(cx?: ConexionTN): Promise<ResumenSy
     desactivados: sobrantes.length,
   };
   // Merge sobre `datos` para no pisar el estado de otras syncs (p. ej. ventas).
-  const { data: fila } = await admin.from("integraciones").select("datos").eq("id", "tiendanube").maybeSingle();
-  await admin
-    .from("integraciones")
-    .update({ datos: { ...(fila?.datos ?? {}), ultima_sync: new Date().toISOString(), ...resumen } })
-    .eq("id", "tiendanube");
+  await mezclarDatosIntegracion("tiendanube", { ultima_sync: new Date().toISOString(), ...resumen });
 
   return resumen;
 }
