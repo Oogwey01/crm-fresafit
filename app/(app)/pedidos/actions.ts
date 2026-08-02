@@ -1,21 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import type { Resultado } from "@/lib/acciones";
+import { exigirRol } from "@/lib/supabase/guardia";
+import { textoONulo } from "@/lib/validacion";
 import type { EstadoPedidoId } from "@/lib/types";
-
-type Resultado = { ok: true } | { error: string };
 
 const RUTAS = ["/pedidos", "/metricas", "/clientes"];
 const revalidar = () => RUTAS.forEach((r) => revalidatePath(r));
 
 /* Cambio de estado del pedido en línea (nuevo → preparando → enviado → …). */
 export async function cambiarEstadoPedido(id: string, estado: EstadoPedidoId): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede mover pedidos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede mover pedidos.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("sales").update({ estado }).eq("id", id);
+  const { error } = await cx.supabase.from("sales").update({ estado }).eq("id", id);
   if (error) return { error: error.message };
   revalidar();
   return { ok: true };
@@ -27,15 +26,14 @@ export async function guardarEnvio(
   paqueteria: string,
   numGuia: string,
 ): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede editar envíos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede editar envíos.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase
+  const { error } = await cx.supabase
     .from("sales")
     .update({
-      paqueteria: paqueteria.trim() || null,
-      num_guia: numGuia.trim() || null,
+      paqueteria: textoONulo(paqueteria),
+      num_guia: textoONulo(numGuia),
     })
     .eq("id", id);
   if (error) return { error: error.message };

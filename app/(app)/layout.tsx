@@ -1,29 +1,23 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { Sidebar } from "@/components/sidebar";
 import { MobileNav } from "@/components/mobile-nav";
-import type { Profile, Notificacion } from "@/lib/types";
+import type { Notificacion } from "@/lib/types";
 
 /* Shell de la app protegida: sidebar + área principal.
-   Doble guardia (además del middleware): sin sesión → login. */
+   Doble guardia (además del middleware): sin sesión → login.
+   usuarioActual() está cacheado por request: la page que se renderiza junto a
+   este layout reutiliza el mismo getUser() y el mismo perfil. */
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { supabase, user, perfil } = await usuarioActual();
 
   if (!user) redirect("/login");
 
-  const [{ data: profile }, { count: tareasActivas }, notisRes] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("id, nombre, rol, area, color")
-      .eq("id", user.id)
-      .single(),
+  const [{ count: tareasActivas }, notisRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("id", { count: "exact", head: true })
@@ -40,7 +34,7 @@ export default async function AppLayout({
   const notificaciones = (notisRes.data ?? []) as Notificacion[];
 
   const navProps = {
-    profile: profile as Profile | null,
+    profile: perfil,
     email: user.email ?? "",
     tareasActivas: tareasActivas ?? 0,
     notificaciones,

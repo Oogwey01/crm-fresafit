@@ -33,14 +33,12 @@ export function Notificaciones({ notificaciones }: { notificaciones: Notificacio
     startTransition(async () => {
       if (!n.leida) await marcarNotificacionLeida(n.id);
       router.push("/tareas");
-      router.refresh();
     });
   }
 
   function todas() {
     startTransition(async () => {
       await marcarTodasLeidas();
-      router.refresh();
     });
   }
 

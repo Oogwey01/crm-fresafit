@@ -11,6 +11,27 @@ export function formatearFecha(iso: string): string {
   return `${parseInt(dd, 10)} ${MESES[parseInt(mm, 10) - 1]}`;
 }
 
+/* Fecha y hora legibles, ej. "10 jul, 14:30", ancladas a la zona del negocio.
+   (Era la misma función copiada en varios componentes de inventario/tareas.) */
+export function formatearFechaHora(iso: string): string {
+  return new Date(iso).toLocaleString("es-MX", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Mexico_City",
+  });
+}
+
+/* Fecha larga legible de un AAAA-MM-DD, ej. "10 de julio". El T12:00:00 evita
+   que la zona horaria corra el día al parsear una fecha sin hora. */
+export function formatearFechaLarga(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "long",
+  });
+}
+
 /* Fecha/hora actual vista desde México (zona del negocio). Anclarla aquí hace
    que el servidor (UTC en Vercel) y el navegador calculen el MISMO día: sin
    esto, el HTML del servidor y el del cliente difieren cerca de la medianoche

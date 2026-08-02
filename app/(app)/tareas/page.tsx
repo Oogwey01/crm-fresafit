@@ -1,17 +1,15 @@
-import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { Board } from "@/components/tareas/board";
 import type { TaskConResponsable, Profile, RolId } from "@/lib/types";
 
 export const metadata = { title: "Tareas · Fresafit" };
 
 export default async function TareasPage() {
-  const supabase = await createClient();
+  /* Cacheado por request: comparte getUser() y perfil con el layout. */
+  const { supabase, user, rol: rolCrudo } = await usuarioActual();
+  const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [tareasRes, borradasRes, equipoRes, perfilRes, checklistRes] = await Promise.all([
+  const [tareasRes, borradasRes, equipoRes, checklistRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("*, responsable:profiles!responsable_id(id, nombre, color)")
@@ -24,9 +22,6 @@ export default async function TareasPage() {
       .not("deleted_at", "is", null)
       .order("deleted_at", { ascending: false }),
     supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
-    user
-      ? supabase.from("profiles").select("rol").eq("id", user.id).single()
-      : Promise.resolve({ data: null }),
     // Resumen de subtareas por tarea (para el chip de progreso en las tarjetas).
     supabase.from("task_checklist").select("task_id, hecho"),
   ]);
@@ -34,7 +29,6 @@ export default async function TareasPage() {
   const tareas = (tareasRes.data ?? []) as unknown as TaskConResponsable[];
   const borradas = (borradasRes.data ?? []) as unknown as TaskConResponsable[];
   const equipo = (equipoRes.data ?? []) as Profile[];
-  const rol = ((perfilRes.data as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
 
   /* {task_id: {total, hechos}} — el resumen que alimenta el chip de subtareas. */
   const checklistPorTarea: Record<string, { total: number; hechos: number }> = {};

@@ -1,10 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import type { Resultado } from "@/lib/acciones";
+import { exigirRol } from "@/lib/supabase/guardia";
+import {
+  archivoDeFormData,
+  rutaParaArchivo,
+  subirYRegistrar,
+  borrarArchivoYFila,
+  urlFirmada,
+} from "@/lib/storage";
+import { textoONulo } from "@/lib/validacion";
 import type { CategoriaGastoId, ExpenseReceipt } from "@/lib/types";
-
-type Resultado = { ok: true } | { error: string };
 
 export type GastoInput = {
   fecha: string;
@@ -15,21 +22,16 @@ export type GastoInput = {
   notas: string;
 };
 
+/* Todo el módulo es de dirección: cada action pasa por exigirRol("direccion")
+   con este mismo mensaje. La BD lo refuerza con RLS (policies es_admin) —
+   esto es defensa en profundidad. */
 const NO_AUTORIZADO = "Solo Dirección puede ver y mover las finanzas.";
-
-/* Todo el módulo es de dirección: un solo portero para no repetirlo.
-   La BD lo refuerza con RLS (policies es_admin) — esto es defensa en profundidad. */
-async function direccion() {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user || rol !== "direccion") return null;
-  return { supabase, user };
-}
 
 /* ============================ Gastos ====================================== */
 
 export async function guardarGasto(id: string | null, input: GastoInput): Promise<Resultado> {
-  const cx = await direccion();
-  if (!cx) return { error: NO_AUTORIZADO };
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
 
   const concepto = input.concepto.trim();
   if (!concepto) return { error: "El gasto necesita un concepto (qué se pagó)." };
@@ -41,8 +43,8 @@ export async function guardarGasto(id: string | null, input: GastoInput): Promis
     concepto,
     monto: input.monto,
     categoria: input.categoria,
-    proveedor: input.proveedor.trim() || null,
-    notas: input.notas.trim() || null,
+    proveedor: textoONulo(input.proveedor),
+    notas: textoONulo(input.notas),
   };
 
   const { error } = id
@@ -55,8 +57,8 @@ export async function guardarGasto(id: string | null, input: GastoInput): Promis
 }
 
 export async function borrarGasto(id: string): Promise<Resultado> {
-  const cx = await direccion();
-  if (!cx) return { error: NO_AUTORIZADO };
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
 
   /* Los comprobantes se van en cascada en la BD; hay que limpiar los binarios. */
   const { data: comprobantes } = await cx.supabase
@@ -80,48 +82,51 @@ export async function subirComprobante(
   expenseId: string,
   formData: FormData,
 ): Promise<{ ok: true; comprobante: ExpenseReceipt } | { error: string }> {
-  const cx = await direccion();
-  if (!cx) return { error: NO_AUTORIZADO };
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
 
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "No se recibió el archivo." };
-  if (file.size > 10 * 1024 * 1024) return { error: "El archivo supera 10 MB." };
+  const archivo = archivoDeFormData(formData);
+  if ("error" in archivo) return archivo;
+  const { file } = archivo;
 
-  const limpio = file.name.replace(/[^\w.\-]+/g, "_");
-  const path = `${expenseId}/${Date.now()}-${limpio}`;
-
-  const { error: upErr } = await cx.supabase.storage.from("facturas").upload(path, file, {
-    contentType: file.type || undefined,
-    upsert: false,
+  const path = rutaParaArchivo(expenseId, file.name);
+  const r = await subirYRegistrar<ExpenseReceipt>({
+    supabase: cx.supabase,
+    bucket: "facturas",
+    path,
+    file,
+    insertar: () =>
+      cx.supabase
+        .from("expense_receipts")
+        .insert({
+          expense_id: expenseId,
+          nombre: file.name,
+          storage_path: path,
+          tipo: file.type || null,
+        })
+        .select("*")
+        .single(),
+    errorRegistro: "No se pudo registrar el comprobante.",
   });
-  if (upErr) return { error: upErr.message };
+  if ("error" in r) return r;
 
-  const { data, error } = await cx.supabase
-    .from("expense_receipts")
-    .insert({
-      expense_id: expenseId,
-      nombre: file.name,
-      storage_path: path,
-      tipo: file.type || null,
-    })
-    .select("*")
-    .single();
-  if (error || !data) {
-    // El binario ya subió pero no se registró: no dejar basura en Storage.
-    await cx.supabase.storage.from("facturas").remove([path]);
-    return { error: error?.message ?? "No se pudo registrar el comprobante." };
-  }
   revalidatePath("/finanzas");
-  return { ok: true, comprobante: data as ExpenseReceipt };
+  return { ok: true, comprobante: r.datos };
 }
 
 export async function borrarComprobante(id: string, storagePath: string): Promise<Resultado> {
-  const cx = await direccion();
-  if (!cx) return { error: NO_AUTORIZADO };
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
 
-  await cx.supabase.storage.from("facturas").remove([storagePath]);
-  const { error } = await cx.supabase.from("expense_receipts").delete().eq("id", id);
-  if (error) return { error: error.message };
+  const r = await borrarArchivoYFila({
+    supabase: cx.supabase,
+    bucket: "facturas",
+    path: storagePath,
+    tabla: "expense_receipts",
+    id,
+  });
+  if ("error" in r) return r;
+
   revalidatePath("/finanzas");
   return { ok: true };
 }
@@ -130,12 +135,8 @@ export async function borrarComprobante(id: string, storagePath: string): Promis
 export async function urlComprobante(
   storagePath: string,
 ): Promise<{ url: string } | { error: string }> {
-  const cx = await direccion();
-  if (!cx) return { error: NO_AUTORIZADO };
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
 
-  const { data, error } = await cx.supabase.storage
-    .from("facturas")
-    .createSignedUrl(storagePath, 60 * 60);
-  if (error || !data) return { error: error?.message ?? "No se pudo generar el enlace." };
-  return { url: data.signedUrl };
+  return urlFirmada(cx.supabase, "facturas", storagePath);
 }

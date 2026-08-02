@@ -1,12 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
-import { esGestor } from "@/lib/catalogos";
+import type { Resultado } from "@/lib/acciones";
+import { exigirRol } from "@/lib/supabase/guardia";
+import { textoONulo } from "@/lib/validacion";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
 import type { CanalId } from "@/lib/types";
-
-type Resultado = { ok: true } | { error: string };
 
 export type VentaInput = {
   fecha: string;
@@ -31,25 +30,32 @@ function validarVenta(input: VentaInput): string | null {
   return null;
 }
 
+/* Columnas comunes del insert (registrar) y el update (editar) de una venta;
+   cada action añade lo suyo (origen/created_by). */
+function filaDeVenta(input: VentaInput) {
+  return {
+    fecha: input.fecha,
+    canal: input.canal,
+    producto_id: input.producto_id,
+    descripcion: textoONulo(input.descripcion),
+    cantidad: input.cantidad,
+    monto: input.monto,
+    cliente_id: input.cliente_id,
+    notas: textoONulo(input.notas),
+  };
+}
+
 export async function registrarVenta(input: VentaInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar ventas." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede registrar ventas.");
+  if ("error" in cx) return cx;
 
   const invalido = validarVenta(input);
   if (invalido) return { error: invalido };
 
-  const { error } = await supabase.from("sales").insert({
-    fecha: input.fecha,
-    canal: input.canal,
-    producto_id: input.producto_id,
-    descripcion: input.descripcion.trim() || null,
-    cantidad: input.cantidad,
-    monto: input.monto,
-    cliente_id: input.cliente_id,
-    notas: input.notas.trim() || null,
+  const { error } = await cx.supabase.from("sales").insert({
+    ...filaDeVenta(input),
     origen: "manual",
-    created_by: user.id,
+    created_by: cx.user.id,
   });
   if (error) return { error: error.message };
   RUTAS_VENTAS.forEach((r) => revalidatePath(r));
@@ -57,37 +63,23 @@ export async function registrarVenta(input: VentaInput): Promise<Resultado> {
 }
 
 export async function editarVenta(id: string, input: VentaInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede editar ventas." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede editar ventas.");
+  if ("error" in cx) return cx;
 
   const invalido = validarVenta(input);
   if (invalido) return { error: invalido };
 
-  const { error } = await supabase
-    .from("sales")
-    .update({
-      fecha: input.fecha,
-      canal: input.canal,
-      producto_id: input.producto_id,
-      descripcion: input.descripcion.trim() || null,
-      cantidad: input.cantidad,
-      monto: input.monto,
-      cliente_id: input.cliente_id,
-      notas: input.notas.trim() || null,
-    })
-    .eq("id", id);
+  const { error } = await cx.supabase.from("sales").update(filaDeVenta(input)).eq("id", id);
   if (error) return { error: error.message };
   RUTAS_VENTAS.forEach((r) => revalidatePath(r));
   return { ok: true };
 }
 
 export async function borrarVenta(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar ventas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar ventas.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("sales").delete().eq("id", id);
+  const { error } = await cx.supabase.from("sales").delete().eq("id", id);
   if (error) return { error: error.message };
   RUTAS_VENTAS.forEach((r) => revalidatePath(r));
   return { ok: true };
@@ -98,14 +90,12 @@ export async function borrarVenta(id: string): Promise<Resultado> {
 export async function importarVentasTiendanube(): Promise<
   { ok: true; detalle: string } | { error: string }
 > {
-  const { user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede importar ventas." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede importar ventas.");
+  if ("error" in cx) return cx;
 
   try {
     const r = await importarVentasTN();
     RUTAS_VENTAS.forEach((ruta) => revalidatePath(ruta));
-    revalidatePath("/clientes");
     return {
       ok: true,
       detalle: `Tienda Nube: ${r.insertadas} ventas nuevas de ${r.ordenes} órdenes revisadas${r.clientes ? `; ${r.clientes} clientes al día` : ""}${r.retiradas ? `; ${r.retiradas} retiradas por cancelación` : ""}.`,

@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelMetricas } from "@/components/metricas/panel";
@@ -11,13 +11,11 @@ export const metadata = { title: "Métricas · Fresafit" };
 const DIAS_VENTANA = 365;
 
 export default async function MetricasPage() {
-  const supabase = await createClient();
+  /* Cacheado por request: comparte getUser() y perfil con el layout. */
+  const { supabase, rol: rolCrudo } = await usuarioActual();
+  const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [ventasRes, productosRes, clientesRes, perfilRes, tiendanube] = await Promise.all([
+  const [ventasRes, productosRes, clientesRes, tiendanube] = await Promise.all([
     supabase
       .from("sales")
       .select("*, producto:products!producto_id(id, nombre, variante, tipo)")
@@ -31,9 +29,6 @@ export default async function MetricasPage() {
       .select("id, nombre, variante, sku, precio, activo")
       .order("nombre"),
     supabase.from("customers").select("id, nombre, correo, telefono").order("nombre"),
-    user
-      ? supabase.from("profiles").select("rol").eq("id", user.id).single()
-      : Promise.resolve({ data: null }),
     estadoTiendanube(),
   ]);
 
@@ -43,7 +38,6 @@ export default async function MetricasPage() {
     "id" | "nombre" | "variante" | "sku" | "precio" | "activo"
   >[];
   const clientes = (clientesRes.data ?? []) as Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
-  const rol = ((perfilRes.data as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
 
   return (
     <PanelMetricas

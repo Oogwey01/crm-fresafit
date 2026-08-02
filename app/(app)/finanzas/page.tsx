@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelFinanzas } from "@/components/finanzas/panel";
 import type { ExpenseConComprobantes, RolId, Sale } from "@/lib/types";
@@ -10,18 +10,12 @@ export const metadata = { title: "Finanzas · Fresafit" };
 const DIAS_VENTANA = 120;
 
 export default async function FinanzasPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   /* Guarda de rol: solo Dirección. La BD ya lo impide con RLS (no vería una
-     sola fila), pero se corta aquí para no mostrar un panel vacío y confuso. */
-  const { data: perfil } = user
-    ? await supabase.from("profiles").select("rol").eq("id", user.id).single()
-    : { data: null };
-  const rol = ((perfil as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
+     sola fila), pero se corta aquí para no mostrar un panel vacío y confuso.
+     usuarioActual() está cacheado: no repite el getUser() ni el perfil que ya
+     pidió el layout, así que la guarda ya no cuesta roundtrips extra. */
+  const { supabase, rol: rolCrudo } = await usuarioActual();
+  const rol = (rolCrudo ?? "miembro") as RolId;
   if (rol !== "direccion") redirect("/tareas");
 
   const desde = diasDesdeHoy(-DIAS_VENTANA);

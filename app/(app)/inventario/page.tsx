@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
 import { estadoMercadolibre } from "@/lib/mercadolibre/api";
 import { estadoTiktok } from "@/lib/tiktok/api";
@@ -30,11 +30,9 @@ const DIAS_VENTAS = 90;
 const ESTADOS_EN_CAMINO = ["pedido", "en_transito", "en_aduana"];
 
 export default async function InventarioPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  /* Cacheado por request: comparte getUser() y perfil con el layout. */
+  const { supabase, rol: rolCrudo } = await usuarioActual();
+  const rol = (rolCrudo ?? "miembro") as RolId;
 
   const [
     productosRes,
@@ -44,7 +42,6 @@ export default async function InventarioPage() {
     movimientosRes,
     ventasRes,
     enCaminoRes,
-    perfilRes,
     equipoRes,
     reconSnapRes,
     conteosRes,
@@ -86,9 +83,6 @@ export default async function InventarioPage() {
       .from("supplier_order_items")
       .select("producto_id, cantidad, pedido:supplier_orders!pedido_id(estado)")
       .not("producto_id", "is", null),
-    user
-      ? supabase.from("profiles").select("rol").eq("id", user.id).single()
-      : Promise.resolve({ data: null }),
     // Equipo (para los selectores de "quién contó/corroboró" en el conteo físico).
     supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
     // Última reconciliación guardada: se muestra al instante (la lectura en vivo
@@ -120,7 +114,6 @@ export default async function InventarioPage() {
   const pedidos = (pedidosRes.data ?? []) as unknown as SupplierOrderConDetalle[];
   const movimientos = (movimientosRes.data ?? []) as unknown as StockLog[];
   const ventas = (ventasRes.data ?? []) as unknown as VentaReorden[];
-  const rol = ((perfilRes.data as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
   const conteos = (conteosRes.data ?? []) as unknown as ConteoConProducto[];
   const equipo = (equipoRes.data ?? []) as Profile[];
   const snap = reconSnapRes.data as { resumen: ResumenReconciliacion; creado_en: string } | null;

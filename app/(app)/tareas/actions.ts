@@ -1,9 +1,13 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { refresh, revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
+import type { Resultado } from "@/lib/acciones";
+import { exigirRol } from "@/lib/supabase/guardia";
+import { archivoDeFormData, rutaParaArchivo, borrarArchivoYFila, urlFirmada } from "@/lib/storage";
+import { textoONulo } from "@/lib/validacion";
 import type {
   AreaId,
   EstadoId,
@@ -25,8 +29,6 @@ export type TaskInput = {
   etiquetas: string[];
 };
 
-type Resultado = { ok: true } | { error: string };
-
 /* El área de una tarea sigue a su responsable: si se asigna a alguien, se toma
    el área de su perfil (lo pidió Armando en la junta). Sin responsable —o si su
    perfil no tiene área— se conserva la que venga en el formulario. */
@@ -43,7 +45,7 @@ async function areaDeResponsable(
 /* El motivo solo aplica cuando la tarea queda "atorado"; en cualquier otro estado
    se limpia. */
 function motivoParaEstado(estado: EstadoId, motivo: string | null | undefined): string | null {
-  return estado === "atorado" ? (motivo?.trim() || null) : null;
+  return estado === "atorado" ? textoONulo(motivo) : null;
 }
 
 /* Registra una línea en el historial de actividad de la tarea.
@@ -63,25 +65,24 @@ async function registrarActividad(
 /* ============================ Tareas ====================================== */
 
 export async function crearTarea(input: TaskInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede crear tareas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede crear tareas.");
+  if ("error" in cx) return cx;
 
   const titulo = input.titulo.trim();
   if (!titulo) return { error: "La tarea necesita un título." };
 
-  const { error } = await supabase.from("tasks").insert({
+  const { error } = await cx.supabase.from("tasks").insert({
     titulo,
-    descripcion: input.descripcion.trim() || null,
+    descripcion: textoONulo(input.descripcion),
     responsable_id: input.responsable_id,
-    area: await areaDeResponsable(supabase, input.responsable_id, input.area),
+    area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
     prioridad: input.prioridad,
     estado: input.estado,
     fecha_limite: input.fecha_limite || null,
     recordatorio_at: input.recordatorio_at || null,
     motivo_atorado: motivoParaEstado(input.estado, input.motivo_atorado),
     etiquetas: input.etiquetas ?? [],
-    created_by: user.id,
+    created_by: cx.user.id,
   });
 
   if (error) return { error: error.message };
@@ -90,20 +91,19 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
 }
 
 export async function editarTarea(id: string, input: TaskInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede editar los datos de la tarea." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede editar los datos de la tarea.");
+  if ("error" in cx) return cx;
 
   const titulo = input.titulo.trim();
   if (!titulo) return { error: "La tarea necesita un título." };
 
-  const { error } = await supabase
+  const { error } = await cx.supabase
     .from("tasks")
     .update({
       titulo,
-      descripcion: input.descripcion.trim() || null,
+      descripcion: textoONulo(input.descripcion),
       responsable_id: input.responsable_id,
-      area: await areaDeResponsable(supabase, input.responsable_id, input.area),
+      area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
       prioridad: input.prioridad,
       estado: input.estado,
       fecha_limite: input.fecha_limite || null,
@@ -139,10 +139,9 @@ export async function moverTarea(
 
 /* Cambiar prioridad rápido desde una celda (meta → solo gestor). */
 export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede cambiar la prioridad." };
-  const { error } = await supabase.from("tasks").update({ prioridad }).eq("id", id);
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar la prioridad.");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("tasks").update({ prioridad }).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -152,18 +151,17 @@ export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Prom
    dispara el trigger `notificar_asignacion` en la BD, así que cubre también el
    arrastre entre carriles de persona y la edición desde el detalle. */
 export async function reasignarTarea(id: string, responsableId: string | null): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede reasignar tareas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede reasignar tareas.");
+  if ("error" in cx) return cx;
   /* Al reasignar, el área sigue al nuevo responsable (si tiene perfil con área).
      Sin responsable se conserva el área actual de la tarea. */
   const patch: { responsable_id: string | null; area?: AreaId } = { responsable_id: responsableId };
   if (responsableId) {
-    const { data } = await supabase.from("profiles").select("area").eq("id", responsableId).single();
+    const { data } = await cx.supabase.from("profiles").select("area").eq("id", responsableId).single();
     const area = data?.area as AreaId | null;
     if (area) patch.area = area;
   }
-  const { error } = await supabase.from("tasks").update(patch).eq("id", id);
+  const { error } = await cx.supabase.from("tasks").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -171,11 +169,10 @@ export async function reasignarTarea(id: string, responsableId: string | null): 
 
 /* Borrado SUAVE: manda la tarea a la papelera (se puede restaurar). */
 export async function borrarTarea(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar tareas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar tareas.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase
+  const { error } = await cx.supabase
     .from("tasks")
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
@@ -186,11 +183,10 @@ export async function borrarTarea(id: string): Promise<Resultado> {
 
 /* Sacar de la papelera. */
 export async function restaurarTarea(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede restaurar tareas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede restaurar tareas.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("tasks").update({ deleted_at: null }).eq("id", id);
+  const { error } = await cx.supabase.from("tasks").update({ deleted_at: null }).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -198,11 +194,10 @@ export async function restaurarTarea(id: string): Promise<Resultado> {
 
 /* Eliminar DEFINITIVO (borrado real, sin vuelta atrás). */
 export async function eliminarDefinitivo(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede eliminar tareas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede eliminar tareas.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  const { error } = await cx.supabase.from("tasks").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -210,12 +205,11 @@ export async function eliminarDefinitivo(id: string): Promise<Resultado> {
 
 /* Cambiar las etiquetas de una tarea (meta → gestor). */
 export async function guardarEtiquetas(id: string, etiquetas: string[]): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede cambiar etiquetas." };
-  const { error } = await supabase.from("tasks").update({ etiquetas }).eq("id", id);
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar etiquetas.");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("tasks").update({ etiquetas }).eq("id", id);
   if (error) return { error: error.message };
-  await registrarActividad(supabase, id, user.id, "actualizó las etiquetas");
+  await registrarActividad(cx.supabase, id, cx.user.id, "actualizó las etiquetas");
   revalidatePath("/tareas");
   return { ok: true };
 }
@@ -243,11 +237,11 @@ export async function cargarDetalle(taskId: string): Promise<TaskDetalle> {
 /* ============================ Comentarios ================================= */
 
 export async function comentar(taskId: string, texto: string): Promise<Resultado> {
-  const { supabase, user } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
   const t = texto.trim();
   if (!t) return { error: "El comentario está vacío." };
-  const { error } = await supabase.from("task_comments").insert({ task_id: taskId, autor: user.id, texto: t });
+  const { error } = await cx.supabase.from("task_comments").insert({ task_id: taskId, autor: cx.user.id, texto: t });
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -264,13 +258,13 @@ export async function borrarComentario(id: string): Promise<Resultado> {
 /* ============================ Checklist =================================== */
 
 export async function agregarChecklist(taskId: string, texto: string): Promise<Resultado> {
-  const { supabase, user } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
   const t = texto.trim();
   if (!t) return { error: "La subtarea está vacía." };
-  const { error } = await supabase.from("task_checklist").insert({ task_id: taskId, texto: t });
+  const { error } = await cx.supabase.from("task_checklist").insert({ task_id: taskId, texto: t });
   if (error) return { error: error.message };
-  await registrarActividad(supabase, taskId, user.id, `agregó la subtarea «${t}»`);
+  await registrarActividad(cx.supabase, taskId, cx.user.id, `agregó la subtarea «${t}»`);
   revalidatePath("/tareas");
   return { ok: true };
 }
@@ -294,13 +288,13 @@ export async function borrarChecklist(id: string): Promise<Resultado> {
 /* ============================ Enlaces ===================================== */
 
 export async function agregarEnlace(taskId: string, titulo: string, url: string): Promise<Resultado> {
-  const { supabase, user } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
   const u = url.trim();
   if (!u) return { error: "Falta la URL." };
-  const { error } = await supabase.from("task_links").insert({ task_id: taskId, titulo: titulo.trim() || null, url: u });
+  const { error } = await cx.supabase.from("task_links").insert({ task_id: taskId, titulo: textoONulo(titulo), url: u });
   if (error) return { error: error.message };
-  await registrarActividad(supabase, taskId, user.id, "agregó un enlace");
+  await registrarActividad(cx.supabase, taskId, cx.user.id, "agregó un enlace");
   revalidatePath("/tareas");
   return { ok: true };
 }
@@ -316,24 +310,22 @@ export async function borrarEnlace(id: string): Promise<Resultado> {
 /* ============================ Adjuntos (Storage) ========================== */
 
 export async function subirAdjunto(taskId: string, formData: FormData): Promise<Resultado> {
-  const { supabase, user } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "No se recibió el archivo." };
-  if (file.size > 10 * 1024 * 1024) return { error: "El archivo supera 10 MB." };
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const archivo = archivoDeFormData(formData);
+  if ("error" in archivo) return archivo;
+  const { file } = archivo;
+  const path = rutaParaArchivo(taskId, file.name);
 
-  const limpio = file.name.replace(/[^\w.\-]+/g, "_");
-  const path = `${taskId}/${Date.now()}-${limpio}`;
-
-  const { error: upErr } = await supabase.storage.from("adjuntos").upload(path, file, {
+  const { error: upErr } = await cx.supabase.storage.from("adjuntos").upload(path, file, {
     contentType: file.type || undefined,
     upsert: false,
   });
   if (upErr) return { error: upErr.message };
 
-  const { error } = await supabase.from("task_attachments").insert({
+  const { error } = await cx.supabase.from("task_attachments").insert({
     task_id: taskId,
-    autor: user.id,
+    autor: cx.user.id,
     nombre: file.name,
     storage_path: path,
     tipo: file.type || null,
@@ -345,9 +337,14 @@ export async function subirAdjunto(taskId: string, formData: FormData): Promise<
 
 export async function borrarAdjunto(id: string, storagePath: string): Promise<Resultado> {
   const supabase = await createClient();
-  await supabase.storage.from("adjuntos").remove([storagePath]);
-  const { error } = await supabase.from("task_attachments").delete().eq("id", id);
-  if (error) return { error: error.message };
+  const r = await borrarArchivoYFila({
+    supabase,
+    bucket: "adjuntos",
+    path: storagePath,
+    tabla: "task_attachments",
+    id,
+  });
+  if ("error" in r) return r;
   revalidatePath("/tareas");
   return { ok: true };
 }
@@ -355,9 +352,7 @@ export async function borrarAdjunto(id: string, storagePath: string): Promise<Re
 /* Genera una URL firmada temporal para ver/descargar un adjunto. */
 export async function urlAdjunto(storagePath: string): Promise<{ url: string } | { error: string }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.storage.from("adjuntos").createSignedUrl(storagePath, 60 * 60);
-  if (error || !data) return { error: error?.message ?? "No se pudo generar el enlace." };
-  return { url: data.signedUrl };
+  return urlFirmada(supabase, "adjuntos", storagePath);
 }
 
 /* ============================ Respaldo completo =========================== */
@@ -408,19 +403,18 @@ export async function exportarRespaldo(): Promise<
 export async function importarTareas(
   filas: TaskInput[],
 ): Promise<{ ok: true; creadas: number } | { error: string }> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede importar tareas." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede importar tareas.");
+  if ("error" in cx) return cx;
 
   const validas = filas
     .map((f) => ({ ...f, titulo: f.titulo.trim() }))
     .filter((f) => f.titulo);
   if (!validas.length) return { error: "No hay renglones con título para importar." };
 
-  const { error } = await supabase.from("tasks").insert(
+  const { error } = await cx.supabase.from("tasks").insert(
     validas.map((f) => ({
       titulo: f.titulo,
-      descripcion: f.descripcion?.trim() || null,
+      descripcion: textoONulo(f.descripcion),
       responsable_id: f.responsable_id,
       area: f.area,
       prioridad: f.prioridad,
@@ -428,7 +422,7 @@ export async function importarTareas(
       fecha_limite: f.fecha_limite || null,
       recordatorio_at: f.recordatorio_at || null,
       etiquetas: f.etiquetas ?? [],
-      created_by: user.id,
+      created_by: cx.user.id,
     })),
   );
   if (error) return { error: error.message };
@@ -439,24 +433,24 @@ export async function importarTareas(
 /* ============================ Notificaciones ============================== */
 
 export async function marcarNotificacionLeida(id: string): Promise<Resultado> {
-  const { supabase, user } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  const { error } = await supabase.from("notifications").update({ leida: true }).eq("id", id);
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("notifications").update({ leida: true }).eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/", "layout");
+  refresh();
   return { ok: true };
 }
 
 export async function marcarTodasLeidas(): Promise<Resultado> {
-  const { supabase, user } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  const { error } = await supabase
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase
     .from("notifications")
     .update({ leida: true })
-    .eq("user_id", user.id)
+    .eq("user_id", cx.user.id)
     .eq("leida", false);
   if (error) return { error: error.message };
-  revalidatePath("/", "layout");
+  refresh();
   return { ok: true };
 }
 

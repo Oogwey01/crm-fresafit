@@ -2,8 +2,16 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
-import { esGestor } from "@/lib/catalogos";
+import { exigirRol } from "@/lib/supabase/guardia";
+import {
+  archivoDeFormData,
+  rutaParaArchivo,
+  subirYRegistrar,
+  borrarArchivoYFila,
+  urlFirmada,
+} from "@/lib/storage";
+import { textoONulo } from "@/lib/validacion";
+import type { Resultado } from "@/lib/acciones";
 import { empujarProductoTN, sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
 import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
@@ -18,8 +26,6 @@ import type {
   StockLog,
   TipoProductoId,
 } from "@/lib/types";
-
-type Resultado = { ok: true } | { error: string };
 
 export type ProductoInput = {
   nombre: string;
@@ -75,9 +81,8 @@ export type PedidoProvInput = {
 /* Reconciliación manual con el catálogo de Tienda Nube (botón del panel).
    La importación automática corre por webhooks + cron; esto es el respaldo. */
 export async function sincronizarTiendanube(): Promise<{ ok: true; detalle: string } | { error: string }> {
-  const { user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede sincronizar el inventario." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede sincronizar el inventario.");
+  if ("error" in cx) return cx;
 
   try {
     const r = await sincronizacionCompleta();
@@ -96,16 +101,15 @@ export async function sincronizarTiendanube(): Promise<{ ok: true; detalle: stri
 export async function revisarDescuadres(): Promise<
   { ok: true; resumen: ResumenReconciliacion; creadoEn: string } | { error: string }
 > {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede revisar el inventario." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede revisar el inventario.");
+  if ("error" in cx) return cx;
 
   try {
     const resumen = await reconciliarInventario();
     const creadoEn = new Date().toISOString();
     // Se guarda el resultado para que la próxima carga del panel lo muestre al
     // instante (la lectura en vivo de los canales es lo que tarda).
-    await supabase
+    await cx.supabase
       .from("reconciliacion_snapshots")
       .upsert({ id: "actual", resumen, creado_en: creadoEn });
     revalidatePath("/inventario");
@@ -117,9 +121,8 @@ export async function revisarDescuadres(): Promise<
 
 /* Reconciliación manual con Mercado Libre (botón del panel). */
 export async function sincronizarMercadolibre(): Promise<{ ok: true; detalle: string } | { error: string }> {
-  const { user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede sincronizar el inventario." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede sincronizar el inventario.");
+  if ("error" in cx) return cx;
 
   try {
     const r = await importacionCompletaML();
@@ -135,9 +138,8 @@ export async function sincronizarMercadolibre(): Promise<{ ok: true; detalle: st
 
 /* Reconciliación manual con TikTok Shop (botón del panel). */
 export async function sincronizarTiktok(): Promise<{ ok: true; detalle: string } | { error: string }> {
-  const { user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede sincronizar el inventario." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede sincronizar el inventario.");
+  if ("error" in cx) return cx;
 
   try {
     const r = await importacionCompletaTikTok();
@@ -161,15 +163,14 @@ export async function fusionarProductosML(
   ganadorId: string,
   perdedorId: string,
 ): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede unir fichas." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede unir fichas.");
+  if ("error" in cx) return cx;
 
   /* Antes de fusionar hay que mirar los vínculos: si el ganador viene de Tienda
      Nube y no tenía publicación de ML (el caso del mismo SKU), tiene que heredar
      la del perdedor. Si no, la próxima sync no reconocería esa publicación como
      ya importada y volvería a abrirle ficha propia. */
-  const { data: fichas, error: errFichas } = await supabase
+  const { data: fichas, error: errFichas } = await cx.supabase
     .from("products")
     .select("id, meli_item_id, meli_variation_id, meli_logistic_type, meli_user_product_id")
     .in("id", [ganadorId, perdedorId]);
@@ -177,14 +178,14 @@ export async function fusionarProductosML(
   const ganador = fichas?.find((f) => f.id === ganadorId);
   const perdedor = fichas?.find((f) => f.id === perdedorId);
 
-  const { error } = await supabase.rpc("fusionar_producto_ml", {
+  const { error } = await cx.supabase.rpc("fusionar_producto_ml", {
     p_ganador: ganadorId,
     p_perdedor: perdedorId,
   });
   if (error) return { error: error.message };
 
   if (ganador && perdedor?.meli_item_id && ganador.meli_item_id == null) {
-    const { error: errVinculo } = await supabase
+    const { error: errVinculo } = await cx.supabase
       .from("products")
       .update({
         meli_item_id: perdedor.meli_item_id,
@@ -206,9 +207,8 @@ export async function fusionarProductosML(
 /* ============================ Productos =================================== */
 
 export async function guardarProducto(id: string | null, input: ProductoInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede gestionar el inventario." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede gestionar el inventario.");
+  if ("error" in cx) return cx;
 
   const nombre = input.nombre.trim();
   if (!nombre) return { error: "El producto necesita un nombre." };
@@ -217,7 +217,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
   const fila = {
     nombre,
     tipo: input.tipo,
-    variante: input.variante.trim() || null,
+    variante: textoONulo(input.variante),
     costo: input.costo,
     precio: input.precio,
     stock: input.stock,
@@ -226,7 +226,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     activo: input.activo,
     bajo_pedido: input.bajo_pedido,
     descontinuado: input.descontinuado,
-    notas: input.notas.trim() || null,
+    notas: textoONulo(input.notas),
   };
 
   if (id) {
@@ -236,7 +236,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     // editar nombre/precio/notas nunca pisa el inventario). A Tienda Nube se le
     // empujan precio y costo si cambiaron, pero SOLO con la escritura a canales
     // habilitada: por defecto el CRM es solo lectura y no toca la tienda.
-    const { data: actual, error: errActual } = await supabase
+    const { data: actual, error: errActual } = await cx.supabase
       .from("products")
       .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, precio, costo")
       .eq("id", id)
@@ -246,7 +246,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
 
     const filaSinStock: Record<string, unknown> = { ...fila };
     delete filaSinStock.stock;
-    const { error } = await supabase
+    const { error } = await cx.supabase
       .from("products")
       .update(vinculado ? filaSinStock : fila)
       .eq("id", id);
@@ -273,7 +273,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     return { ok: true };
   }
 
-  const { error } = await supabase.from("products").insert({ ...fila, created_by: user.id });
+  const { error } = await cx.supabase.from("products").insert({ ...fila, created_by: cx.user.id });
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -281,17 +281,16 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
 
 /* Ajuste rápido de stock desde la tabla (botones +/− o edición directa). */
 export async function ajustarStock(id: string, stock: number): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede ajustar el stock." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ajustar el stock.");
+  if ("error" in cx) return cx;
   if (!Number.isInteger(stock) || stock < 0) return { error: "El stock debe ser un entero ≥ 0." };
 
   // Valor previo para el ledger (stock_log): éste es el ÚNICO camino manual que
   // toca el stock, así que se deja rastro explícito. Con la escritura a canales
   // apagada (el default) el ajuste es local: no viaja a Tienda Nube ni a ML.
-  const { data: prev } = await supabase.from("products").select("stock").eq("id", id).single();
+  const { data: prev } = await cx.supabase.from("products").select("stock").eq("id", id).single();
 
-  const { data, error } = await supabase
+  const { data, error } = await cx.supabase
     .from("products")
     .update({ stock })
     .eq("id", id)
@@ -319,11 +318,10 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
 }
 
 export async function borrarProducto(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar productos." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar productos.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  const { error } = await cx.supabase.from("products").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -336,11 +334,10 @@ export async function movimientosProducto(
   productoId: string,
   limite = 8,
 ): Promise<{ movimientos: StockLog[] } | { error: string }> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede ver el historial." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ver el historial.");
+  if ("error" in cx) return cx;
 
-  const { data, error } = await supabase
+  const { data, error } = await cx.supabase
     .from("stock_log")
     .select("*")
     .eq("producto_id", productoId)
@@ -353,7 +350,6 @@ export async function movimientosProducto(
 /* ========================= Fotos propias (Storage) ======================== */
 
 const BUCKET_FOTOS = "fotos-productos";
-const MAX_FOTO = 10 * 1024 * 1024;
 
 /* Devuelve la foto creada para que el pop-up abierto la pinte al instante (sus
    props son una foto del producto anterior a la subida). */
@@ -361,57 +357,60 @@ export async function subirFotoProducto(
   productoId: string,
   formData: FormData,
 ): Promise<{ ok: true; foto: ProductPhoto } | { error: string }> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede subir fotos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede subir fotos.");
+  if ("error" in cx) return cx;
 
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "No se recibió el archivo." };
-  if (!file.type.startsWith("image/")) return { error: "El archivo debe ser una imagen." };
-  if (file.size > MAX_FOTO) return { error: "La imagen supera 10 MB." };
-
-  const limpio = file.name.replace(/[^\w.\-]+/g, "_");
-  const path = `${productoId}/${Date.now()}-${limpio}`;
-
-  const { error: upErr } = await supabase.storage.from(BUCKET_FOTOS).upload(path, file, {
-    contentType: file.type || undefined,
-    upsert: false,
+  const archivo = archivoDeFormData(formData, {
+    maxMB: 10,
+    soloImagenes: true,
+    mensajeExcedido: "La imagen supera 10 MB.",
   });
-  if (upErr) return { error: upErr.message };
+  if ("error" in archivo) return archivo;
+  const { file } = archivo;
 
-  const { count } = await supabase
-    .from("product_photos")
-    .select("id", { count: "exact", head: true })
-    .eq("producto_id", productoId);
+  const path = rutaParaArchivo(productoId, file.name);
 
-  const { data, error } = await supabase
-    .from("product_photos")
-    .insert({
-      producto_id: productoId,
-      nombre: file.name,
-      storage_path: path,
-      tipo: file.type || null,
-      orden: count ?? 0,
-    })
-    .select("*")
-    .single();
-  if (error || !data) {
-    // El binario ya subió pero no se registró: no dejar basura en Storage.
-    await supabase.storage.from(BUCKET_FOTOS).remove([path]);
-    return { error: error?.message ?? "No se pudo registrar la foto." };
-  }
+  const r = await subirYRegistrar<ProductPhoto>({
+    supabase: cx.supabase,
+    bucket: BUCKET_FOTOS,
+    path,
+    file,
+    insertar: async () => {
+      const { count } = await cx.supabase
+        .from("product_photos")
+        .select("id", { count: "exact", head: true })
+        .eq("producto_id", productoId);
+      return await cx.supabase
+        .from("product_photos")
+        .insert({
+          producto_id: productoId,
+          nombre: file.name,
+          storage_path: path,
+          tipo: file.type || null,
+          orden: count ?? 0,
+        })
+        .select("*")
+        .single();
+    },
+    errorRegistro: "No se pudo registrar la foto.",
+  });
+  if ("error" in r) return r;
   revalidatePath("/inventario");
-  return { ok: true, foto: data as ProductPhoto };
+  return { ok: true, foto: r.datos };
 }
 
 export async function borrarFotoProducto(id: string, storagePath: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar fotos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede borrar fotos.");
+  if ("error" in cx) return cx;
 
-  await supabase.storage.from(BUCKET_FOTOS).remove([storagePath]);
-  const { error } = await supabase.from("product_photos").delete().eq("id", id);
-  if (error) return { error: error.message };
+  const r = await borrarArchivoYFila({
+    supabase: cx.supabase,
+    bucket: BUCKET_FOTOS,
+    path: storagePath,
+    tabla: "product_photos",
+    id,
+  });
+  if ("error" in r) return r;
   revalidatePath("/inventario");
   return { ok: true };
 }
@@ -419,9 +418,8 @@ export async function borrarFotoProducto(id: string, storagePath: string): Promi
 /* ============================ Proveedores ================================= */
 
 export async function guardarProveedor(id: string | null, input: ProveedorInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede gestionar proveedores." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede gestionar proveedores.");
+  if ("error" in cx) return cx;
 
   const nombre = input.nombre.trim();
   if (!nombre) return { error: "El proveedor necesita un nombre." };
@@ -430,17 +428,17 @@ export async function guardarProveedor(id: string | null, input: ProveedorInput)
 
   const fila = {
     nombre,
-    telefono: input.telefono.trim() || null,
-    correo: input.correo.trim() || null,
-    pais: input.pais.trim() || null,
-    contacto: input.contacto.trim() || null,
+    telefono: textoONulo(input.telefono),
+    correo: textoONulo(input.correo),
+    pais: textoONulo(input.pais),
+    contacto: textoONulo(input.contacto),
     dias_entrega: input.dias_entrega,
-    notas: input.notas.trim() || null,
+    notas: textoONulo(input.notas),
   };
 
   const { error } = id
-    ? await supabase.from("suppliers").update(fila).eq("id", id)
-    : await supabase.from("suppliers").insert({ ...fila, created_by: user.id });
+    ? await cx.supabase.from("suppliers").update(fila).eq("id", id)
+    : await cx.supabase.from("suppliers").insert({ ...fila, created_by: cx.user.id });
 
   if (error) return { error: error.message };
   revalidatePath("/inventario");
@@ -448,11 +446,10 @@ export async function guardarProveedor(id: string | null, input: ProveedorInput)
 }
 
 export async function borrarProveedor(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar proveedores." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar proveedores.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("suppliers").delete().eq("id", id);
+  const { error } = await cx.supabase.from("suppliers").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -471,9 +468,8 @@ function validarPedido(input: PedidoProvInput): string | null {
 }
 
 export async function guardarPedidoProv(id: string | null, input: PedidoProvInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede gestionar pedidos a proveedor." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede gestionar pedidos a proveedor.");
+  if ("error" in cx) return cx;
 
   const invalido = validarPedido(input);
   if (invalido) return { error: invalido };
@@ -484,23 +480,23 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     fecha_estimada: input.fecha_estimada || null,
     estado: input.estado,
     costo_total: input.costo_total,
-    paqueteria: input.paqueteria.trim() || null,
-    num_guia: input.num_guia.trim() || null,
-    url_rastreo: input.url_rastreo.trim() || null,
-    notas: input.notas.trim() || null,
+    paqueteria: textoONulo(input.paqueteria),
+    num_guia: textoONulo(input.num_guia),
+    url_rastreo: textoONulo(input.url_rastreo),
+    notas: textoONulo(input.notas),
   };
 
   let pedidoId = id;
   if (id) {
-    const { error } = await supabase.from("supplier_orders").update(fila).eq("id", id);
+    const { error } = await cx.supabase.from("supplier_orders").update(fila).eq("id", id);
     if (error) return { error: error.message };
     // Los renglones se reemplazan por el conjunto nuevo (edición simple).
-    const { error: delErr } = await supabase.from("supplier_order_items").delete().eq("pedido_id", id);
+    const { error: delErr } = await cx.supabase.from("supplier_order_items").delete().eq("pedido_id", id);
     if (delErr) return { error: delErr.message };
   } else {
-    const { data, error } = await supabase
+    const { data, error } = await cx.supabase
       .from("supplier_orders")
-      .insert({ ...fila, created_by: user.id })
+      .insert({ ...fila, created_by: cx.user.id })
       .select("id")
       .single();
     if (error || !data) return { error: error?.message ?? "No se pudo crear el pedido." };
@@ -512,11 +508,11 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     .map((i) => ({
       pedido_id: pedidoId,
       producto_id: i.producto_id,
-      descripcion: i.descripcion.trim() || null,
+      descripcion: textoONulo(i.descripcion),
       cantidad: i.cantidad,
       costo_unitario: i.costo_unitario,
     }));
-  const { error: itemsErr } = await supabase.from("supplier_order_items").insert(items);
+  const { error: itemsErr } = await cx.supabase.from("supplier_order_items").insert(items);
   if (itemsErr) return { error: itemsErr.message };
 
   revalidatePath("/inventario");
@@ -526,11 +522,10 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
 /* Cambio rápido de estado desde la tabla (sin pasar por "recibido"; para eso
    está recibirPedidoProv, que pregunta por el stock). */
 export async function cambiarEstadoPedidoProv(id: string, estado: EstadoPedidoProvId): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede actualizar pedidos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede actualizar pedidos.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("supplier_orders").update({ estado }).eq("id", id);
+  const { error } = await cx.supabase.from("supplier_orders").update({ estado }).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -539,11 +534,10 @@ export async function cambiarEstadoPedidoProv(id: string, estado: EstadoPedidoPr
 /* Marcar recibido; si sumarStock, los renglones con producto suman al stock.
    Atómico vía la función recibir_pedido_proveedor (migración 20250103). */
 export async function recibirPedidoProv(id: string, sumarStock: boolean): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede recibir pedidos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede recibir pedidos.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.rpc("recibir_pedido_proveedor", {
+  const { error } = await cx.supabase.rpc("recibir_pedido_proveedor", {
     pid: id,
     sumar_stock: sumarStock,
   });
@@ -553,11 +547,10 @@ export async function recibirPedidoProv(id: string, sumarStock: boolean): Promis
 }
 
 export async function borrarPedidoProv(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede borrar pedidos." };
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar pedidos.");
+  if ("error" in cx) return cx;
 
-  const { error } = await supabase.from("supplier_orders").delete().eq("id", id);
+  const { error } = await cx.supabase.from("supplier_orders").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -582,54 +575,79 @@ export async function registrarPagoPedido(
   pedidoId: string,
   formData: FormData,
 ): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar pagos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede registrar pagos.");
+  if ("error" in cx) return cx;
 
   const monto = Number(formData.get("monto"));
   if (!Number.isFinite(monto) || monto < 0) return { error: "El monto no es válido." };
-  const fecha = String(formData.get("fecha") || "").trim() || null;
-  const nota = String(formData.get("nota") || "").trim() || null;
+  const fecha = textoONulo(String(formData.get("fecha") || ""));
+  const nota = textoONulo(String(formData.get("nota") || ""));
 
   // Comprobante opcional: se sube primero; si falla el insert, se limpia.
-  let comprobante: { path: string; nombre: string; tipo: string | null } | null = null;
   const file = formData.get("file");
   if (file instanceof File && file.size > 0) {
-    if (file.size > 10 * 1024 * 1024) return { error: "El comprobante supera 10 MB." };
-    const limpio = file.name.replace(/[^\w.\-]+/g, "_");
-    const path = `${pedidoId}/${Date.now()}-${limpio}`;
-    const { error: upErr } = await supabase.storage
-      .from(BUCKET_PEDIDOS)
-      .upload(path, file, { contentType: file.type || undefined, upsert: false });
-    if (upErr) return { error: upErr.message };
-    comprobante = { path, nombre: file.name, tipo: file.type || null };
-  }
-
-  const { error } = await supabase.from("supplier_order_payments").insert({
-    pedido_id: pedidoId,
-    fecha,
-    monto,
-    nota,
-    comprobante_path: comprobante?.path ?? null,
-    comprobante_nombre: comprobante?.nombre ?? null,
-    comprobante_tipo: comprobante?.tipo ?? null,
-    created_by: user.id,
-  });
-  if (error) {
-    if (comprobante) await supabase.storage.from(BUCKET_PEDIDOS).remove([comprobante.path]);
-    return { error: error.message };
+    const archivo = archivoDeFormData(formData, {
+      maxMB: 10,
+      mensajeExcedido: "El comprobante supera 10 MB.",
+    });
+    if ("error" in archivo) return archivo;
+    const path = rutaParaArchivo(pedidoId, archivo.file.name);
+    const r = await subirYRegistrar({
+      supabase: cx.supabase,
+      bucket: BUCKET_PEDIDOS,
+      path,
+      file: archivo.file,
+      insertar: () =>
+        cx.supabase
+          .from("supplier_order_payments")
+          .insert({
+            pedido_id: pedidoId,
+            fecha,
+            monto,
+            nota,
+            comprobante_path: path,
+            comprobante_nombre: archivo.file.name,
+            comprobante_tipo: archivo.file.type || null,
+            created_by: cx.user.id,
+          })
+          .select("id")
+          .single(),
+      errorRegistro: "No se pudo registrar el pago.",
+    });
+    if ("error" in r) return r;
+  } else {
+    const { error } = await cx.supabase.from("supplier_order_payments").insert({
+      pedido_id: pedidoId,
+      fecha,
+      monto,
+      nota,
+      comprobante_path: null,
+      comprobante_nombre: null,
+      comprobante_tipo: null,
+      created_by: cx.user.id,
+    });
+    if (error) return { error: error.message };
   }
   revalidatePath("/inventario");
   return { ok: true };
 }
 
 export async function borrarPagoPedido(id: string, comprobantePath: string | null): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar pagos." };
-  if (comprobantePath) await supabase.storage.from(BUCKET_PEDIDOS).remove([comprobantePath]);
-  const { error } = await supabase.from("supplier_order_payments").delete().eq("id", id);
-  if (error) return { error: error.message };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede borrar pagos.");
+  if ("error" in cx) return cx;
+  if (comprobantePath) {
+    const r = await borrarArchivoYFila({
+      supabase: cx.supabase,
+      bucket: BUCKET_PEDIDOS,
+      path: comprobantePath,
+      tabla: "supplier_order_payments",
+      id,
+    });
+    if ("error" in r) return r;
+  } else {
+    const { error } = await cx.supabase.from("supplier_order_payments").delete().eq("id", id);
+    if (error) return { error: error.message };
+  }
   revalidatePath("/inventario");
   return { ok: true };
 }
@@ -639,42 +657,35 @@ export async function urlComprobantePedido(
   storagePath: string,
 ): Promise<{ url: string } | { error: string }> {
   const supabase = await createClient();
-  const { data, error } = await supabase.storage
-    .from(BUCKET_PEDIDOS)
-    .createSignedUrl(storagePath, 60 * 60);
-  if (error || !data) return { error: error?.message ?? "No se pudo generar el enlace." };
-  return { url: data.signedUrl };
+  return urlFirmada(supabase, BUCKET_PEDIDOS, storagePath);
 }
 
 export async function agregarIncidenciaPedido(pedidoId: string, texto: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar incidencias." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede registrar incidencias.");
+  if ("error" in cx) return cx;
   const t = texto.trim();
   if (!t) return { error: "La incidencia está vacía." };
-  const { error } = await supabase
+  const { error } = await cx.supabase
     .from("supplier_order_incidents")
-    .insert({ pedido_id: pedidoId, texto: t, created_by: user.id });
+    .insert({ pedido_id: pedidoId, texto: t, created_by: cx.user.id });
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
 }
 
 export async function resolverIncidenciaPedido(id: string, resuelto: boolean): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede actualizar incidencias." };
-  const { error } = await supabase.from("supplier_order_incidents").update({ resuelto }).eq("id", id);
+  const cx = await exigirRol("interno", "Solo el equipo interno puede actualizar incidencias.");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("supplier_order_incidents").update({ resuelto }).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
 }
 
 export async function borrarIncidenciaPedido(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar incidencias." };
-  const { error } = await supabase.from("supplier_order_incidents").delete().eq("id", id);
+  const cx = await exigirRol("interno", "Solo el equipo interno puede borrar incidencias.");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("supplier_order_incidents").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };
@@ -693,23 +704,22 @@ export type ConteoInput = {
 };
 
 export async function registrarConteo(input: ConteoInput): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede registrar conteos." };
+  const cx = await exigirRol("interno", "Solo el equipo interno puede registrar conteos.");
+  if ("error" in cx) return cx;
   if (!input.producto_id && !input.descripcion.trim())
     return { error: "Elige un producto o describe qué se contó." };
   if (!Number.isInteger(input.cantidad) || input.cantidad < 0)
     return { error: "La cantidad contada debe ser un entero ≥ 0." };
 
-  const { error } = await supabase.from("conteos_fisicos").insert({
+  const { error } = await cx.supabase.from("conteos_fisicos").insert({
     producto_id: input.producto_id,
-    descripcion: input.descripcion.trim() || null,
+    descripcion: textoONulo(input.descripcion),
     cantidad: input.cantidad,
-    contado_por: input.contado_por.trim() || null,
-    corroborado_por: input.corroborado_por.trim() || null,
-    nota: input.nota.trim() || null,
+    contado_por: textoONulo(input.contado_por),
+    corroborado_por: textoONulo(input.corroborado_por),
+    nota: textoONulo(input.nota),
     fecha: input.fecha || undefined,
-    created_by: user.id,
+    created_by: cx.user.id,
   });
   if (error) return { error: error.message };
   revalidatePath("/inventario");
@@ -717,10 +727,9 @@ export async function registrarConteo(input: ConteoInput): Promise<Resultado> {
 }
 
 export async function borrarConteo(id: string): Promise<Resultado> {
-  const { supabase, user, rol } = await usuarioActual();
-  if (!user) return { error: "No autenticado." };
-  if (!esInterno(rol)) return { error: "Solo el equipo interno puede borrar conteos." };
-  const { error } = await supabase.from("conteos_fisicos").delete().eq("id", id);
+  const cx = await exigirRol("interno", "Solo el equipo interno puede borrar conteos.");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("conteos_fisicos").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/inventario");
   return { ok: true };

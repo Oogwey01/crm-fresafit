@@ -1,17 +1,15 @@
-import { createClient } from "@/lib/supabase/server";
+import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { PanelClientes } from "@/components/clientes/panel";
 import type { Customer, CustomerConStats, RolId, SaleConProducto } from "@/lib/types";
 
 export const metadata = { title: "Clientes · Fresafit" };
 
 export default async function ClientesPage() {
-  const supabase = await createClient();
+  /* Cacheado por request: comparte getUser() y perfil con el layout. */
+  const { supabase, rol: rolCrudo } = await usuarioActual();
+  const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const [clientesRes, ventasRes, perfilRes] = await Promise.all([
+  const [clientesRes, ventasRes] = await Promise.all([
     supabase.from("customers").select("*").order("nombre"),
     /* Ventas con cliente: alimentan las estadísticas y el historial. Se
        calculan aquí (no se guardan) para que nunca se desincronicen. */
@@ -22,14 +20,10 @@ export default async function ClientesPage() {
       .or("estado.is.null,estado.neq.cancelado") // los cancelados no cuentan
       .order("fecha", { ascending: false })
       .limit(10000),
-    user
-      ? supabase.from("profiles").select("rol").eq("id", user.id).single()
-      : Promise.resolve({ data: null }),
   ]);
 
   const clientes = (clientesRes.data ?? []) as Customer[];
   const ventas = (ventasRes.data ?? []) as unknown as SaleConProducto[];
-  const rol = ((perfilRes.data as { rol?: RolId } | null)?.rol ?? "miembro") as RolId;
 
   /* Estadísticas por cliente (compras, total gastado, última compra). */
   const stats = new Map<string, { compras: number; total: number; ultima: string | null }>();
