@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -40,7 +41,7 @@ export function TaskDialog({
   currentUserId: string;
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [titulo, setTitulo] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [responsable, setResponsable] = useState(currentUserId || SIN_ASIGNAR);
@@ -89,18 +90,10 @@ export function TaskDialog({
       motivo_atorado: estado === "atorado" ? motivoAtorado : null,
       etiquetas,
     };
-    startTransition(async () => {
-      try {
-        const r = await crearTarea(input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Tarea creada.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => crearTarea(input), {
+      ok: "Tarea creada.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 

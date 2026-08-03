@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { Column } from "@/components/tareas/column";
 import { TaskCard } from "@/components/tareas/task-card";
 import { TaskDialog } from "@/components/tareas/task-dialog";
@@ -111,7 +112,8 @@ export function Board({
   function alternarArea(areaId: string) {
     setAreasAbiertas((prev) => {
       const next = new Set(prev);
-      next.has(areaId) ? next.delete(areaId) : next.add(areaId);
+      if (next.has(areaId)) next.delete(areaId);
+      else next.add(areaId);
       return next;
     });
   }
@@ -326,22 +328,11 @@ export function Board({
         )}
 
         {/* Alcance global: Mis tareas / Delegadas por mí / Todas — aplica en las TRES vistas. */}
-        <div className="inline-flex rounded-lg bg-muted p-0.5">
-          {opcionesAlcance.map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setAlcance(id)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
-                alcance === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <ControlSegmentado opciones={opcionesAlcance} valor={alcance} onCambio={setAlcance} />
 
-        {/* Selector de vista principal: Tabla / Tablero / Calendario */}
+        {/* Selector de vista principal: Tabla / Tablero / Calendario.
+            No usa ControlSegmentado: cada opción lleva icono + rótulo que se
+            oculta en móvil, no una etiqueta simple. */}
         <div className="inline-flex rounded-lg bg-muted p-0.5">
           {VISTAS_TOP.map(([id, label, Icono]) => (
             <button

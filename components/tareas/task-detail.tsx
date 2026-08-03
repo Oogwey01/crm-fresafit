@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -83,9 +85,14 @@ export function TaskDetail({
   const nombrePorId = (id: string | null) =>
     id ? (equipo.find((p) => p.id === id)?.nombre ?? "?") : "?";
 
-  const [detalle, setDetalle] = useState<TaskDetalle | null>(null);
-  const [cargando, setCargando] = useState(true);
-  const [, startTransition] = useTransition();
+  /* El detalle (comentarios, checklist, adjuntos, actividad) se carga aparte
+     al abrir la tarea y se refresca tras cada mutación. */
+  const {
+    datos: detalle,
+    cargando,
+    recargar,
+  } = useDetalleRemoto<TaskDetalle>(() => cargarDetalle(tarea.id), tarea.id);
+  const { ejecutar } = useAccionServidor();
 
   // Campos de meta (edición para gestor).
   const [titulo, setTitulo] = useState(tarea.titulo);
@@ -116,36 +123,8 @@ export function TaskDetail({
   const [enlaceUrl, setEnlaceUrl] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  async function recargar() {
-    setDetalle(await cargarDetalle(tarea.id));
-  }
-  useEffect(() => {
-    let vivo = true;
-    cargarDetalle(tarea.id).then((d) => {
-      if (vivo) {
-        setDetalle(d);
-        setCargando(false);
-      }
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [tarea.id]);
-
   function accion(fn: () => Promise<{ ok: true } | { error: string }>, okMsg?: string) {
-    startTransition(async () => {
-      try {
-        const r = await fn();
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        if (okMsg) toast.success(okMsg);
-        await recargar();
-      } catch {
-        toast.error("Algo falló. Revisa tu conexión.");
-      }
-    });
+    ejecutar(fn, { ok: okMsg, alExito: recargar });
   }
 
   /* --- Meta (gestor) --- */
@@ -166,14 +145,9 @@ export function TaskDetail({
       motivo_atorado: estado === "atorado" ? motivoAtorado : null,
       etiquetas,
     };
-    startTransition(async () => {
-      const r = await editarTarea(tarea.id, input);
-      if ("error" in r) {
-        toast.error(r.error);
-        return;
-      }
-      toast.success("Cambios guardados.");
-      onClose();
+    ejecutar(() => editarTarea(tarea.id, input), {
+      ok: "Cambios guardados.",
+      alExito: onClose,
     });
   }
 
@@ -197,15 +171,10 @@ export function TaskDetail({
   }
 
   function borrar() {
-    if (!confirm("¿Borrar esta tarea? No se puede deshacer.")) return;
-    startTransition(async () => {
-      const r = await borrarTarea(tarea.id);
-      if ("error" in r) {
-        toast.error(r.error);
-        return;
-      }
-      toast.success("Tarea borrada.");
-      onClose();
+    ejecutar(() => borrarTarea(tarea.id), {
+      confirmar: "¿Borrar esta tarea? No se puede deshacer.",
+      ok: "Tarea borrada.",
+      alExito: onClose,
     });
   }
 

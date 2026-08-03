@@ -8,14 +8,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
    useEffect + flag `vivo` que estaba copiado en pedido-prov-dialog,
    task-detail y producto-vista.
 
-   `clave` identifica QUÉ se está cargando (p. ej. el id de la entidad).
-   `cargando` se deriva comparando la marca pedida con la respondida — sin
-   setState síncrono dentro del efecto. `cargar` se lee fresca vía ref para no
-   obligar al caller a memoizarla. */
+   `clave` identifica QUÉ se está cargando (p. ej. el id de la entidad): al
+   cambiar, `datos` vuelve a null (es otra entidad). Un `recargar()` en cambio
+   CONSERVA los datos visibles mientras llega la respuesta, para que la vista
+   no parpadee en vacío tras cada mutación.
+
+   `cargando` se deriva comparando lo pedido con lo respondido — sin setState
+   síncrono dentro del efecto. `cargar` se lee fresca vía ref para no obligar
+   al caller a memoizarla. */
 export function useDetalleRemoto<T>(cargar: () => Promise<T>, clave: string) {
   const [tick, setTick] = useState(0);
-  const marca = `${clave}#${tick}`;
-  const [resultado, setResultado] = useState<{ marca: string; datos: T | null } | null>(null);
+  const [resultado, setResultado] = useState<{ clave: string; tick: number; datos: T | null } | null>(
+    null,
+  );
 
   const cargarRef = useRef(cargar);
   useEffect(() => {
@@ -27,21 +32,22 @@ export function useDetalleRemoto<T>(cargar: () => Promise<T>, clave: string) {
     cargarRef
       .current()
       .then((d) => {
-        if (vivo) setResultado({ marca, datos: d });
+        if (vivo) setResultado({ clave, tick, datos: d });
       })
       .catch(() => {
-        if (vivo) setResultado({ marca, datos: null });
+        if (vivo) setResultado({ clave, tick, datos: null });
       });
     return () => {
       vivo = false;
     };
-  }, [marca]);
+  }, [clave, tick]);
 
   const recargar = useCallback(() => setTick((t) => t + 1), []);
-  const alDia = resultado?.marca === marca;
+  const mismaEntidad = resultado?.clave === clave;
   return {
-    datos: alDia ? resultado.datos : null,
-    cargando: !alDia,
+    /* Se conserva entre recargas de la misma entidad; null al cambiar de una. */
+    datos: mismaEntidad ? resultado.datos : null,
+    cargando: !(mismaEntidad && resultado.tick === tick),
     recargar,
   };
 }
