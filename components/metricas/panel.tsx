@@ -11,7 +11,7 @@ import { ETIQUETA_DELTA as ETIQUETA_DELTA_BASE, enRango, deltaPct } from "@/lib/
 import { nombreVenta } from "@/lib/ventas";
 import { GraficaVentasDia } from "@/components/metricas/grafica-ventas-dia";
 import { importarVentasTiendanube } from "@/app/(app)/metricas/actions";
-import type { CanalId, Customer, Product, RolId, SaleConProducto, TipoProductoId } from "@/lib/types";
+import type { CanalId, Customer, Product, RolId, VentaMetricas, TipoProductoId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/compartido/date-picker";
 import {
@@ -64,7 +64,7 @@ export function PanelMetricas({
   rol,
   tiendanube,
 }: {
-  ventas: SaleConProducto[];
+  ventas: VentaMetricas[];
   productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
   clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
   rol: RolId;
@@ -79,7 +79,7 @@ export function PanelMetricas({
   /* Plataforma: "todas" o un canal. Afecta TODO el panel, no solo la tabla. */
   const [canal, setCanal] = useState<CanalId | "todas">("todas");
   const [visibles, setVisibles] = useState(VENTAS_POR_PAGINA);
-  const [ventaDialog, setVentaDialog] = useState<SaleConProducto | "nueva" | null>(null);
+  const [ventaDialog, setVentaDialog] = useState<VentaMetricas | "nueva" | null>(null);
   const [importando, startImportar] = useTransition();
   /* Desglose de «Productos estrella» por categoría y talla. */
   const [catEstrella, setCatEstrella] = useState<TipoProductoId | "todas">("todas");
@@ -201,7 +201,7 @@ export function PanelMetricas({
   const listadas = delPeriodo.slice(0, visibles);
   const totalListado = delPeriodo.reduce((a, v) => a + v.monto, 0);
 
-  const columnasVenta: Columna<SaleConProducto>[] = [
+  const columnasVenta: Columna<VentaMetricas>[] = [
     {
       clave: "fecha",
       label: "Fecha",

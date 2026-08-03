@@ -1,4 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { PanelClientes } from "@/components/clientes/panel";
 import type { Customer, CustomerConStats, RolId } from "@/lib/types";
 
@@ -13,15 +14,28 @@ export default async function ClientesPage() {
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const [clientesRes, statsRes] = await Promise.all([
-    supabase.from("customers").select("*").order("nombre"),
+  const [clientes, statsRes] = await Promise.all([
+    /* Paginado: sin esto PostgREST cortaba en 1000 filas SIN avisar y la
+       pantalla mostraba 1000 de 2539 clientes, con los totales calculados
+       solo sobre esa parte. Se piden además las 7 columnas que usa el módulo,
+       no las 12 de la tabla. */
+    traerTodo<Customer>(
+      (desde, hasta) =>
+        supabase
+          .from("customers")
+          .select("id, nombre, correo, telefono, canal, notas, tiendanube_customer_id")
+          .order("nombre")
+          .range(desde, hasta) as unknown as Promise<{
+          data: Customer[] | null;
+          error: { message: string } | null;
+        }>,
+    ),
     /* Estadísticas por cliente calculadas en Postgres: antes se bajaban hasta
        10.000 ventas con join solo para sumarlas aquí (y se serializaban
        íntegras al navegador; el historial ahora se carga al abrir la ficha). */
     supabase.rpc("stats_por_cliente"),
   ]);
 
-  const clientes = (clientesRes.data ?? []) as Customer[];
   const stats = new Map(
     ((statsRes.data ?? []) as StatCliente[]).map((s) => [s.cliente_id, s]),
   );

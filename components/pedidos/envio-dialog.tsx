@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { PAQUETERIAS } from "@/lib/catalogos";
 import { guardarEnvio } from "@/app/(app)/pedidos/actions";
-import type { SaleConDetalle } from "@/lib/types";
+import type { PedidoEnvio } from "@/lib/types";
 
 const DATALIST_ID = "paqueterias-sugeridas";
 
@@ -25,7 +25,7 @@ export function EnvioDialog({
   gestor,
   onClose,
 }: {
-  pedido: SaleConDetalle;
+  pedido: PedidoEnvio;
   gestor: boolean;
   onClose: () => void;
 }) {

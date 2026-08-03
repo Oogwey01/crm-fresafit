@@ -2,7 +2,7 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelMetricas } from "@/components/metricas/panel";
-import type { Customer, Product, RolId, SaleConProducto } from "@/lib/types";
+import type { Customer, Product, RolId, VentaMetricas } from "@/lib/types";
 
 export const metadata = { title: "Métricas · Fresafit" };
 
@@ -18,7 +18,14 @@ export default async function MetricasPage() {
   const [ventasRes, productosRes, clientesRes, tiendanube] = await Promise.all([
     supabase
       .from("sales")
-      .select("*, producto:products!producto_id(id, nombre, variante, tipo)")
+      /* Solo lo que usa el panel (y el diálogo de venta al editar): con `*` la
+         respuesta pesaba 742 KB contra 570 KB. El orden por created_at sigue
+         funcionando aunque la columna no se seleccione. */
+      .select(
+        "id, fecha, canal, cantidad, monto, descripcion, notas, origen," +
+          " producto_id, cliente_id, referencia_externa," +
+          " producto:products!producto_id(id, nombre, variante, tipo)",
+      )
       .gte("fecha", diasDesdeHoy(-DIAS_VENTANA))
       .or("estado.is.null,estado.neq.cancelado") // los cancelados no cuentan como venta
       .order("fecha", { ascending: false })
@@ -32,7 +39,7 @@ export default async function MetricasPage() {
     estadoTiendanube(),
   ]);
 
-  const ventas = (ventasRes.data ?? []) as unknown as SaleConProducto[];
+  const ventas = (ventasRes.data ?? []) as unknown as VentaMetricas[];
   const productos = (productosRes.data ?? []) as Pick<
     Product,
     "id" | "nombre" | "variante" | "sku" | "precio" | "activo"

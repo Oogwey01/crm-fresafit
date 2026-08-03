@@ -355,6 +355,36 @@ export type SaleConDetalle = SaleConProducto & {
   cliente: Pick<Customer, "id" | "nombre"> | null;
 };
 
+/* Venta tal como la consume el módulo de PEDIDOS: solo lo que pinta la tabla y
+   el diálogo de envío. Traer la fila completa costaba 819 KB frente a 474 KB;
+   esos bytes cruzan hasta el navegador, así que el tipo acota el select. */
+export type PedidoEnvio = Pick<
+  Sale,
+  "id" | "fecha" | "canal" | "cantidad" | "estado" | "num_guia" | "paqueteria" | "descripcion"
+> & {
+  producto: Pick<Product, "id" | "nombre" | "variante"> | null;
+  cliente: Pick<Customer, "id" | "nombre"> | null;
+};
+
+/* Venta tal como la consume MÉTRICAS: sin los campos de envío ni las marcas de
+   auditoría, que ese módulo no muestra (742 KB → 570 KB). */
+export type VentaMetricas = Pick<
+  Sale,
+  | "id"
+  | "fecha"
+  | "canal"
+  | "cantidad"
+  | "monto"
+  | "descripcion"
+  | "notas"
+  | "origen"
+  | "producto_id"
+  | "cliente_id"
+  | "referencia_externa"
+> & {
+  producto: Pick<Product, "id" | "nombre" | "variante" | "tipo"> | null;
+};
+
 /* --- Módulo Clientes (Fase 4) --- */
 
 /* Cliente (tabla `customers`). Los de Tienda Nube se crean y actualizan solos

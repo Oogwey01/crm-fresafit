@@ -32,7 +32,7 @@ import {
   type VentaInput,
 } from "@/app/(app)/metricas/actions";
 import { crearClienteRapido } from "@/app/(app)/clientes/actions";
-import type { CanalId, Customer, Product, SaleConProducto } from "@/lib/types";
+import type { CanalId, Customer, Product, VentaMetricas } from "@/lib/types";
 
 function etiquetaProducto(p: Pick<Product, "nombre" | "variante">): string {
   return `${p.nombre}${p.variante ? ` · ${p.variante}` : ""}`;
@@ -47,7 +47,7 @@ export function VentaDialog({
   gestor,
   onClose,
 }: {
-  venta: SaleConProducto | null; // null = alta
+  venta: VentaMetricas | null; // null = alta
   productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
   clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
   gestor: boolean;

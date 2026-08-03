@@ -99,7 +99,11 @@ function filasDeOrden(
   });
 }
 
-/* Mapa sku de TikTok → id de producto del CRM (tiktok_sku_id es único).
+/* Mapa sku de TikTok → id de producto del CRM. Se lee de `tiktok_publicaciones`
+   y no de `products`: un mismo artículo puede tener VARIAS publicaciones en
+   TikTok (una borrada y resubida, un borrador, otro título), y todas venden el
+   mismo inventario. `products` solo guarda la principal, así que las ventas que
+   entraban por las demás se quedaban sin producto.
    Con pocos SKUs en juego (webhook de una orden) trae SOLO esas filas; con
    muchos (sync completa) carga la tabla entera, paginada con traerTodo para
    que PostgREST no la trunque en ~1000 filas sin avisar. */
@@ -107,14 +111,11 @@ async function mapaUnidades(skuIds: string[]): Promise<Map<string, string>> {
   const admin = createAdminClient();
   const ids = [...new Set(skuIds)];
   const acotado = ids.length <= 50;
-  const data = await traerTodo<{ id: string; tiktok_sku_id: string }>((desde, hasta) => {
-    const q = admin
-      .from("products")
-      .select("id, tiktok_sku_id")
-      .not("tiktok_sku_id", "is", null);
+  const data = await traerTodo<{ producto_id: string; tiktok_sku_id: string }>((desde, hasta) => {
+    const q = admin.from("tiktok_publicaciones").select("producto_id, tiktok_sku_id");
     return (acotado ? q.in("tiktok_sku_id", ids) : q).range(desde, hasta);
   });
-  return new Map(data.map((p) => [p.tiktok_sku_id as string, p.id as string]));
+  return new Map(data.map((p) => [p.tiktok_sku_id, p.producto_id]));
 }
 
 /* Crea/actualiza clientes por buyer_email (única identidad que da TikTok). */

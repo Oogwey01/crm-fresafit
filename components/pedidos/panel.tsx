@@ -7,7 +7,7 @@ import { ESTADOS_PEDIDO, esGestor, obtenerCanal, obtenerEstadoPedido } from "@/l
 import { esPedidoAtrasado, formatearFecha } from "@/lib/fecha";
 import { nombreVenta } from "@/lib/ventas";
 import { cambiarEstadoPedido } from "@/app/(app)/pedidos/actions";
-import type { EstadoPedidoId, RolId, SaleConDetalle } from "@/lib/types";
+import type { EstadoPedidoId, RolId, PedidoEnvio } from "@/lib/types";
 import {
   Select,
   SelectContent,
@@ -36,10 +36,10 @@ function PastillaEstado({ estado }: { estado: string }) {
   return <Pastilla nombre={e.nombre} color={e.color} />;
 }
 
-export function PanelPedidos({ pedidos, rol }: { pedidos: SaleConDetalle[]; rol: RolId }) {
+export function PanelPedidos({ pedidos, rol }: { pedidos: PedidoEnvio[]; rol: RolId }) {
   const gestor = esGestor(rol);
   const [filtro, setFiltro] = useState<Filtro>("pendientes");
-  const [envio, setEnvio] = useState<SaleConDetalle | null>(null);
+  const [envio, setEnvio] = useState<PedidoEnvio | null>(null);
   const [, startTransition] = useTransition();
 
   const conteo = useMemo(() => {
@@ -76,7 +76,7 @@ export function PanelPedidos({ pedidos, rol }: { pedidos: SaleConDetalle[]; rol:
     });
   }
 
-  const columnas: Columna<SaleConDetalle>[] = [
+  const columnas: Columna<PedidoEnvio>[] = [
     {
       clave: "fecha",
       label: "Fecha",
