@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ArrowDownCircle, ArrowUpCircle, Paperclip, Plus, Wallet } from "lucide-react";
 import { CATEGORIAS_GASTO, obtenerCategoriaGasto } from "@/lib/catalogos";
 import { formatearFecha, rangosDePeriodo } from "@/lib/fecha";
+import { ETIQUETA_DELTA, deltaPct, enRango } from "@/lib/metricas";
 import { formatearMXN } from "@/lib/moneda";
 import type { ExpenseConComprobantes, Sale } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
@@ -29,23 +31,7 @@ const PERIODOS: [PeriodoId, string][] = [
   ["mes_pasado", "Mes pasado"],
 ];
 
-const ETIQUETA_DELTA: Record<PeriodoId, string> = {
-  hoy: "vs. ayer",
-  semana: "vs. semana pasada",
-  mes: "vs. mes pasado",
-  mes_pasado: "vs. antepasado",
-};
-
 const COLS = "grid-cols-[95px_minmax(180px,1fr)_130px_140px_120px_40px]";
-
-function enRango(fecha: string, r: { desde: string; hasta: string }) {
-  return fecha >= r.desde && fecha <= r.hasta;
-}
-
-function deltaPct(actual: number, anterior: number): number | null {
-  if (anterior <= 0) return null;
-  return ((actual - anterior) / anterior) * 100;
-}
 
 export function PanelFinanzas({
   gastos,
@@ -116,14 +102,7 @@ export function PanelFinanzas({
       label: "Categoría",
       celda: (g) => {
         const cat = obtenerCategoriaGasto(g.categoria);
-        return cat ? (
-          <span
-            className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-            style={{ backgroundColor: `${cat.color}1F`, color: cat.color }}
-          >
-            {cat.nombre}
-          </span>
-        ) : null;
+        return cat ? <Pastilla nombre={cat.nombre} color={cat.color} /> : null;
       },
     },
     {

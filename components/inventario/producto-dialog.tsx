@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -16,10 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
+import { aNumero } from "@/lib/validacion";
 import { TIPOS_PRODUCTO } from "@/lib/catalogos";
 import {
   guardarProducto,
@@ -29,13 +30,6 @@ import {
 import type { ProductConProveedor, Supplier, TipoProductoId } from "@/lib/types";
 
 const SIN_PROVEEDOR = "none";
-
-/* Convierte el texto de un input numérico a number|null (vacío = null). */
-function aNumero(texto: string): number | null {
-  if (texto.trim() === "") return null;
-  const n = Number(texto);
-  return Number.isFinite(n) ? n : null;
-}
 
 /* Alta y edición de un producto. */
 export function ProductoDialog({
@@ -52,7 +46,7 @@ export function ProductoDialog({
   escrituraCanales: boolean;
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   /* Vinculado a un canal: nombre/variante se administran allá (la sync los
      pisaría). El stock de un producto vinculado NO se edita aquí: solo cambia
      con los botones +/− de la tabla. Con la escritura a canales apagada (el
@@ -105,36 +99,20 @@ export function ProductoDialog({
       descontinuado,
       notas,
     };
-    startTransition(async () => {
-      try {
-        const r = await guardarProducto(producto?.id ?? null, input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(producto ? "Producto actualizado." : "Producto creado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => guardarProducto(producto?.id ?? null, input), {
+      ok: producto ? "Producto actualizado." : "Producto creado.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
   function borrar() {
     if (!producto) return;
-    if (!window.confirm(`¿Borrar «${producto.nombre}»? Esto no se puede deshacer.`)) return;
-    startTransition(async () => {
-      try {
-        const r = await borrarProducto(producto.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Producto borrado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo borrar. Revisa tu conexión.");
-      }
+    ejecutar(() => borrarProducto(producto.id), {
+      confirmar: `¿Borrar «${producto.nombre}»? Esto no se puede deshacer.`,
+      ok: "Producto borrado.",
+      error: "No se pudo borrar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
@@ -355,23 +333,13 @@ export function ProductoDialog({
           )}
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <div>
-            {producto && gestor && (
-              <Button variant="destructive" onClick={borrar} disabled={pending}>
-                Borrar
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              Cancelar
-            </Button>
-            <Button onClick={guardar} disabled={pending}>
-              {pending ? "Guardando…" : producto ? "Guardar cambios" : "Crear producto"}
-            </Button>
-          </div>
-        </DialogFooter>
+        <PieDialogoCRUD
+          pending={pending}
+          etiquetaGuardar={producto ? "Guardar cambios" : "Crear producto"}
+          onGuardar={guardar}
+          onCancelar={onClose}
+          onBorrar={producto && gestor ? borrar : undefined}
+        />
       </DialogContent>
     </Dialog>
   );

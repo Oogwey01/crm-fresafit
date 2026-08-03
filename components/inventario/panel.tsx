@@ -1,18 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Boxes,
   DollarSign,
-  Lock,
   PackageX,
-  Music2,
   Plus,
-  RefreshCw,
   Search,
   ShoppingCart,
-  Store,
   Truck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,12 +25,6 @@ import {
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
 import { formatearMXN } from "@/lib/moneda";
-import {
-  revisarDescuadres,
-  sincronizarMercadolibre,
-  sincronizarTiendanube,
-  sincronizarTiktok,
-} from "@/app/(app)/inventario/actions";
 import type {
   ProductConProveedor,
   Supplier,
@@ -54,7 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatCard } from "@/components/compartido/stat-card";
-import { cn } from "@/lib/utils";
+import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { TIPOS_PRODUCTO, obtenerTipoProducto } from "@/lib/catalogos";
 import { TablaProductos } from "@/components/inventario/tabla-productos";
 import { ProductoDialog } from "@/components/inventario/producto-dialog";
@@ -64,10 +54,9 @@ import { ProveedorDialog } from "@/components/inventario/proveedor-dialog";
 import { TablaPedidosProv } from "@/components/inventario/tabla-pedidos-prov";
 import { PedidoProvDialog } from "@/components/inventario/pedido-prov-dialog";
 import { TablaMovimientos } from "@/components/inventario/tabla-movimientos";
-import { TablaDescuadres } from "@/components/inventario/tabla-descuadres";
-import { FichasDuplicadas } from "@/components/inventario/fichas-duplicadas";
-import { ConteoFisico } from "@/components/inventario/conteo-fisico";
-import { PanelPiloto } from "@/components/inventario/panel-piloto";
+import { BarraCanales } from "@/components/inventario/barra-canales";
+import { AvisosInventario } from "@/components/inventario/avisos-inventario";
+import { PanelReconciliacion } from "@/components/inventario/panel-reconciliacion";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import { TablaReabastecer } from "@/components/inventario/tabla-reabastecer";
 import type { ItemInicialPedido } from "@/components/inventario/pedido-prov-dialog";
@@ -127,6 +116,10 @@ const CANALES_MOV = [
   ["tiktok_shop", "TikTok Shop"],
 ] as const;
 
+/* Aviso que la page arma en el servidor a partir de los query params del
+   redirect de OAuth (?tiendanube=… / ?mercadolibre=… / ?tiktok=…). */
+export type AvisoConexion = { tipo: "ok" | "error" | "info"; mensaje: string };
+
 /* Valor compacto para la tarjeta KPI: "$684K" en vez de "$684,231.00". */
 function valorCompacto(n: number): string {
   if (n >= 1000) return `$${Math.round(n / 1000)}K`;
@@ -144,142 +137,19 @@ function fechaCorta(iso: string): string {
   });
 }
 
-export function PanelInventario({
-  productos,
-  proveedores,
-  pedidos,
-  movimientos,
-  ventas,
-  enCamino,
-  paramsReorden,
-  rol,
-  tiendanube,
-  mercadolibre,
-  tiktok,
-  escrituraCanales,
-  piloto,
-  conteos,
-  equipo,
-  reconciliacionInicial,
-}: {
-  productos: ProductConProveedor[];
-  proveedores: Supplier[];
-  pedidos: SupplierOrderConDetalle[];
-  movimientos: StockLog[];
-  /* Ventas de los últimos 90 días: la velocidad de salida de cada producto. */
-  ventas: VentaReorden[];
-  /* Unidades pedidas a proveedor que aún no llegan, por producto. */
-  enCamino: EnCamino;
-  paramsReorden: ParamsReorden;
-  rol: RolId;
-  tiendanube: { conectada: boolean; ultimaSync: string | null };
-  mercadolibre: { conectada: boolean; ultimaSync: string | null };
-  tiktok: { conectada: boolean; ultimaSync: string | null };
-  /* false (el default del sistema) = el CRM no modifica nada en las plataformas. */
-  escrituraCanales: boolean;
-  /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
-  piloto: EstadoPiloto;
-  /* Conteos físicos recientes (con su producto). */
-  conteos: ConteoConProducto[];
-  /* Equipo, para los selectores de "quién contó/corroboró". */
-  equipo: Profile[];
-  /* Última reconciliación guardada, para mostrarla al instante al entrar. */
-  reconciliacionInicial: { resumen: ResumenReconciliacion; creadoEn: string } | null;
-}) {
-  const gestor = esGestor(rol);
-  /* Conectar/sincronizar canales queda solo para dirección: es una acción de
-     mantenimiento y da miedo que alguien la pique por error. */
-  const esDireccion = rol === "direccion";
-  const [pestana, setPestana] = useState<Pestana>("productos");
-  const [sincronizando, startSync] = useTransition();
-  const [sincronizandoML, startSyncML] = useTransition();
-  const [sincronizandoTikTok, startSyncTikTok] = useTransition();
-
-  /* Avisos al volver del OAuth (?tiendanube=… / ?mercadolibre=…). */
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tn = params.get("tiendanube");
-    const ml = params.get("mercadolibre");
-    const tk = params.get("tiktok");
-    if (!tn && !ml && !tk) return;
-    if (tn === "conectada") {
-      const n = params.get("productos");
-      toast.success(`Tienda Nube conectada${n ? ` · ${n} productos importados` : ""}.`);
-      if (params.get("webhooks") === "pendientes")
-        toast.info("La actualización automática (webhooks) se activará con el deploy en Vercel.");
-    } else if (tn) {
-      toast.error("No se pudo conectar Tienda Nube. Intenta de nuevo.");
-    }
-    if (ml === "conectada") {
-      const n = params.get("items");
-      const v = params.get("vinculados");
-      toast.success(
-        `Mercado Libre conectado${n ? ` · ${n} publicaciones importadas` : ""}${v && v !== "0" ? ` (${v} vinculadas por SKU)` : ""}.`,
-      );
-    } else if (ml) {
-      toast.error("No se pudo conectar Mercado Libre. Intenta de nuevo.");
-    }
-    if (tk === "conectada") {
-      const n = params.get("productos");
-      const v = params.get("vinculados");
-      toast.success(
-        `TikTok Shop conectado${n ? ` · ${n} productos importados` : ""}${v && v !== "0" ? ` (${v} vinculados por SKU)` : ""}.`,
-      );
-    } else if (tk) {
-      toast.error("No se pudo conectar TikTok Shop. Intenta de nuevo.");
-    }
-    window.history.replaceState(null, "", window.location.pathname);
-  }, []);
-
-  function sincronizar() {
-    startSync(async () => {
-      const r = await sincronizarTiendanube();
-      if ("error" in r) toast.error(r.error);
-      else toast.success(r.detalle);
-    });
-  }
-
-  function sincronizarML() {
-    startSyncML(async () => {
-      const r = await sincronizarMercadolibre();
-      if ("error" in r) toast.error(r.error);
-      else toast.success(r.detalle);
-    });
-  }
-
-  function sincronizarTK() {
-    startSyncTikTok(async () => {
-      const r = await sincronizarTiktok();
-      if ("error" in r) toast.error(r.error);
-      else toast.success(r.detalle);
-    });
-  }
-
-  /* null = cerrado; "nuevo" = alta; objeto = edición. */
-  const [productoDialog, setProductoDialog] = useState<ProductConProveedor | "nuevo" | null>(null);
-  /* La vista rápida guarda el id, no el producto: así el pop-up abierto refleja
-     lo que se ajusta desde él (stock, fotos) cuando la página revalida. */
-  const [productoVistaId, setProductoVistaId] = useState<string | null>(null);
-  const productoVista = productoVistaId
-    ? (productos.find((p) => p.id === productoVistaId) ?? null)
-    : null;
-  const [proveedorDialog, setProveedorDialog] = useState<Supplier | "nuevo" | null>(null);
-  const [pedidoDialog, setPedidoDialog] = useState<SupplierOrderConDetalle | "nuevo" | null>(null);
-  /* Renglones con los que abre un pedido nuevo (viene de «Qué pedir»). */
-  const [itemsIniciales, setItemsIniciales] = useState<ItemInicialPedido[] | undefined>(undefined);
-
-  /* Búsqueda y filtro de tipo — viven aquí para poder pintarlos junto a las
-     pestañas (aplican a "Productos" y a "Qué pedir"). */
+/* Búsqueda + los 4 filtros del catálogo, con la lista filtrada y el resumen de
+   filtros activos que la tabla usa para explicar por qué salió vacía. */
+function useFiltrosProductos(productos: ProductConProveedor[]) {
+  /* Búsqueda y filtro de tipo — aplican a "Productos" y a "Qué pedir". */
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("todos");
-
   /* Filtro de semáforo de stock (solo aplica a la pestaña de productos). */
   const [filtroStock, setFiltroStock] = useState("todos");
-
   /* Filtro de almacén: bodega / Mercado Full / TikTok delegado. */
   const [filtroLogistica, setFiltroLogistica] = useState("todos");
   /* Filtro de ciclo de vida: por defecto solo los vigentes. */
   const [filtroVigencia, setFiltroVigencia] = useState("vigentes");
+
   const productosVisibles = productos.filter((p) => {
     /* «Bodega» deja fuera lo que no está en ella: el depósito que gobierna
        Mercado Full y el inventario delegado a TikTok. Un producto que está en
@@ -318,35 +188,116 @@ export function PanelInventario({
     setFiltroVigencia("todos");
   }
 
-  /* Reconciliación: se corre a demanda (lee los catálogos en vivo de cada
-     canal), así que el resultado vive aquí hasta que se vuelva a pedir. */
-  const [revisando, startRevision] = useTransition();
-  const [reconciliacion, setReconciliacion] = useState<ResumenReconciliacion | null>(
-    reconciliacionInicial?.resumen ?? null,
-  );
-  const [ultimaRevision, setUltimaRevision] = useState<string | null>(
-    reconciliacionInicial?.creadoEn ?? null,
-  );
+  return {
+    busqueda,
+    setBusqueda,
+    filtroTipo,
+    setFiltroTipo,
+    filtroStock,
+    setFiltroStock,
+    filtroLogistica,
+    setFiltroLogistica,
+    filtroVigencia,
+    setFiltroVigencia,
+    productosVisibles,
+    filtrosActivos,
+    limpiarFiltros,
+  };
+}
 
-  function revisar() {
-    startRevision(async () => {
-      const r = await revisarDescuadres();
-      if ("error" in r) {
-        toast.error(r.error);
-        return;
-      }
-      setReconciliacion(r.resumen);
-      setUltimaRevision(r.creadoEn);
-      const n = r.resumen.descuadres.length;
-      const dup = r.resumen.duplicados.length;
-      const repetidas = dup ? ` · ${dup} artículo${dup === 1 ? "" : "s"} con fichas repetidas` : "";
-      if (n === 0) toast.success(`Todo cuadra: ${r.resumen.revisados} productos revisados.${repetidas}`);
-      else
-        toast.warning(
-          `${n} producto${n === 1 ? "" : "s"} con descuadre de ${r.resumen.revisados} revisados.${repetidas}`,
-        );
-    });
-  }
+export function PanelInventario({
+  productos,
+  proveedores,
+  pedidos,
+  movimientos,
+  ventas,
+  enCamino,
+  paramsReorden,
+  rol,
+  tiendanube,
+  mercadolibre,
+  tiktok,
+  escrituraCanales,
+  piloto,
+  conteos,
+  equipo,
+  reconciliacionInicial,
+  avisosConexion,
+}: {
+  productos: ProductConProveedor[];
+  proveedores: Supplier[];
+  pedidos: SupplierOrderConDetalle[];
+  movimientos: StockLog[];
+  /* Ventas de los últimos 90 días: la velocidad de salida de cada producto. */
+  ventas: VentaReorden[];
+  /* Unidades pedidas a proveedor que aún no llegan, por producto. */
+  enCamino: EnCamino;
+  paramsReorden: ParamsReorden;
+  rol: RolId;
+  tiendanube: { conectada: boolean; ultimaSync: string | null };
+  mercadolibre: { conectada: boolean; ultimaSync: string | null };
+  tiktok: { conectada: boolean; ultimaSync: string | null };
+  /* false (el default del sistema) = el CRM no modifica nada en las plataformas. */
+  escrituraCanales: boolean;
+  /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
+  piloto: EstadoPiloto;
+  /* Conteos físicos recientes (con su producto). */
+  conteos: ConteoConProducto[];
+  /* Equipo, para los selectores de "quién contó/corroboró". */
+  equipo: Profile[];
+  /* Última reconciliación guardada, para mostrarla al instante al entrar. */
+  reconciliacionInicial: { resumen: ResumenReconciliacion; creadoEn: string } | null;
+  /* Avisos al volver del OAuth, ya resueltos en el servidor por la page. */
+  avisosConexion: AvisoConexion[];
+}) {
+  const gestor = esGestor(rol);
+  /* Conectar/sincronizar canales queda solo para dirección: es una acción de
+     mantenimiento y da miedo que alguien la pique por error. */
+  const esDireccion = rol === "direccion";
+  const [pestana, setPestana] = useState<Pestana>("productos");
+
+  /* Avisos al volver del OAuth: la page los arma en el servidor; aquí solo se
+     emiten una vez y se limpia la URL para que un refresh no los repita. */
+  const avisosEmitidos = useRef(false);
+  useEffect(() => {
+    if (avisosEmitidos.current || avisosConexion.length === 0) return;
+    avisosEmitidos.current = true;
+    for (const aviso of avisosConexion) {
+      if (aviso.tipo === "ok") toast.success(aviso.mensaje);
+      else if (aviso.tipo === "error") toast.error(aviso.mensaje);
+      else toast.info(aviso.mensaje);
+    }
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [avisosConexion]);
+
+  /* null = cerrado; "nuevo" = alta; objeto = edición. */
+  const [productoDialog, setProductoDialog] = useState<ProductConProveedor | "nuevo" | null>(null);
+  /* La vista rápida guarda el id, no el producto: así el pop-up abierto refleja
+     lo que se ajusta desde él (stock, fotos) cuando la página revalida. */
+  const [productoVistaId, setProductoVistaId] = useState<string | null>(null);
+  const productoVista = productoVistaId
+    ? (productos.find((p) => p.id === productoVistaId) ?? null)
+    : null;
+  const [proveedorDialog, setProveedorDialog] = useState<Supplier | "nuevo" | null>(null);
+  const [pedidoDialog, setPedidoDialog] = useState<SupplierOrderConDetalle | "nuevo" | null>(null);
+  /* Renglones con los que abre un pedido nuevo (viene de «Qué pedir»). */
+  const [itemsIniciales, setItemsIniciales] = useState<ItemInicialPedido[] | undefined>(undefined);
+
+  const {
+    busqueda,
+    setBusqueda,
+    filtroTipo,
+    setFiltroTipo,
+    filtroStock,
+    setFiltroStock,
+    filtroLogistica,
+    setFiltroLogistica,
+    filtroVigencia,
+    setFiltroVigencia,
+    productosVisibles,
+    filtrosActivos,
+    limpiarFiltros,
+  } = useFiltrosProductos(productos);
 
   /* Filtro de canal del historial (solo aplica a la pestaña de movimientos). */
   const [filtroCanalMov, setFiltroCanalMov] = useState("todos");
@@ -445,74 +396,7 @@ export function PanelInventario({
           {/* Conectar/sincronizar canales: solo dirección, para que nadie más lo
               pique por error. La sync automática por cron sigue corriendo igual. */}
           {esDireccion && (
-            <>
-              {tiendanube.conectada ? (
-            <Button
-              variant="outline"
-              onClick={sincronizar}
-              disabled={sincronizando}
-              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
-            >
-              <RefreshCw className={cn("size-[15px]", sincronizando && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
-              {sincronizando ? "Sincronizando…" : "Sincronizar"}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => {
-                window.location.href = "/api/tiendanube/conectar";
-              }}
-              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
-            >
-              <Store className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
-              Conectar Tienda Nube
-            </Button>
-          )}
-          {mercadolibre.conectada ? (
-            <Button
-              variant="outline"
-              onClick={sincronizarML}
-              disabled={sincronizandoML}
-              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
-            >
-              <RefreshCw className={cn("size-[15px]", sincronizandoML && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
-              {sincronizandoML ? "Sincronizando…" : "Mercado Libre"}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => {
-                window.location.href = "/api/mercadolibre/conectar";
-              }}
-              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
-            >
-              <ShoppingCart className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
-              Conectar Mercado Libre
-            </Button>
-          )}
-          {tiktok.conectada ? (
-            <Button
-              variant="outline"
-              onClick={sincronizarTK}
-              disabled={sincronizandoTikTok}
-              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
-            >
-              <RefreshCw className={cn("size-[15px]", sincronizandoTikTok && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
-              {sincronizandoTikTok ? "Sincronizando…" : "TikTok Shop"}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              onClick={() => {
-                window.location.href = "/api/tiktok/conectar";
-              }}
-              className="h-auto flex-1 gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:flex-none"
-            >
-              <Music2 className="size-[15px]" strokeWidth={1.9} aria-hidden="true" />
-              Conectar TikTok Shop
-            </Button>
-          )}
-            </>
+            <BarraCanales tiendanube={tiendanube} mercadolibre={mercadolibre} tiktok={tiktok} />
           )}
           {ETIQUETA_NUEVO[pestana] && (
             <Button
@@ -577,20 +461,12 @@ export function PanelInventario({
             ))}
           </SelectContent>
         </Select>
-        <div className="hidden rounded-lg bg-muted p-0.5 md:inline-flex">
-          {PESTANAS.map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setPestana(id)}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
-                pestana === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <ControlSegmentado
+          opciones={PESTANAS}
+          valor={pestana}
+          onCambio={setPestana}
+          className="hidden md:inline-flex"
+        />
 
         <div className="flex-1" />
 
@@ -693,93 +569,18 @@ export function PanelInventario({
         )}
       </div>
 
-      {/* Aviso de reorden: lo que se va a agotar ANTES de que llegue un pedido
-          nuevo, según lo que se está vendiendo. Es distinto de «por acabarse»
-          (umbral fijo): aquí manda la velocidad de salida. */}
-      {porPedir.length > 0 && pestana !== "reabastecer" && (
-        <button
-          type="button"
-          onClick={() => setPestana("reabastecer")}
-          className="mb-4 flex w-full items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:hover:bg-red-900/50"
-        >
-          <ShoppingCart className="size-[18px] shrink-0 text-red-600 dark:text-red-400" strokeWidth={1.9} aria-hidden="true" />
-          <span className="flex-1 text-[13.5px] leading-relaxed text-red-800 dark:text-red-300">
-            <b className="font-bold">
-              {porPedir.length === 1
-                ? "1 producto hay que pedirlo ya."
-                : `${porPedir.length} productos hay que pedirlos ya.`}
-            </b>{" "}
-            Con la venta de los últimos 30 días se acaban antes de que llegue un pedido nuevo:{" "}
-            {porPedir
-              .slice(0, 3)
-              .map((g) => g.nombre)
-              .join(", ")}
-            {porPedir.length > 3 ? "…" : ""}
-          </span>
-          <span className="shrink-0 text-[12.5px] font-semibold text-red-700 underline-offset-2 hover:underline dark:text-red-300">
-            Ver qué pedir
-          </span>
-        </button>
-      )}
-
-      {/* Aviso: SOLO lo que está por acabarse (lo accionable). Lo agotado se
-          consulta con el filtro; en la tienda hay cientos y ahogaban el aviso. */}
-      {porAcabarse.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900 dark:bg-amber-950">
-          <AlertTriangle className="size-[18px] shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={1.9} aria-hidden="true" />
-          <button
-            type="button"
-            onClick={() => verProductosPorStock("por_acabarse")}
-            className="flex-1 text-left text-[13.5px] leading-relaxed text-amber-800 hover:underline dark:text-amber-300"
-          >
-            <b className="font-bold text-amber-700 dark:text-amber-300">
-              {porAcabarse.length === 1
-                ? "1 producto está por acabarse."
-                : `${porAcabarse.length} productos están por acabarse.`}
-            </b>{" "}
-            {porAcabarse
-              .slice(0, 3)
-              .map((p) => p.nombre)
-              .join(", ")}
-            {porAcabarse.length > 3 ? "…" : ""}
-          </button>
-          {agotados.length > 0 && (
-            <button
-              type="button"
-              onClick={() => verProductosPorStock("agotado")}
-              className="shrink-0 text-[12.5px] font-semibold text-amber-700 underline-offset-2 hover:underline dark:text-amber-300"
-            >
-              Ver {agotados.length} agotados
-            </button>
-          )}
-          {gestor && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={generarPedido}
-              className="h-auto shrink-0 rounded-[9px] border-amber-200 bg-card px-3 py-1.5 text-[12.5px] font-semibold text-amber-700 hover:bg-amber-100 dark:border-amber-800 dark:text-amber-300"
-            >
-              Generar pedido
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* Modo solo lectura: el CRM importa de las plataformas pero no escribe
-          nada allá. Se avisa donde se edita el stock, para que nadie espere que
-          el ajuste viaje a la tienda. */}
-      {!escrituraCanales &&
-        (tiendanube.conectada || mercadolibre.conectada || tiktok.conectada) &&
-        pestana === "productos" && (
-          <div className="mb-4 flex items-start gap-3 rounded-xl border bg-muted/40 px-4 py-3">
-            <Lock className="mt-0.5 size-[16px] shrink-0 text-muted-foreground" strokeWidth={1.9} aria-hidden="true" />
-            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-              <b className="font-semibold text-foreground">Modo solo lectura.</b> El CRM importa el inventario de
-              Tienda Nube, Mercado Libre y TikTok Shop, pero no modifica nada allá. Los ajustes de stock, precio y
-              costo que hagas aquí se quedan en el CRM.
-            </p>
-          </div>
-        )}
+      <AvisosInventario
+        porPedir={porPedir}
+        porAcabarse={porAcabarse}
+        agotados={agotados}
+        escrituraCanales={escrituraCanales}
+        gestor={gestor}
+        pestana={pestana}
+        algunCanalConectado={tiendanube.conectada || mercadolibre.conectada || tiktok.conectada}
+        onVerQuePedir={() => setPestana("reabastecer")}
+        onVerPorStock={verProductosPorStock}
+        onGenerarPedido={generarPedido}
+      />
 
       {pestana === "productos" && (
         <TablaProductos
@@ -819,78 +620,13 @@ export function PanelInventario({
       {pestana === "movimientos" && <TablaMovimientos movimientos={movimientosFiltrados} />}
 
       {pestana === "reconciliacion" && (
-        <div className="flex flex-col gap-4">
-          {/* Monitor del piloto: solo aparece cuando el CRM tiene el mando de
-              algún producto. Va arriba porque es lo que hay que vigilar a diario
-              mientras dura la transición. */}
-          <PanelPiloto estado={piloto} />
-          <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3.5 md:flex-row md:items-center md:justify-between">
-            <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-              Compara el stock del CRM contra el que tienen <b>en este momento</b> Tienda Nube y
-              Mercado Libre, y lista solo lo que no coincide. Es de solo lectura: no corrige nada.
-              Para arreglar un descuadre, ajústalo con los botones +/− en Productos.
-            </p>
-            <div className="flex shrink-0 flex-col items-start gap-1 md:items-end">
-              <Button
-                variant="outline"
-                onClick={revisar}
-                disabled={revisando}
-                className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
-              >
-                <RefreshCw className={cn("size-[15px]", revisando && "animate-spin")} strokeWidth={1.9} aria-hidden="true" />
-                {revisando ? "Revisando…" : reconciliacion ? "Revisar de nuevo" : "Revisar ahora"}
-              </Button>
-              {ultimaRevision && (
-                <span className="text-[12px] text-muted-foreground">
-                  Última revisión: {fechaCorta(ultimaRevision)}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {revisando && !reconciliacion && (
-            <p className="text-sm italic text-muted-foreground">
-              Leyendo los catálogos de los canales… puede tardar un poco si hay muchos productos.
-            </p>
-          )}
-
-          {reconciliacion && (
-            <>
-              <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted-foreground">
-                <span>
-                  <b className="text-foreground">{reconciliacion.revisados}</b> productos revisados ·{" "}
-                  <b className={cn(reconciliacion.descuadres.length > 0 ? "text-red-600" : "text-green-600")}>
-                    {reconciliacion.descuadres.length}
-                  </b>{" "}
-                  con descuadre
-                </span>
-                {!reconciliacion.tnConectada && (
-                  <span className="rounded-full border px-2 py-0.5 text-xs">Tienda Nube no conectada</span>
-                )}
-                {!reconciliacion.mlConectada && (
-                  <span className="rounded-full border px-2 py-0.5 text-xs">Mercado Libre no conectado</span>
-                )}
-              </div>
-              <FichasDuplicadas
-                grupos={reconciliacion.duplicados}
-                onFusionado={(clave) =>
-                  setReconciliacion((r) =>
-                    r ? { ...r, duplicados: r.duplicados.filter((g) => g.clave !== clave) } : r,
-                  )
-                }
-              />
-              <TablaDescuadres descuadres={reconciliacion.descuadres} />
-            </>
-          )}
-
-          {!reconciliacion && !revisando && (
-            <p className="text-sm italic text-muted-foreground">
-              Pulsa «Revisar ahora» para generar el reporte.
-            </p>
-          )}
-
-          <ConteoFisico conteos={conteos} productos={productos} equipo={equipo} />
-        </div>
+        <PanelReconciliacion
+          piloto={piloto}
+          conteos={conteos}
+          productos={productos}
+          equipo={equipo}
+          reconciliacionInicial={reconciliacionInicial}
+        />
       )}
 
       {productoVista && (

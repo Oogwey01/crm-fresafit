@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   ArrowRight,
   ExternalLink,
@@ -15,6 +15,8 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { BadgeStock } from "@/components/inventario/badge-stock";
+import { Seccion } from "@/components/compartido/seccion";
+import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
 import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
@@ -25,7 +27,7 @@ import {
   type GrupoReorden,
 } from "@/lib/inventario/reabastecimiento";
 import { galeriaProducto } from "@/lib/inventario/fotos";
-import { hoyISO } from "@/lib/fecha";
+import { formatearFechaHora, formatearFechaLarga, hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
   ajustarStock,
@@ -51,26 +53,11 @@ const ORIGEN_LABEL: Record<string, string> = {
   cancelacion_ml: "Cancelación Mercado Libre",
 };
 
-function fechaHora(iso: string): string {
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Mexico_City",
-  });
-}
-
 /* Fecha límite para pedir. El cálculo nunca la deja en el pasado (la trunca a
    hoy), así que "hoy" significa "ya se pasó el punto de reorden". */
 function limitePedido(iso: string): string {
   if (iso <= hoyISO()) return "hoy mismo";
-  const fecha = new Date(`${iso}T12:00:00`).toLocaleDateString("es-MX", {
-    day: "numeric",
-    month: "long",
-    timeZone: "America/Mexico_City",
-  });
-  return `antes del ${fecha}`;
+  return `antes del ${formatearFechaLarga(iso)}`;
 }
 
 /* Enlace a la publicación de Mercado Libre. Solo se arma para los ids mexicanos
@@ -79,17 +66,6 @@ function limitePedido(iso: string): string {
 function urlMeli(itemId: string): string | null {
   if (!/^MLM\d+$/.test(itemId)) return null;
   return `https://articulo.mercadolibre.com.mx/${itemId.replace(/^MLM/, "MLM-")}`;
-}
-
-function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-2 border-t pt-3">
-      <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-        {titulo}
-      </span>
-      {children}
-    </div>
-  );
 }
 
 function Cifra({
@@ -151,7 +127,6 @@ export function ProductoVista({
   const [pending, startTransition] = useTransition();
   const [subiendo, setSubiendo] = useState(false);
   const [seleccionada, setSeleccionada] = useState(0);
-  const [cargados, setCargados] = useState<{ clave: string; movimientos: StockLog[] } | null>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
   const tipo = obtenerTipoProducto(producto.tipo);
@@ -165,22 +140,16 @@ export function ProductoVista({
     : "Ajuste local: el stock cambia solo en el CRM, no en Tienda Nube ni Mercado Libre.";
 
   /* El historial se pide por producto: el que carga la página son los 300
-     movimientos más recientes de TODO el catálogo. La clave incluye el stock
-     para recargarlo tras un ajuste, que deja un renglón nuevo; mientras no
-     coincida, lo cargado es de otra ficha y se muestra «Cargando». */
-  const claveMovimientos = `${producto.id}:${producto.stock}`;
-  const movimientos = cargados?.clave === claveMovimientos ? cargados.movimientos : null;
-  useEffect(() => {
-    let vigente = true;
-    movimientosProducto(producto.id)
-      .then((r) => {
-        if (vigente) setCargados({ clave: claveMovimientos, movimientos: "error" in r ? [] : r.movimientos });
-      })
-      .catch(() => vigente && setCargados({ clave: claveMovimientos, movimientos: [] }));
-    return () => {
-      vigente = false;
-    };
-  }, [producto.id, claveMovimientos]);
+     movimientos más recientes de TODO el catálogo. La clave incluye el stock a
+     propósito (caché-buster): un ajuste deja un renglón nuevo y obliga a
+     recargar; mientras la clave no coincida se muestra «Cargando». */
+  const { datos: movimientos } = useDetalleRemoto<StockLog[]>(
+    () =>
+      movimientosProducto(producto.id)
+        .then((r) => ("error" in r ? [] : r.movimientos))
+        .catch(() => []),
+    `${producto.id}:${producto.stock}`,
+  );
 
   function cambiarStock(delta: number) {
     const nuevo = producto.stock + delta;
@@ -526,7 +495,7 @@ export function ProductoVista({
                 return (
                   <li key={m.id} className="flex items-center justify-between gap-2 text-[12.5px]">
                     <span className="min-w-0 truncate">
-                      <span className="text-muted-foreground">{fechaHora(m.creado_en)}</span>{" "}
+                      <span className="text-muted-foreground">{formatearFechaHora(m.creado_en)}</span>{" "}
                       {ORIGEN_LABEL[m.origen] ?? m.origen}
                     </span>
                     <span className="flex shrink-0 items-center gap-1.5 tabular-nums">

@@ -1,12 +1,11 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -17,10 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { Label } from "@/components/ui/label";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
+import { aNumero } from "@/lib/validacion";
 import { CANALES } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
@@ -35,11 +36,6 @@ import type { CanalId, Customer, Product, SaleConProducto } from "@/lib/types";
 
 function etiquetaProducto(p: Pick<Product, "nombre" | "variante">): string {
   return `${p.nombre}${p.variante ? ` · ${p.variante}` : ""}`;
-}
-
-function aNumero(texto: string): number {
-  const n = Number(texto);
-  return Number.isFinite(n) ? n : 0;
 }
 
 /* Alta y edición de una venta. El producto se elige con un buscador (el
@@ -57,7 +53,7 @@ export function VentaDialog({
   gestor: boolean;
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [fecha, setFecha] = useState(venta?.fecha ?? hoyISO());
   const [canal, setCanal] = useState<CanalId>(venta?.canal ?? "punto_fisico");
   const [productoId, setProductoId] = useState<string | null>(venta?.producto_id ?? null);
@@ -94,7 +90,7 @@ export function VentaDialog({
   /* Autollenar monto = precio × cantidad mientras el usuario no lo haya tocado. */
   function recalcularMonto(prod: typeof seleccionado, cant: string, tocado: boolean) {
     if (tocado || !prod?.precio) return;
-    const n = Math.max(1, Math.trunc(aNumero(cant)));
+    const n = Math.max(1, Math.trunc(aNumero(cant) ?? 0));
     setMonto((prod.precio * n).toFixed(2));
   }
 
@@ -146,41 +142,25 @@ export function VentaDialog({
       canal,
       producto_id: productoId,
       descripcion,
-      cantidad: Math.max(1, Math.trunc(aNumero(cantidad))),
-      monto: Math.round(aNumero(monto) * 100) / 100,
+      cantidad: Math.max(1, Math.trunc(aNumero(cantidad) ?? 0)),
+      monto: Math.round((aNumero(monto) ?? 0) * 100) / 100,
       cliente_id: clienteId,
       notas,
     };
-    startTransition(async () => {
-      try {
-        const r = venta ? await editarVenta(venta.id, input) : await registrarVenta(input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(venta ? "Venta actualizada." : "Venta registrada.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => (venta ? editarVenta(venta.id, input) : registrarVenta(input)), {
+      ok: venta ? "Venta actualizada." : "Venta registrada.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
   function borrar() {
     if (!venta) return;
-    if (!window.confirm("¿Borrar esta venta? Esto no se puede deshacer.")) return;
-    startTransition(async () => {
-      try {
-        const r = await borrarVenta(venta.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Venta borrada.");
-        onClose();
-      } catch {
-        toast.error("No se pudo borrar. Revisa tu conexión.");
-      }
+    ejecutar(() => borrarVenta(venta.id), {
+      confirmar: "¿Borrar esta venta? Esto no se puede deshacer.",
+      ok: "Venta borrada.",
+      error: "No se pudo borrar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
@@ -374,23 +354,13 @@ export function VentaDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <div>
-            {venta && gestor && (
-              <Button variant="destructive" onClick={borrar} disabled={pending}>
-                Borrar
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              Cancelar
-            </Button>
-            <Button onClick={guardar} disabled={pending}>
-              {pending ? "Guardando…" : venta ? "Guardar cambios" : "Registrar venta"}
-            </Button>
-          </div>
-        </DialogFooter>
+        <PieDialogoCRUD
+          pending={pending}
+          etiquetaGuardar={venta ? "Guardar cambios" : "Registrar venta"}
+          onGuardar={guardar}
+          onCancelar={onClose}
+          onBorrar={venta && gestor ? borrar : undefined}
+        />
       </DialogContent>
     </Dialog>
   );

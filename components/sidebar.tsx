@@ -16,7 +16,7 @@ import { LogoFresafit } from "@/components/logo-fresafit";
 import { Notificaciones } from "@/components/tareas/notificaciones";
 import { MODULOS, ROLES } from "@/lib/catalogos";
 import type { Profile, Notificacion } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, iniciales } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -28,11 +28,6 @@ const ICONOS: Record<string, LucideIcon> = {
   clientes: Users,
   pedidos: Truck,
 };
-
-function iniciales(nombre: string): string {
-  const p = nombre.trim().split(/\s+/);
-  return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase();
-}
 
 /* Envoltura de escritorio: el aside fijo lateral (oculto en móvil, donde la
    navegación vive en el Sheet de components/mobile-nav.tsx). */

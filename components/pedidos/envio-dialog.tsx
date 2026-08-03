@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { PAQUETERIAS } from "@/lib/catalogos";
 import { guardarEnvio } from "@/app/(app)/pedidos/actions";
 import type { SaleConDetalle } from "@/lib/types";
@@ -29,23 +29,15 @@ export function EnvioDialog({
   gestor: boolean;
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [paqueteria, setPaqueteria] = useState(pedido.paqueteria ?? "");
   const [numGuia, setNumGuia] = useState(pedido.num_guia ?? "");
 
   function guardar() {
-    startTransition(async () => {
-      try {
-        const r = await guardarEnvio(pedido.id, paqueteria, numGuia);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Datos de envío guardados.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => guardarEnvio(pedido.id, paqueteria, numGuia), {
+      ok: "Datos de envío guardados.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 

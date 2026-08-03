@@ -1,7 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Menu } from "lucide-react";
 import { LogoFresafit } from "@/components/logo-fresafit";
 import { Notificaciones } from "@/components/tareas/notificaciones";
@@ -17,13 +16,9 @@ export function MobileNav(props: {
   tareasActivas: number;
   notificaciones: Notificacion[];
 }) {
-  const pathname = usePathname();
+  /* El panel se cierra al navegar vía el onNavigate que recibe SidebarContent
+     (cada Link del menú lo invoca); no hace falta vigilar el pathname. */
   const [open, setOpen] = useState(false);
-
-  // Cerrar el panel al navegar a otra ruta.
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
 
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-3 md:hidden">

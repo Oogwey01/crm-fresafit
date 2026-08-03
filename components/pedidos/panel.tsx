@@ -5,7 +5,7 @@ import { AlertTriangle, Clock, PackageCheck, Send, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { ESTADOS_PEDIDO, esGestor, obtenerCanal, obtenerEstadoPedido } from "@/lib/catalogos";
 import { esPedidoAtrasado, formatearFecha } from "@/lib/fecha";
-import { formatearMXN } from "@/lib/moneda";
+import { nombreVenta } from "@/lib/ventas";
 import { cambiarEstadoPedido } from "@/app/(app)/pedidos/actions";
 import type { EstadoPedidoId, RolId, SaleConDetalle } from "@/lib/types";
 import {
@@ -14,6 +14,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { EnvioDialog } from "@/components/pedidos/envio-dialog";
@@ -29,23 +30,10 @@ const FILTROS: [Filtro, string][] = [
 
 const COLS = "grid-cols-[95px_minmax(160px,1fr)_140px_130px_150px_60px]";
 
-function nombrePedido(p: SaleConDetalle): string {
-  return p.producto
-    ? `${p.producto.nombre}${p.producto.variante ? ` · ${p.producto.variante}` : ""}`
-    : (p.descripcion ?? "—");
-}
-
 function PastillaEstado({ estado }: { estado: string }) {
   const e = obtenerEstadoPedido(estado);
   if (!e) return null;
-  return (
-    <span
-      className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-      style={{ backgroundColor: `${e.color}1F`, color: e.color }}
-    >
-      {e.nombre}
-    </span>
-  );
+  return <Pastilla nombre={e.nombre} color={e.color} />;
 }
 
 export function PanelPedidos({ pedidos, rol }: { pedidos: SaleConDetalle[]; rol: RolId }) {
@@ -109,8 +97,8 @@ export function PanelPedidos({ pedidos, rol }: { pedidos: SaleConDetalle[]; rol:
       label: "Producto",
       esTitulo: true,
       celda: (p) => (
-        <span className="truncate font-medium" title={nombrePedido(p)}>
-          {nombrePedido(p)}
+        <span className="truncate font-medium" title={nombreVenta(p)}>
+          {nombreVenta(p)}
           {p.cantidad > 1 && <span className="ml-1 text-muted-foreground">×{p.cantidad}</span>}
         </span>
       ),
@@ -129,14 +117,7 @@ export function PanelPedidos({ pedidos, rol }: { pedidos: SaleConDetalle[]; rol:
       label: "Canal",
       celda: (p) => {
         const canal = obtenerCanal(p.canal);
-        return canal ? (
-          <span
-            className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-            style={{ backgroundColor: `${canal.color}1F`, color: canal.color }}
-          >
-            {canal.nombre}
-          </span>
-        ) : null;
+        return canal ? <Pastilla nombre={canal.nombre} color={canal.color} /> : null;
       },
     },
     {

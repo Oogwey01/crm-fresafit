@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -16,10 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { CANALES } from "@/lib/catalogos";
 import { guardarCliente, borrarCliente, type ClienteInput } from "@/app/(app)/clientes/actions";
 import type { CanalId, Customer } from "@/lib/types";
@@ -37,7 +37,7 @@ export function ClienteDialog({
   gestor: boolean;
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const deTiendaNube = cliente?.tiendanube_customer_id != null;
 
   const [nombre, setNombre] = useState(cliente?.nombre ?? "");
@@ -58,41 +58,20 @@ export function ClienteDialog({
       canal: canal === SIN_CANAL ? null : (canal as CanalId),
       notas,
     };
-    startTransition(async () => {
-      try {
-        const r = await guardarCliente(cliente?.id ?? null, input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(cliente ? "Cliente actualizado." : "Cliente creado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => guardarCliente(cliente?.id ?? null, input), {
+      ok: cliente ? "Cliente actualizado." : "Cliente creado.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
   function borrar() {
     if (!cliente) return;
-    if (
-      !window.confirm(
-        `¿Borrar a «${cliente.nombre}»? Sus compras se conservan, pero quedan sin cliente.`,
-      )
-    )
-      return;
-    startTransition(async () => {
-      try {
-        const r = await borrarCliente(cliente.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Cliente borrado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo borrar. Revisa tu conexión.");
-      }
+    ejecutar(() => borrarCliente(cliente.id), {
+      confirmar: `¿Borrar a «${cliente.nombre}»? Sus compras se conservan, pero quedan sin cliente.`,
+      ok: "Cliente borrado.",
+      error: "No se pudo borrar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
@@ -182,23 +161,13 @@ export function ClienteDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <div>
-            {cliente && gestor && (
-              <Button variant="destructive" onClick={borrar} disabled={pending}>
-                Borrar
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              Cancelar
-            </Button>
-            <Button onClick={guardar} disabled={pending}>
-              {pending ? "Guardando…" : cliente ? "Guardar cambios" : "Crear cliente"}
-            </Button>
-          </div>
-        </DialogFooter>
+        <PieDialogoCRUD
+          pending={pending}
+          etiquetaGuardar={cliente ? "Guardar cambios" : "Crear cliente"}
+          onGuardar={guardar}
+          onCancelar={onClose}
+          onBorrar={cliente && gestor ? borrar : undefined}
+        />
       </DialogContent>
     </Dialog>
   );

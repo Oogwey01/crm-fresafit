@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { ClienteDialog } from "@/components/clientes/cliente-dialog";
@@ -124,12 +125,7 @@ export function PanelClientes({
       celda: (c) => {
         const canal = obtenerCanal(c.canal ?? "");
         return canal ? (
-          <span
-            className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-            style={{ backgroundColor: `${canal.color}1F`, color: canal.color }}
-          >
-            {canal.nombre}
-          </span>
+          <Pastilla nombre={canal.nombre} color={canal.color} />
         ) : (
           <span className="text-muted-foreground/50">—</span>
         );

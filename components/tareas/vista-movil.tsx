@@ -5,7 +5,7 @@ import { AlertTriangle, ChevronDown, Info, Plus } from "lucide-react";
 import { AREAS, ROLES, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida, formatearFecha } from "@/lib/fecha";
 import type { EstadoId, RolId, TaskConResponsable } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, iniciales } from "@/lib/utils";
 
 /* Vista móvil del módulo Tareas (portada del diseño de Claude Design).
    Lista agrupada por ÁREA con tarjetas compactas — en vez de las vistas
@@ -22,12 +22,6 @@ const ESTILO_ESTADO: Record<EstadoId, { nombre: string; bg: string; color: strin
   en_revision: { nombre: "En revisión", bg: "#F1ECFE", color: "#6D28D9", dot: "#8B5CF6" },
   hecho: { nombre: "Hecho", bg: "#E9F8F1", color: "#0E8A5F", dot: "#12B981" },
 };
-
-/* Iniciales del avatar: primeras letras de las dos primeras palabras del nombre. */
-function iniciales(nombre: string): string {
-  const partes = nombre.trim().split(/\s+/);
-  return ((partes[0]?.[0] ?? "") + (partes[1]?.[0] ?? "")).toUpperCase();
-}
 
 export function VistaMovil({
   tareas,
@@ -79,7 +73,8 @@ export function VistaMovil({
   function alternar(areaId: string) {
     setAbiertas((prev) => {
       const next = new Set(prev);
-      next.has(areaId) ? next.delete(areaId) : next.add(areaId);
+      if (next.has(areaId)) next.delete(areaId);
+      else next.add(areaId);
       return next;
     });
   }

@@ -13,12 +13,8 @@ import { obtenerCanal } from "@/lib/catalogos";
 import { formatearFecha } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import type { CustomerConStats, SaleConProducto } from "@/lib/types";
-
-function nombreVenta(v: SaleConProducto): string {
-  return v.producto
-    ? `${v.producto.nombre}${v.producto.variante ? ` · ${v.producto.variante}` : ""}`
-    : (v.descripcion ?? "—");
-}
+import { nombreVenta } from "@/lib/ventas";
+import { Pastilla } from "@/components/compartido/pastilla";
 
 /* Ficha del cliente: datos, números y su historial de compras. */
 export function ClienteDetalle({
@@ -87,12 +83,7 @@ export function ClienteDetalle({
               </div>
               <div className="mt-1">
                 {canal ? (
-                  <span
-                    className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-                    style={{ backgroundColor: `${canal.color}1F`, color: canal.color }}
-                  >
-                    {canal.nombre}
-                  </span>
+                  <Pastilla nombre={canal.nombre} color={canal.color} />
                 ) : (
                   <span className="text-muted-foreground/60">—</span>
                 )}

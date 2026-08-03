@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
+import { formatearFechaHora } from "@/lib/fecha";
 import type { StockLog } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { cn } from "@/lib/utils";
@@ -117,16 +118,6 @@ function agruparPorLote(movs: StockLog[]): Map<number, Lote> {
   return lotes;
 }
 
-function fechaHora(iso: string): string {
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Mexico_City",
-  });
-}
-
 export function TablaMovimientos({ movimientos }: { movimientos: StockLog[] }) {
   if (movimientos.length === 0) {
     return (
@@ -157,7 +148,7 @@ export function TablaMovimientos({ movimientos }: { movimientos: StockLog[] }) {
         }
         return (
           <span className="flex flex-col whitespace-nowrap">
-            <span className="font-medium">{fechaHora(m.creado_en)}</span>
+            <span className="font-medium">{formatearFechaHora(m.creado_en)}</span>
             {lote && (
               <span className="text-[11px] font-normal text-muted-foreground">
                 {lote.total} cambios juntos

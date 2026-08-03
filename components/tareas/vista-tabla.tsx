@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Select,
@@ -8,31 +8,13 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { AREAS, ESTADOS, PRIORIDADES, obtenerEstado, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida, formatearFecha } from "@/lib/fecha";
 import type { TaskConResponsable, EstadoId, PrioridadId } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, iniciales } from "@/lib/utils";
 
 const COLS = "grid-cols-[minmax(160px,1fr)_170px_150px_130px_110px]";
-
-function iniciales(nombre: string): string {
-  const p = nombre.trim().split(/\s+/);
-  return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase();
-}
-
-/* Celda que en móvil muestra la etiqueta de la columna (label:valor dentro de la
-   tarjeta) y en escritorio es una celda normal de la tabla. Un solo DOM: los
-   selects editables no se duplican. */
-function Celda({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 md:block">
-      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground md:hidden">
-        {label}
-      </span>
-      <div className="min-w-0 text-right md:text-left">{children}</div>
-    </div>
-  );
-}
 
 function PastillaEstado({ estado }: { estado: string }) {
   const e = obtenerEstado(estado);
@@ -93,27 +75,132 @@ export function VistaTabla({
     return <p className="text-sm italic text-muted-foreground">No hay tareas para mostrar.</p>;
   }
 
-  return (
-    <div className="rounded-2xl border bg-card shadow-sm md:overflow-x-auto">
-      <div className="md:min-w-[760px]">
-        {/* Encabezado de columnas (solo escritorio; en móvil cada tarjeta trae sus etiquetas) */}
-        <div className={cn("hidden gap-2 border-b bg-muted/40 px-6 py-3 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground md:grid", COLS)}>
-          <div>Tarea</div>
-          <div>Responsable</div>
-          <div>Estado</div>
-          <div>Prioridad</div>
-          <div>Fecha</div>
-        </div>
+  const columnas: Columna<TaskConResponsable>[] = [
+    {
+      clave: "tarea",
+      label: "Tarea",
+      esTitulo: true,
+      celda: (t) => {
+        const chk = checklistPorTarea?.[t.id];
+        return (
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onAbrir(t)}
+              className="truncate text-left font-medium hover:underline"
+              title={t.titulo}
+            >
+              {t.titulo}
+            </button>
+            {chk && chk.total > 0 && (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
+                title="Subtareas completadas"
+              >
+                ☑ {chk.hechos}/{chk.total}
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      clave: "responsable",
+      label: "Responsable",
+      celda: (t) =>
+        t.responsable ? (
+          <span className="flex items-center justify-end gap-2 md:justify-start">
+            <span
+              className="flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+              style={{ backgroundColor: t.responsable.color }}
+            >
+              {iniciales(t.responsable.nombre)}
+            </span>
+            <span className="truncate">{t.responsable.nombre}</span>
+          </span>
+        ) : (
+          <span className="italic text-muted-foreground">Sin asignar</span>
+        ),
+    },
+    {
+      clave: "estado",
+      label: "Estado",
+      /* Editable en celda si es el responsable (o gestor). */
+      celda: (t) =>
+        gestor || t.responsable_id === currentUserId ? (
+          <Select value={t.estado} onValueChange={(v) => v && onMoverEstado(t.id, v as EstadoId)}>
+            <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
+              <PastillaEstado estado={t.estado} />
+            </SelectTrigger>
+            <SelectContent>
+              {ESTADOS.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <PastillaEstado estado={t.estado} />
+        ),
+    },
+    {
+      clave: "prioridad",
+      label: "Prioridad",
+      /* Editable en celda solo gestor. */
+      celda: (t) =>
+        gestor ? (
+          <Select value={t.prioridad} onValueChange={(v) => v && onCambiarPrioridad(t.id, v as PrioridadId)}>
+            <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
+              <Prioridad prioridad={t.prioridad} />
+            </SelectTrigger>
+            <SelectContent>
+              {PRIORIDADES.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Prioridad prioridad={t.prioridad} />
+        ),
+    },
+    {
+      clave: "fecha",
+      label: "Fecha",
+      celda: (t) => {
+        const vencida = esVencida(t.fecha_limite, t.estado);
+        return t.fecha_limite ? (
+          <span className={cn("inline-flex items-center gap-1", vencida && "font-semibold text-red-600")}>
+            {vencida && <AlertTriangle className="size-3.5" aria-label="Vencida" />}
+            {formatearFecha(t.fecha_limite)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">—</span>
+        );
+      },
+    },
+  ];
 
-        {grupos.map(({ area, items }) => {
-          const cerrado = colapsados.has(area.id);
-          return (
-            <div key={area.id}>
-              {/* Encabezado de grupo (área) */}
+  /* Una TablaSimple por área; el rótulo de cada una es el encabezado de grupo
+     clicable (colapsa/expande ocultando sus filas). */
+  return (
+    <div className="flex flex-col gap-4">
+      {grupos.map(({ area, items }) => {
+        const cerrado = colapsados.has(area.id);
+        return (
+          <TablaSimple
+            key={area.id}
+            cols={COLS}
+            columnas={columnas}
+            datos={items}
+            filaKey={(t) => t.id}
+            titulo={
               <button
                 type="button"
                 onClick={() => toggle(area.id)}
-                className="flex w-full items-center gap-2.5 border-b bg-muted/20 px-6 py-2.5 text-left hover:bg-muted/40"
+                className="flex w-full items-center gap-2.5 text-left normal-case tracking-normal"
               >
                 {cerrado ? (
                   <ChevronRight className="size-3.5 text-muted-foreground" />
@@ -121,148 +208,16 @@ export function VistaTabla({
                   <ChevronDown className="size-3.5 text-muted-foreground" />
                 )}
                 <span className="inline-block size-2 rounded-[3px]" style={{ backgroundColor: area.color }} />
-                <span className="text-[13.5px] font-bold">{area.nombre}</span>
+                <span className="text-[13.5px] font-bold text-foreground">{area.nombre}</span>
                 <span className="rounded-full bg-muted px-2 text-xs font-semibold text-muted-foreground">
                   {items.length}
                 </span>
               </button>
-
-              {/* Expandir/colapsar animado: grid-template-rows 0fr→1fr evita el
-                  salto brusco del montaje/desmontaje directo. */}
-              <div
-                className={cn(
-                  "grid transition-[grid-template-rows] duration-300 ease-out",
-                  cerrado ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
-                )}
-              >
-                <div className="overflow-hidden">
-                <div
-                  className={cn(
-                    "flex flex-col gap-2.5 p-3 transition-opacity duration-300 md:gap-0 md:p-0",
-                    cerrado ? "opacity-0" : "opacity-100",
-                  )}
-                >
-                  {items.map((t) => {
-                    const vencida = esVencida(t.fecha_limite, t.estado);
-                    const puedeEstado = gestor || t.responsable_id === currentUserId;
-                    return (
-                      <div
-                        key={t.id}
-                        className={cn(
-                          // Móvil: tarjeta. Escritorio: fila de tabla.
-                          "flex flex-col gap-2 rounded-xl border bg-card p-3.5 text-sm md:grid md:items-center md:gap-2 md:rounded-none md:border-0 md:border-b md:bg-transparent md:p-0 md:px-6 md:py-3 md:last:border-b-0 md:hover:bg-accent/30",
-                          COLS,
-                        )}
-                      >
-                        {/* Tarea (encabezado de la tarjeta en móvil) */}
-                        <div className="flex min-w-0 items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => onAbrir(t)}
-                            className="truncate text-left font-medium hover:underline"
-                            title={t.titulo}
-                          >
-                            {t.titulo}
-                          </button>
-                          {(() => {
-                            const chk = checklistPorTarea?.[t.id];
-                            return chk && chk.total > 0 ? (
-                              <span
-                                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground"
-                                title="Subtareas completadas"
-                              >
-                                ☑ {chk.hechos}/{chk.total}
-                              </span>
-                            ) : null;
-                          })()}
-                        </div>
-
-                        {/* Responsable */}
-                        <Celda label="Responsable">
-                          {t.responsable ? (
-                            <span className="flex items-center justify-end gap-2 md:justify-start">
-                              <span
-                                className="flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-                                style={{ backgroundColor: t.responsable.color }}
-                              >
-                                {iniciales(t.responsable.nombre)}
-                              </span>
-                              <span className="truncate">{t.responsable.nombre}</span>
-                            </span>
-                          ) : (
-                            <span className="italic text-muted-foreground">Sin asignar</span>
-                          )}
-                        </Celda>
-
-                        {/* Estado (editable en celda) */}
-                        <Celda label="Estado">
-                          {puedeEstado ? (
-                            <Select value={t.estado} onValueChange={(v) => v && onMoverEstado(t.id, v as EstadoId)}>
-                              <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
-                                <PastillaEstado estado={t.estado} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {ESTADOS.map((e) => (
-                                  <SelectItem key={e.id} value={e.id}>
-                                    {e.nombre}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <PastillaEstado estado={t.estado} />
-                          )}
-                        </Celda>
-
-                        {/* Prioridad (editable en celda solo gestor) */}
-                        <Celda label="Prioridad">
-                          {gestor ? (
-                            <Select
-                              value={t.prioridad}
-                              onValueChange={(v) => v && onCambiarPrioridad(t.id, v as PrioridadId)}
-                            >
-                              <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
-                                <Prioridad prioridad={t.prioridad} />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {PRIORIDADES.map((p) => (
-                                  <SelectItem key={p.id} value={p.id}>
-                                    {p.nombre}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          ) : (
-                            <Prioridad prioridad={t.prioridad} />
-                          )}
-                        </Celda>
-
-                        {/* Fecha límite */}
-                        <Celda label="Fecha">
-                          {t.fecha_limite ? (
-                            <span
-                              className={cn(
-                                "inline-flex items-center gap-1",
-                                vencida && "font-semibold text-red-600",
-                              )}
-                            >
-                              {vencida && <AlertTriangle className="size-3.5" aria-label="Vencida" />}
-                              {formatearFecha(t.fecha_limite)}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground/50">—</span>
-                          )}
-                        </Celda>
-                      </div>
-                    );
-                  })}
-                </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            }
+            filaClassName={() => (cerrado ? "hidden" : "")}
+          />
+        );
+      })}
     </div>
   );
 }

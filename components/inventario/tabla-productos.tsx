@@ -10,6 +10,7 @@ import { tieneFull, stockFullDe, esTikTokDelegado } from "@/lib/inventario/reaba
 import { portadaProducto } from "@/lib/inventario/fotos";
 import { formatearMXN } from "@/lib/moneda";
 import { BadgeStock } from "@/components/inventario/badge-stock";
+import { Pastilla } from "@/components/compartido/pastilla";
 import { Button } from "@/components/ui/button";
 import { ajustarStock } from "@/app/(app)/inventario/actions";
 import type { ProductConProveedor } from "@/lib/types";
@@ -24,14 +25,7 @@ const COLS = "grid-cols-[minmax(180px,1fr)_130px_120px_100px_215px]";
 function PastillaTipo({ tipo }: { tipo: string }) {
   const t = obtenerTipoProducto(tipo);
   if (!t) return null;
-  return (
-    <span
-      className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-semibold"
-      style={{ backgroundColor: `${t.color}1F`, color: t.color }}
-    >
-      {t.nombre}
-    </span>
-  );
+  return <Pastilla nombre={t.nombre} color={t.color} />;
 }
 
 /* Miniatura de la portada (la subida en el CRM, si no la importada del canal).

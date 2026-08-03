@@ -1,18 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import {
   guardarProveedor,
   borrarProveedor,
@@ -33,7 +33,7 @@ export function ProveedorDialog({
   gestor: boolean;
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [nombre, setNombre] = useState(proveedor?.nombre ?? "");
   const [pais, setPais] = useState(proveedor?.pais ?? "");
   const [contacto, setContacto] = useState(proveedor?.contacto ?? "");
@@ -53,36 +53,20 @@ export function ProveedorDialog({
       return;
     }
     const input: ProveedorInput = { nombre, pais, contacto, telefono, correo, dias_entrega: dias, notas };
-    startTransition(async () => {
-      try {
-        const r = await guardarProveedor(proveedor?.id ?? null, input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(proveedor ? "Proveedor actualizado." : "Proveedor creado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => guardarProveedor(proveedor?.id ?? null, input), {
+      ok: proveedor ? "Proveedor actualizado." : "Proveedor creado.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
   function borrar() {
     if (!proveedor) return;
-    if (!window.confirm(`¿Borrar a «${proveedor.nombre}»? Sus pedidos se borran también.`)) return;
-    startTransition(async () => {
-      try {
-        const r = await borrarProveedor(proveedor.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Proveedor borrado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo borrar. Revisa tu conexión.");
-      }
+    ejecutar(() => borrarProveedor(proveedor.id), {
+      confirmar: `¿Borrar a «${proveedor.nombre}»? Sus pedidos se borran también.`,
+      ok: "Proveedor borrado.",
+      error: "No se pudo borrar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
@@ -179,23 +163,13 @@ export function ProveedorDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <div>
-            {proveedor && gestor && (
-              <Button variant="destructive" onClick={borrar} disabled={pending}>
-                Borrar
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              Cancelar
-            </Button>
-            <Button onClick={guardar} disabled={pending}>
-              {pending ? "Guardando…" : proveedor ? "Guardar cambios" : "Crear proveedor"}
-            </Button>
-          </div>
-        </DialogFooter>
+        <PieDialogoCRUD
+          pending={pending}
+          etiquetaGuardar={proveedor ? "Guardar cambios" : "Crear proveedor"}
+          onGuardar={guardar}
+          onCancelar={onClose}
+          onBorrar={proveedor && gestor ? borrar : undefined}
+        />
       </DialogContent>
     </Dialog>
   );

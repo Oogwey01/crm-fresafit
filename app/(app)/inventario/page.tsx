@@ -1,7 +1,7 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { estadoCanales } from "@/lib/canales/integraciones";
 import { diasDesdeHoy } from "@/lib/fecha";
-import { PanelInventario } from "@/components/inventario/panel";
+import { PanelInventario, type AvisoConexion } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 import { estadoPiloto } from "@/lib/inventario/piloto";
 import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/inventario/reabastecimiento";
@@ -27,10 +27,72 @@ const DIAS_VENTAS = 90;
    como "en camino" y bajan lo que hay que volver a pedir. */
 const ESTADOS_EN_CAMINO = ["pedido", "en_transito", "en_aduana"];
 
-export default async function InventarioPage() {
+type Params = { [key: string]: string | string[] | undefined };
+
+/* Avisos de vuelta del OAuth de un canal. Se arman aquí (el panel solo los
+   emite como toast y limpia la URL) porque los query params ya llegan al
+   servidor: antes el panel los leía de window.location en un efecto. */
+function avisosDeConexion(params: Params): AvisoConexion[] {
+  const leer = (k: string) => (typeof params[k] === "string" ? params[k] : undefined);
+  const tn = leer("tiendanube");
+  const ml = leer("mercadolibre");
+  const tk = leer("tiktok");
+  if (!tn && !ml && !tk) return [];
+
+  const avisos: AvisoConexion[] = [];
+  const productos = leer("productos");
+  const vinculados = leer("vinculados");
+
+  if (tn === "conectada") {
+    avisos.push({
+      tipo: "ok",
+      mensaje: `Tienda Nube conectada${productos ? ` · ${productos} productos importados` : ""}.`,
+    });
+    if (leer("webhooks") === "pendientes") {
+      avisos.push({
+        tipo: "info",
+        mensaje: "La actualización automática (webhooks) se activará con el deploy en Vercel.",
+      });
+    }
+  } else if (tn) {
+    avisos.push({ tipo: "error", mensaje: "No se pudo conectar Tienda Nube. Intenta de nuevo." });
+  }
+
+  if (ml === "conectada") {
+    const items = leer("items");
+    avisos.push({
+      tipo: "ok",
+      mensaje: `Mercado Libre conectado${items ? ` · ${items} publicaciones importadas` : ""}${
+        vinculados && vinculados !== "0" ? ` (${vinculados} vinculadas por SKU)` : ""
+      }.`,
+    });
+  } else if (ml) {
+    avisos.push({ tipo: "error", mensaje: "No se pudo conectar Mercado Libre. Intenta de nuevo." });
+  }
+
+  if (tk === "conectada") {
+    avisos.push({
+      tipo: "ok",
+      mensaje: `TikTok Shop conectado${productos ? ` · ${productos} productos importados` : ""}${
+        vinculados && vinculados !== "0" ? ` (${vinculados} vinculados por SKU)` : ""
+      }.`,
+    });
+  } else if (tk) {
+    avisos.push({ tipo: "error", mensaje: "No se pudo conectar TikTok Shop. Intenta de nuevo." });
+  }
+
+  return avisos;
+}
+
+export default async function InventarioPage({
+  searchParams,
+}: {
+  searchParams: Promise<Params>;
+}) {
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
+  const avisosConexion = avisosDeConexion(await searchParams);
 
   const [
     productosRes,
@@ -146,6 +208,7 @@ export default async function InventarioPage() {
       conteos={conteos}
       equipo={equipo}
       reconciliacionInicial={reconciliacionInicial}
+      avisosConexion={avisosConexion}
     />
   );
 }

@@ -1,12 +1,11 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import { ExternalLink, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -17,9 +16,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/compartido/date-picker";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { CATEGORIAS_GASTO } from "@/lib/catalogos";
@@ -43,7 +43,7 @@ export function GastoDialog({
   gasto: ExpenseConComprobantes | null; // null = alta
   onClose: () => void;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [subiendo, setSubiendo] = useState(false);
   const inputArchivo = useRef<HTMLInputElement>(null);
 
@@ -67,37 +67,20 @@ export function GastoDialog({
       proveedor,
       notas,
     };
-    startTransition(async () => {
-      try {
-        const r = await guardarGasto(gasto?.id ?? null, input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(gasto ? "Gasto actualizado." : "Gasto registrado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo guardar. Revisa tu conexión.");
-      }
+    ejecutar(() => guardarGasto(gasto?.id ?? null, input), {
+      ok: gasto ? "Gasto actualizado." : "Gasto registrado.",
+      error: "No se pudo guardar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
   function borrar() {
     if (!gasto) return;
-    if (!window.confirm(`¿Borrar el gasto «${gasto.concepto}»? También se borran sus comprobantes.`))
-      return;
-    startTransition(async () => {
-      try {
-        const r = await borrarGasto(gasto.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Gasto borrado.");
-        onClose();
-      } catch {
-        toast.error("No se pudo borrar. Revisa tu conexión.");
-      }
+    ejecutar(() => borrarGasto(gasto.id), {
+      confirmar: `¿Borrar el gasto «${gasto.concepto}»? También se borran sus comprobantes.`,
+      ok: "Gasto borrado.",
+      error: "No se pudo borrar. Revisa tu conexión.",
+      alExito: onClose,
     });
   }
 
@@ -272,23 +255,13 @@ export function GastoDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
-          <div>
-            {gasto && (
-              <Button variant="destructive" onClick={borrar} disabled={pending}>
-                Borrar
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} disabled={pending}>
-              Cancelar
-            </Button>
-            <Button onClick={guardar} disabled={pending}>
-              {pending ? "Guardando…" : gasto ? "Guardar cambios" : "Registrar gasto"}
-            </Button>
-          </div>
-        </DialogFooter>
+        <PieDialogoCRUD
+          pending={pending}
+          etiquetaGuardar={gasto ? "Guardar cambios" : "Registrar gasto"}
+          onGuardar={guardar}
+          onCancelar={onClose}
+          onBorrar={gasto ? borrar : undefined}
+        />
       </DialogContent>
     </Dialog>
   );

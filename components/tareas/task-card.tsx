@@ -6,13 +6,7 @@ import { AlertTriangle, CheckSquare, ChevronLeft, ChevronRight } from "lucide-re
 import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
 import type { TaskConResponsable, EstadoId } from "@/lib/types";
-import { cn } from "@/lib/utils";
-
-/* Iniciales para el avatar del responsable. */
-function iniciales(nombre: string): string {
-  const p = nombre.trim().split(/\s+/);
-  return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase();
-}
+import { cn, iniciales } from "@/lib/utils";
 
 export function TaskCard({
   tarea,
