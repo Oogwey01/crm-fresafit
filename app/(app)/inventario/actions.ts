@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { exigirRol } from "@/lib/supabase/guardia";
 import {
   archivoDeFormData,
@@ -561,12 +560,17 @@ export async function borrarPedidoProv(id: string): Promise<Resultado> {
 const BUCKET_PEDIDOS = "pedidos-proveedor";
 
 /* Carga los pagos y las incidencias de un pedido (para el diálogo). */
+/* Lanza si alguna consulta falla: antes un error de RLS o de red se devolvía
+   como listas vacías y el pedido se veía "sin pagos ni incidencias". */
 export async function cargarDetallePedido(pedidoId: string): Promise<PedidoProvDetalle> {
-  const supabase = await createClient();
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ver los pedidos.");
+  if ("error" in cx) throw new Error(cx.error);
   const [pagos, incidencias] = await Promise.all([
-    supabase.from("supplier_order_payments").select("*").eq("pedido_id", pedidoId).order("fecha", { ascending: true }),
-    supabase.from("supplier_order_incidents").select("*").eq("pedido_id", pedidoId).order("created_at", { ascending: false }),
+    cx.supabase.from("supplier_order_payments").select("*").eq("pedido_id", pedidoId).order("fecha", { ascending: true }),
+    cx.supabase.from("supplier_order_incidents").select("*").eq("pedido_id", pedidoId).order("created_at", { ascending: false }),
   ]);
+  const fallo = [pagos, incidencias].find((r) => r.error);
+  if (fallo?.error) throw new Error(fallo.error.message);
   return { pagos: pagos.data ?? [], incidencias: incidencias.data ?? [] };
 }
 
@@ -656,8 +660,9 @@ export async function borrarPagoPedido(id: string, comprobantePath: string | nul
 export async function urlComprobantePedido(
   storagePath: string,
 ): Promise<{ url: string } | { error: string }> {
-  const supabase = await createClient();
-  return urlFirmada(supabase, BUCKET_PEDIDOS, storagePath);
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ver los comprobantes.");
+  if ("error" in cx) return cx;
+  return urlFirmada(cx.supabase, BUCKET_PEDIDOS, storagePath);
 }
 
 export async function agregarIncidenciaPedido(pedidoId: string, texto: string): Promise<Resultado> {

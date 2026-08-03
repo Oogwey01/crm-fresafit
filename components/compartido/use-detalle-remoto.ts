@@ -18,9 +18,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
    al caller a memoizarla. */
 export function useDetalleRemoto<T>(cargar: () => Promise<T>, clave: string) {
   const [tick, setTick] = useState(0);
-  const [resultado, setResultado] = useState<{ clave: string; tick: number; datos: T | null } | null>(
-    null,
-  );
+  const [resultado, setResultado] = useState<{
+    clave: string;
+    tick: number;
+    datos: T | null;
+    error?: string;
+  } | null>(null);
 
   const cargarRef = useRef(cargar);
   useEffect(() => {
@@ -34,8 +37,10 @@ export function useDetalleRemoto<T>(cargar: () => Promise<T>, clave: string) {
       .then((d) => {
         if (vivo) setResultado({ clave, tick, datos: d });
       })
-      .catch(() => {
-        if (vivo) setResultado({ clave, tick, datos: null });
+      .catch((e: unknown) => {
+        if (!vivo) return;
+        const error = e instanceof Error ? e.message : "No se pudo cargar el detalle.";
+        setResultado({ clave, tick, datos: null, error });
       });
     return () => {
       vivo = false;
@@ -48,6 +53,8 @@ export function useDetalleRemoto<T>(cargar: () => Promise<T>, clave: string) {
     /* Se conserva entre recargas de la misma entidad; null al cambiar de una. */
     datos: mismaEntidad ? resultado.datos : null,
     cargando: !(mismaEntidad && resultado.tick === tick),
+    /* Motivo del fallo, para distinguir "no hay nada" de "no se pudo leer". */
+    error: mismaEntidad ? resultado.error : undefined,
     recargar,
   };
 }

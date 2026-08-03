@@ -6,7 +6,13 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
-import { archivoDeFormData, rutaParaArchivo, borrarArchivoYFila, urlFirmada } from "@/lib/storage";
+import {
+  archivoDeFormData,
+  rutaParaArchivo,
+  subirYRegistrar,
+  borrarArchivoYFila,
+  urlFirmada,
+} from "@/lib/storage";
 import { textoONulo } from "@/lib/validacion";
 import type {
   AreaId,
@@ -127,8 +133,9 @@ export async function moverTarea(
   estado: EstadoId,
   motivoAtorado?: string | null,
 ): Promise<Resultado> {
-  const supabase = await createClient();
-  const { error } = await supabase
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase
     .from("tasks")
     .update({ estado, motivo_atorado: motivoParaEstado(estado, motivoAtorado) })
     .eq("id", id);
@@ -216,15 +223,21 @@ export async function guardarEtiquetas(id: string, etiquetas: string[]): Promise
 
 /* ============================ Detalle (carga) ============================= */
 
+/* Lanza si alguna de las cinco consultas falla: antes un error de RLS o de red
+   se devolvía como listas vacías y la tarea se veía "sin comentarios" en vez de
+   avisar que no se pudo leer. */
 export async function cargarDetalle(taskId: string): Promise<TaskDetalle> {
-  const supabase = await createClient();
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) throw new Error(cx.error);
   const [c, ch, l, a, act] = await Promise.all([
-    supabase.from("task_comments").select("*").eq("task_id", taskId).order("created_at", { ascending: true }),
-    supabase.from("task_checklist").select("*").eq("task_id", taskId).order("orden", { ascending: true }),
-    supabase.from("task_links").select("*").eq("task_id", taskId).order("created_at", { ascending: true }),
-    supabase.from("task_attachments").select("*").eq("task_id", taskId).order("created_at", { ascending: true }),
-    supabase.from("task_activity").select("*").eq("task_id", taskId).order("created_at", { ascending: false }),
+    cx.supabase.from("task_comments").select("*").eq("task_id", taskId).order("created_at", { ascending: true }),
+    cx.supabase.from("task_checklist").select("*").eq("task_id", taskId).order("orden", { ascending: true }),
+    cx.supabase.from("task_links").select("*").eq("task_id", taskId).order("created_at", { ascending: true }),
+    cx.supabase.from("task_attachments").select("*").eq("task_id", taskId).order("created_at", { ascending: true }),
+    cx.supabase.from("task_activity").select("*").eq("task_id", taskId).order("created_at", { ascending: false }),
   ]);
+  const fallo = [c, ch, l, a, act].find((r) => r.error);
+  if (fallo?.error) throw new Error(fallo.error.message);
   return {
     comentarios: c.data ?? [],
     checklist: ch.data ?? [],
@@ -248,8 +261,9 @@ export async function comentar(taskId: string, texto: string): Promise<Resultado
 }
 
 export async function borrarComentario(id: string): Promise<Resultado> {
-  const supabase = await createClient();
-  const { error } = await supabase.from("task_comments").delete().eq("id", id);
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("task_comments").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -270,16 +284,18 @@ export async function agregarChecklist(taskId: string, texto: string): Promise<R
 }
 
 export async function toggleChecklist(id: string, hecho: boolean): Promise<Resultado> {
-  const supabase = await createClient();
-  const { error } = await supabase.from("task_checklist").update({ hecho }).eq("id", id);
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("task_checklist").update({ hecho }).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
 }
 
 export async function borrarChecklist(id: string): Promise<Resultado> {
-  const supabase = await createClient();
-  const { error } = await supabase.from("task_checklist").delete().eq("id", id);
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("task_checklist").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -300,8 +316,9 @@ export async function agregarEnlace(taskId: string, titulo: string, url: string)
 }
 
 export async function borrarEnlace(id: string): Promise<Resultado> {
-  const supabase = await createClient();
-  const { error } = await supabase.from("task_links").delete().eq("id", id);
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("task_links").delete().eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
   return { ok: true };
@@ -317,28 +334,37 @@ export async function subirAdjunto(taskId: string, formData: FormData): Promise<
   const { file } = archivo;
   const path = rutaParaArchivo(taskId, file.name);
 
-  const { error: upErr } = await cx.supabase.storage.from("adjuntos").upload(path, file, {
-    contentType: file.type || undefined,
-    upsert: false,
+  /* Con rollback del binario si el registro falla: antes el adjunto quedaba
+     huérfano en Storage (los otros tres puntos de subida sí lo limpiaban). */
+  const r = await subirYRegistrar({
+    supabase: cx.supabase,
+    bucket: "adjuntos",
+    path,
+    file,
+    insertar: () =>
+      cx.supabase
+        .from("task_attachments")
+        .insert({
+          task_id: taskId,
+          autor: cx.user.id,
+          nombre: file.name,
+          storage_path: path,
+          tipo: file.type || null,
+        })
+        .select("id")
+        .single(),
+    errorRegistro: "No se pudo registrar el adjunto.",
   });
-  if (upErr) return { error: upErr.message };
-
-  const { error } = await cx.supabase.from("task_attachments").insert({
-    task_id: taskId,
-    autor: cx.user.id,
-    nombre: file.name,
-    storage_path: path,
-    tipo: file.type || null,
-  });
-  if (error) return { error: error.message };
+  if ("error" in r) return r;
   revalidatePath("/tareas");
   return { ok: true };
 }
 
 export async function borrarAdjunto(id: string, storagePath: string): Promise<Resultado> {
-  const supabase = await createClient();
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
   const r = await borrarArchivoYFila({
-    supabase,
+    supabase: cx.supabase,
     bucket: "adjuntos",
     path: storagePath,
     tabla: "task_attachments",
@@ -351,8 +377,9 @@ export async function borrarAdjunto(id: string, storagePath: string): Promise<Re
 
 /* Genera una URL firmada temporal para ver/descargar un adjunto. */
 export async function urlAdjunto(storagePath: string): Promise<{ url: string } | { error: string }> {
-  const supabase = await createClient();
-  return urlFirmada(supabase, "adjuntos", storagePath);
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  return urlFirmada(cx.supabase, "adjuntos", storagePath);
 }
 
 /* ============================ Respaldo completo =========================== */

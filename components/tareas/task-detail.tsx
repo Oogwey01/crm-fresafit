@@ -90,6 +90,7 @@ export function TaskDetail({
   const {
     datos: detalle,
     cargando,
+    error: errorDetalle,
     recargar,
   } = useDetalleRemoto<TaskDetalle>(() => cargarDetalle(tarea.id), tarea.id);
   const { ejecutar } = useAccionServidor();
@@ -339,6 +340,12 @@ export function TaskDetail({
 
         {cargando ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Cargando detalle…</p>
+        ) : errorDetalle ? (
+          /* Sin esto, un fallo de lectura se veía igual que una tarea sin
+             comentarios ni subtareas. */
+          <p className="py-6 text-center text-sm text-destructive">
+            No se pudo cargar el detalle: {errorDetalle}
+          </p>
         ) : (
           <>
             {/* ===== Checklist ===== */}
