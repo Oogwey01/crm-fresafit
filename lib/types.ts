@@ -212,7 +212,11 @@ export type ProductPhoto = {
   created_at: string;
 };
 
-export type ProductConProveedor = Product & {
+/* Producto tal como llega a la lista de inventario: TODO menos `imagenes`, la
+   galería importada de los canales. Pesa ~950 KB sobre el catálogo entero y
+   solo hace falta al abrir el diálogo de un producto, que la pide entonces
+   (galeriaDeProducto en el módulo de acciones). */
+export type ProductConProveedor = Omit<Product, "imagenes"> & {
   /* `dias_entrega` viaja aquí porque es la entrada del punto de reorden
      (lib/inventario/reabastecimiento.ts). */
   proveedor: Pick<Supplier, "id" | "nombre" | "dias_entrega"> | null;

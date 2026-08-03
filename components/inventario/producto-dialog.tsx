@@ -25,8 +25,10 @@ import { TIPOS_PRODUCTO } from "@/lib/catalogos";
 import {
   guardarProducto,
   borrarProducto,
+  galeriaDeProducto,
   type ProductoInput,
 } from "@/app/(app)/inventario/actions";
+import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import type { ProductConProveedor, Supplier, TipoProductoId } from "@/lib/types";
 
 const SIN_PROVEEDOR = "none";
@@ -47,6 +49,15 @@ export function ProductoDialog({
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
+
+  /* La galería no viaja en el listado (pesa demasiado en el catálogo entero):
+     se pide aquí, al abrir el diálogo de este producto. */
+  const { datos: imagenesCargadas } = useDetalleRemoto<string[]>(async () => {
+    if (!producto) return [];
+    const r = await galeriaDeProducto(producto.id);
+    return "error" in r ? [] : r.imagenes;
+  }, producto?.id ?? "");
+  const imagenes = imagenesCargadas ?? [];
   /* Vinculado a un canal: nombre/variante se administran allá (la sync los
      pisaría). El stock de un producto vinculado NO se edita aquí: solo cambia
      con los botones +/− de la tabla. Con la escritura a canales apagada (el
@@ -130,12 +141,14 @@ export function ProductoDialog({
             </p>
           )}
 
-          {/* Galería importada de Tienda Nube (solo lectura; click para ampliar). */}
-          {producto && producto.imagenes.length > 0 && (
+          {/* Galería importada de Tienda Nube (solo lectura; click para ampliar).
+              Se pide al abrir el diálogo: traerla en el listado del inventario
+              costaba ~950 KB por carga de página. */}
+          {producto && imagenes.length > 0 && (
             <div className="flex flex-col gap-1.5">
-              <Label>Fotos ({producto.imagenes.length})</Label>
+              <Label>Fotos ({imagenes.length})</Label>
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {producto.imagenes.map((src, i) => (
+                {imagenes.map((src, i) => (
                   <a
                     key={src}
                     href={src}

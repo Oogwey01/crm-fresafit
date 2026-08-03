@@ -11,13 +11,20 @@ function urlFotoProducto(storagePath: string): string {
 
 /* Galería completa: primero lo que subimos a mano, luego lo importado de Tienda
    Nube / Mercado Libre. Las propias mandan porque son la foto que el equipo
-   eligió; las del canal las reescribe cada sincronización. */
-export function galeriaProducto(p: ProductConProveedor): { src: string; foto: ProductPhotoRef | null }[] {
+   eligió; las del canal las reescribe cada sincronización.
+
+   `importadas` se recibe aparte porque `products.imagenes` ya no viaja en el
+   listado del inventario (pesaba ~950 KB sobre el catálogo entero): quien abre
+   la ficha la pide con galeriaDeProducto. */
+export function galeriaProducto(
+  p: ProductConProveedor,
+  importadas: string[] = [],
+): { src: string; foto: ProductPhotoRef | null }[] {
   const propias = (p.fotos_propias ?? []).map((f) => ({
     src: urlFotoProducto(f.storage_path),
     foto: { id: f.id, storage_path: f.storage_path },
   }));
-  return [...propias, ...p.imagenes.map((src) => ({ src, foto: null }))];
+  return [...propias, ...importadas.map((src) => ({ src, foto: null }))];
 }
 
 /* Lo mínimo para poder borrarla; `null` = importada del canal (no se borra aquí). */

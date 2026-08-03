@@ -739,3 +739,21 @@ export async function borrarConteo(id: string): Promise<Resultado> {
   revalidatePath("/inventario");
   return { ok: true };
 }
+
+/* Galería importada de los canales para UN producto. Va aparte del listado
+   porque `products.imagenes` pesa ~950 KB sobre el catálogo completo y solo la
+   necesita el diálogo de edición cuando se abre. */
+export async function galeriaDeProducto(
+  productoId: string,
+): Promise<{ ok: true; imagenes: string[] } | { error: string }> {
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ver el inventario.");
+  if ("error" in cx) return cx;
+
+  const { data, error } = await cx.supabase
+    .from("products")
+    .select("imagenes")
+    .eq("id", productoId)
+    .single();
+  if (error) return { error: error.message };
+  return { ok: true, imagenes: (data?.imagenes as string[] | null) ?? [] };
+}

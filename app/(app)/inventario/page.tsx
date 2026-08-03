@@ -110,7 +110,18 @@ export default async function InventarioPage({
   ] = await Promise.all([
     supabase
       .from("products")
-      .select("*, proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)")
+      /* Todas las columnas MENOS `imagenes`: esa galería pesa ~950 KB sobre el
+         catálogo completo y solo la usa el diálogo de edición de UN producto,
+         que la pide al abrirse (galeriaDeProducto). Traerla aquí duplicaba el
+         tamaño de la respuesta y el del payload que viaja al navegador. */
+      .select(
+        "id, nombre, variante, sku, tipo, costo, precio, stock, stock_minimo," +
+          " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
+          " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
+          " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
+          " tiktok_product_id, tiktok_sku_id, created_at, created_by, updated_at," +
+          " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)",
+      )
       .order("nombre"),
     // Fotos subidas a mano. Van aparte de products.imagenes (la galería
     // importada) porque cada sincronización de canal reescribe esa columna.

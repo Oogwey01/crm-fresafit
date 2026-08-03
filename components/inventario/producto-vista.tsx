@@ -33,6 +33,7 @@ import {
   ajustarStock,
   borrarFotoProducto,
   movimientosProducto,
+  galeriaDeProducto,
   subirFotoProducto,
 } from "@/app/(app)/inventario/actions";
 import type { ProductConProveedor, StockLog } from "@/lib/types";
@@ -130,7 +131,14 @@ export function ProductoVista({
   const archivoRef = useRef<HTMLInputElement>(null);
 
   const tipo = obtenerTipoProducto(producto.tipo);
-  const galeria = galeriaProducto(producto);
+  /* La galería importada de los canales se pide al abrir la ficha: ya no viaja
+     en el listado del inventario. Las fotos propias sí llegan con el producto,
+     así que la vista pinta esas de inmediato y las del canal al llegar. */
+  const { datos: importadas } = useDetalleRemoto<string[]>(
+    () => galeriaDeProducto(producto.id).then((r) => ("error" in r ? [] : r.imagenes)),
+    producto.id,
+  );
+  const galeria = galeriaProducto(producto, importadas ?? []);
   const principal = galeria[Math.min(seleccionada, galeria.length - 1)] ?? null;
   const estado = estadoStock(producto);
   const urgencia = grupo ? obtenerUrgencia(grupo.urgencia) : null;

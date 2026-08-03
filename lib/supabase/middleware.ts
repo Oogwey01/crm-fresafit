@@ -48,10 +48,30 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // IMPORTANTE: no meter lógica entre createServerClient y getUser().
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  /* IMPORTANTE: no meter lógica entre createServerClient y la validación.
+
+     getClaims() verifica la FIRMA del token localmente contra el JWKS del
+     proyecto (ES256, ya publicado), en vez de preguntarle a Supabase por red
+     como hace getUser(). Esa llamada costaba ~200 ms en CADA request, y el
+     middleware corre en todas las rutas menos los estáticos. El JWKS se
+     cachea, y cuando el access token vence getClaims igual dispara el refresh
+     por debajo, así que la rotación de cookies sigue funcionando.
+
+     Sigue siendo seguro: se valida criptográficamente, no se confía en la
+     cookie a ciegas (que es el motivo por el que no se usa getSession).
+
+     A prueba de fallos: si getClaims no devuelve nada (JWKS inalcanzable, token
+     firmado con el secreto viejo HS256, versión sin soporte...) se cae a
+     getUser() antes de decidir un redirect. Así el peor caso es perder la
+     mejora de velocidad, nunca dejar fuera a alguien con sesión válida. */
+  const { data: claims } = await supabase.auth.getClaims();
+  let autenticado = !!claims?.claims;
+  if (!autenticado) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    autenticado = !!user;
+  }
 
   const path = request.nextUrl.pathname;
   const esPublica = RUTAS_PUBLICAS.some((r) => path.startsWith(r));
@@ -67,10 +87,10 @@ export async function updateSession(request: NextRequest) {
   }
 
   // Sin sesión y en ruta protegida → al login.
-  if (!user && !esPublica) return redirigir("/login");
+  if (!autenticado && !esPublica) return redirigir("/login");
 
   // Con sesión y en el login → directo al tablero.
-  if (user && path === "/login") return redirigir("/tareas");
+  if (autenticado && path === "/login") return redirigir("/tareas");
 
   return supabaseResponse;
 }
