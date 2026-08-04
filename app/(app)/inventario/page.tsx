@@ -1,5 +1,6 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { estadoCanales } from "@/lib/canales/integraciones";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelInventario, type AvisoConexion } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
@@ -77,6 +78,16 @@ function avisosDeConexion(params: Params): AvisoConexion[] {
         vinculados && vinculados !== "0" ? ` (${vinculados} vinculados por SKU)` : ""
       }.`,
     });
+  } else if (tk === "otra-tienda") {
+    /* La cuenta de TikTok trae también una tienda SANDBOX de pruebas, y
+       autorizar ésa apuntaría el CRM a un catálogo vacío. Se rechaza y se dice
+       qué hacer, en vez de cambiar la conexión en silencio. */
+    avisos.push({
+      tipo: "error",
+      mensaje:
+        "Esa autorización es de otra tienda de TikTok (probablemente la SANDBOX de pruebas). " +
+        "La conexión actual se dejó intacta: vuelve a autorizar eligiendo la tienda real de Fresafit.",
+    });
   } else if (tk) {
     avisos.push({ tipo: "error", mensaje: "No se pudo conectar TikTok Shop. Intenta de nuevo." });
   }
@@ -108,24 +119,40 @@ export default async function InventarioPage({
     canales,
     piloto,
   ] = await Promise.all([
-    supabase
-      .from("products")
-      /* Todas las columnas MENOS `imagenes`: esa galería pesa ~950 KB sobre el
-         catálogo completo y solo la usa el diálogo de edición de UN producto,
-         que la pide al abrirse (galeriaDeProducto). Traerla aquí duplicaba el
-         tamaño de la respuesta y el del payload que viaja al navegador. */
-      .select(
-        "id, nombre, variante, sku, tipo, costo, precio, stock, stock_minimo," +
-          " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
-          " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
-          " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
-          " tiktok_product_id, tiktok_sku_id, created_at, created_by, updated_at," +
-          " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)",
-      )
-      .order("nombre"),
+    /* Paginado con traerTodo: PostgREST corta las respuestas en ~1000 filas SIN
+       error, así que un `select` sin rango sobre un catálogo que crece devuelve
+       un resultado incompleto en silencio — y un producto que "no aparece" se
+       lee como un producto que no existe. Con cientos de variantes por línea el
+       catálogo ya ronda ese techo.
+
+       Todas las columnas MENOS `imagenes`: esa galería pesa ~950 KB sobre el
+       catálogo completo y solo la usa el diálogo de edición de UN producto,
+       que la pide al abrirse (galeriaDeProducto). */
+    traerTodo<ProductConProveedor>((desde, hasta) =>
+      supabase
+        .from("products")
+        .select(
+          "id, nombre, variante, sku, tipo, costo, precio, stock, stock_minimo," +
+            " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
+            " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
+            " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
+            " tiktok_product_id, tiktok_sku_id, tiktok_stock, created_at, created_by, updated_at," +
+            " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)",
+        )
+        .order("nombre")
+        /* El join anidado hace que supabase-js no pueda inferir la forma; el
+           cast es el mismo patrón que ya usa la página de clientes. */
+        .range(desde, hasta) as unknown as Promise<{
+        data: ProductConProveedor[] | null;
+        error: { message: string } | null;
+      }>,
+    ),
     // Fotos subidas a mano. Van aparte de products.imagenes (la galería
     // importada) porque cada sincronización de canal reescribe esa columna.
-    supabase.from("product_photos").select("*").order("orden"),
+    // Paginadas por el mismo motivo: son varias por producto.
+    traerTodo<ProductPhoto>((desde, hasta) =>
+      supabase.from("product_photos").select("*").order("orden").range(desde, hasta),
+    ),
     supabase.from("suppliers").select("*").order("nombre"),
     supabase
       .from("supplier_orders")
@@ -169,10 +196,10 @@ export default async function InventarioPage({
   ]);
 
   const fotosPorProducto: Record<string, ProductPhoto[]> = {};
-  for (const f of (fotosRes.data ?? []) as ProductPhoto[]) {
+  for (const f of fotosRes) {
     (fotosPorProducto[f.producto_id] ??= []).push(f);
   }
-  const productos = ((productosRes.data ?? []) as unknown as ProductConProveedor[]).map((p) => ({
+  const productos = productosRes.map((p) => ({
     ...p,
     fotos_propias: fotosPorProducto[p.id] ?? [],
   }));

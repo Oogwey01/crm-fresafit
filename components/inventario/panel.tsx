@@ -47,6 +47,8 @@ import { StatCard } from "@/components/compartido/stat-card";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { TIPOS_PRODUCTO, obtenerTipoProducto } from "@/lib/catalogos";
 import { TablaProductos } from "@/components/inventario/tabla-productos";
+import { TablaProductosAgrupada } from "@/components/inventario/tabla-productos-agrupada";
+import { variantesHermanas } from "@/lib/inventario/familia";
 import { ProductoDialog } from "@/components/inventario/producto-dialog";
 import { ProductoVista } from "@/components/inventario/producto-vista";
 import { TablaProveedores } from "@/components/inventario/tabla-proveedores";
@@ -106,6 +108,17 @@ const VIGENCIAS = [
   ["descontinuados", "Descontinuados"],
   ["todos", "Todos"],
 ] as const;
+
+/* Cómo se lista el catálogo. Un cinturón tiene hasta cuatro tallas, y cada una
+   es una fila de `products`: verlas siempre desglosadas hace ruido cuando lo que
+   quieres es el producto, y agrupadas estorba cuando buscas una talla concreta.
+   Por eso conviven las dos vistas. */
+const VISTAS_CATALOGO = [
+  ["desglosado", "Desglosado"],
+  ["agrupado", "Agrupado"],
+] as const;
+
+type VistaCatalogo = (typeof VISTAS_CATALOGO)[number][0];
 
 /* Filtro de canal para el historial de movimientos. */
 const CANALES_MOV = [
@@ -255,6 +268,7 @@ export function PanelInventario({
      mantenimiento y da miedo que alguien la pique por error. */
   const esDireccion = rol === "direccion";
   const [pestana, setPestana] = useState<Pestana>("productos");
+  const [vistaCatalogo, setVistaCatalogo] = useState<VistaCatalogo>("desglosado");
 
   /* Avisos al volver del OAuth: la page los arma en el servidor; aquí solo se
      emiten una vez y se limpia la URL para que un refresh no los repita. */
@@ -548,6 +562,13 @@ export function PanelInventario({
                 ))}
               </SelectContent>
             </Select>
+            {/* Desglosado = una fila por variante de canal (como siempre).
+                Agrupado = una fila por producto, con sus tallas plegadas. */}
+            <ControlSegmentado
+              opciones={VISTAS_CATALOGO}
+              valor={vistaCatalogo}
+              onCambio={setVistaCatalogo}
+            />
           </>
         )}
 
@@ -582,19 +603,32 @@ export function PanelInventario({
         onGenerarPedido={generarPedido}
       />
 
-      {pestana === "productos" && (
-        <TablaProductos
-          productos={productosVisibles}
-          totalCatalogo={productos.length}
-          busqueda={busqueda}
-          filtroTipo={filtroTipo}
-          filtroStock={filtroStock}
-          filtrosActivos={filtrosActivos}
-          onLimpiarFiltros={limpiarFiltros}
-          escrituraCanales={escrituraCanales}
-          onAbrir={(p) => setProductoVistaId(p.id)}
-        />
-      )}
+      {pestana === "productos" &&
+        (vistaCatalogo === "agrupado" ? (
+          <TablaProductosAgrupada
+            productos={productosVisibles}
+            totalCatalogo={productos.length}
+            busqueda={busqueda}
+            filtroTipo={filtroTipo}
+            filtroStock={filtroStock}
+            filtrosActivos={filtrosActivos}
+            onLimpiarFiltros={limpiarFiltros}
+            escrituraCanales={escrituraCanales}
+            onAbrir={(p) => setProductoVistaId(p.id)}
+          />
+        ) : (
+          <TablaProductos
+            productos={productosVisibles}
+            totalCatalogo={productos.length}
+            busqueda={busqueda}
+            filtroTipo={filtroTipo}
+            filtroStock={filtroStock}
+            filtrosActivos={filtrosActivos}
+            onLimpiarFiltros={limpiarFiltros}
+            escrituraCanales={escrituraCanales}
+            onAbrir={(p) => setProductoVistaId(p.id)}
+          />
+        ))}
       {pestana === "reabastecer" && (
         <TablaReabastecer
           productos={productos}
@@ -632,9 +666,11 @@ export function PanelInventario({
       {productoVista && (
         <ProductoVista
           producto={productoVista}
+          hermanas={variantesHermanas(productoVista, productos)}
           grupo={grupoVista}
           ventanaDias={VENTANA_REORDEN}
           escrituraCanales={escrituraCanales}
+          onVerHermana={(id) => setProductoVistaId(id)}
           onEditar={() => {
             setProductoVistaId(null);
             setProductoDialog(productoVista);

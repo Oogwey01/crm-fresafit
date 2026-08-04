@@ -23,10 +23,14 @@ import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
 import {
   tieneFull,
   stockFullDe,
+  esTikTok,
+  esTikTokDelegado,
+  tiktokStockDe,
   obtenerUrgencia,
   type GrupoReorden,
 } from "@/lib/inventario/reabastecimiento";
 import { galeriaProducto } from "@/lib/inventario/fotos";
+import { tallaDeVariante } from "@/lib/talla";
 import { formatearFechaHora, formatearFechaLarga, hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
@@ -106,14 +110,21 @@ function Chip({ children, title }: { children: React.ReactNode; title?: string }
    ProductoDialog, al que se llega con «Editar». */
 export function ProductoVista({
   producto,
+  hermanas = [],
   grupo,
   ventanaDias,
   escrituraCanales,
+  onVerHermana,
   onEditar,
   onGenerarPedido,
   onClose,
 }: {
   producto: ProductConProveedor;
+  /* Todas las variantes del mismo producto (incluida ésta), ordenadas por talla.
+     `products` es plano y no las relaciona; se reconstruyen por nombre en
+     lib/inventario/familia.ts. */
+  hermanas?: ProductConProveedor[];
+  onVerHermana?: (id: string) => void;
   /* Reorden del grupo al que pertenece (null = inactivo o de bajo pedido, que
      quedan fuera del cálculo). Agrupa por SKU: un producto puede compartirlo
      con sus publicaciones gemelas. */
@@ -141,6 +152,9 @@ export function ProductoVista({
   const galeria = galeriaProducto(producto, importadas ?? []);
   const principal = galeria[Math.min(seleccionada, galeria.length - 1)] ?? null;
   const estado = estadoStock(producto);
+  /* Stock sumado de todas las tallas: el dato que hay que ver para decidir si el
+     producto está agotado de verdad o solo lo está una talla. */
+  const totalHermanas = hermanas.reduce((a, h) => a + h.stock, 0);
   const urgencia = grupo ? obtenerUrgencia(grupo.urgencia) : null;
   const enlaceMeli = producto.meli_item_id ? urlMeli(producto.meli_item_id) : null;
   const tituloAjuste = escrituraCanales
@@ -378,6 +392,52 @@ export function ProductoVista({
           </div>
         </div>
 
+        {/* Las demás tallas del mismo producto. Sin esto había que volver al
+            listado y buscarlas una por una para saber de qué talla queda stock,
+            que es justo lo que pidió resolver Armando. */}
+        {hermanas.length > 1 && (
+          <Seccion titulo={`Tallas de este producto · ${totalHermanas} en total`}>
+            <div className="flex flex-col gap-1">
+              {hermanas.map((h) => {
+                const talla = tallaDeVariante(h.variante) ?? h.variante ?? "Única";
+                const esta = h.id === producto.id;
+                const est = estadoStock(h);
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => !esta && onVerHermana?.(h.id)}
+                    disabled={esta}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-[13.5px] transition-colors",
+                      esta ? "border-primary bg-primary/5" : "hover:bg-accent",
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="font-semibold">{talla}</span>
+                      {h.sku && (
+                        <span className="truncate font-mono text-[12px] text-muted-foreground">
+                          {h.sku}
+                        </span>
+                      )}
+                      {esta && <span className="text-[11px] text-primary">· estás aquí</span>}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 font-semibold tabular-nums",
+                        est === "agotado" && "text-red-600",
+                        est === "por_acabarse" && "text-amber-600",
+                      )}
+                    >
+                      {h.stock}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Seccion>
+        )}
+
         {/* Ventas y reposición: el mismo cálculo de «Qué pedir». Agrupa por SKU,
             así que las cifras son del grupo, no solo de esta ficha. */}
         {grupo ? (
@@ -477,7 +537,23 @@ export function ProductoVista({
                 {stockFullDe(producto) > 0 ? ` · ${stockFullDe(producto)} pzas` : ""}
               </span>
             )}
-            {producto.tiendanube_variant_id == null && !producto.meli_item_id && (
+            {esTikTok(producto) && (
+              <span
+                className="rounded-md bg-neutral-800 px-2 py-0.5 text-[11.5px] font-bold text-white dark:bg-neutral-200 dark:text-neutral-900"
+                title={
+                  esTikTokDelegado(producto)
+                    ? "TikTok Shop: inventario delegado, aparte de la bodega. No se suma al stock unificado."
+                    : "TikTok Shop: esta publicación tiene su propio inventario, aparte del de bodega."
+                }
+              >
+                TikTok Shop
+                {/* Delegado: el stock de la ficha YA es este número (se ve en el
+                    resto de la vista). Multicanal: el stock de la ficha es el
+                    de bodega, así que el número de TikTok solo se ve aquí. */}
+                {!esTikTokDelegado(producto) ? ` · ${tiktokStockDe(producto)} pzas` : ""}
+              </span>
+            )}
+            {producto.tiendanube_variant_id == null && !producto.meli_item_id && !esTikTok(producto) && (
               <span className="text-[12.5px] text-muted-foreground">
                 Solo en el CRM: no está publicado en ningún canal.
               </span>

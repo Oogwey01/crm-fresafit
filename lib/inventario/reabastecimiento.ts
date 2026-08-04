@@ -192,7 +192,7 @@ export function tieneFull(p: {
 }
 
 /* ¿El renglón está mapeado a TikTok Shop? (tenga o no otro canal). */
-function esTikTok(p: { tiktok_product_id?: string | null }): boolean {
+export function esTikTok(p: { tiktok_product_id?: string | null }): boolean {
   return p.tiktok_product_id != null;
 }
 
@@ -207,6 +207,22 @@ export function esTikTokDelegado(p: {
   meli_item_id?: string | null;
 }): boolean {
   return esTikTok(p) && p.tiendanube_variant_id == null && p.meli_item_id == null;
+}
+
+/* Unidades que TikTok reporta para ESTA publicación, aparte del `stock` de
+   bodega. En una ficha delegada (solo TikTok) `stock` YA es el número de
+   TikTok, así que sirve de respaldo mientras no haya `tiktok_stock` propio
+   (fichas antiguas, de antes de que la sync empezara a guardarlo). Mismo
+   patrón que `stockFullDe`. */
+export function tiktokStockDe(p: {
+  tiktok_product_id?: string | null;
+  tiendanube_variant_id?: number | null;
+  meli_item_id?: string | null;
+  tiktok_stock?: number | null;
+  stock: number;
+}): number {
+  if (p.tiktok_stock != null) return p.tiktok_stock;
+  return esTikTokDelegado(p) ? p.stock : 0;
 }
 
 /* Producto con lo mínimo que necesita el cálculo (acepta ProductConProveedor). */
