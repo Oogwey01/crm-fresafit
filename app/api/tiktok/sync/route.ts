@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, respuestaError } from "@/lib/canales/http";
+import { autorizarCron, opcionesReimportacion, respuestaError } from "@/lib/canales/http";
 import { conexionTiktok } from "@/lib/tiktok/api";
 import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
 import { importarVentasTikTok } from "@/lib/tiktok/ventas";
@@ -13,17 +13,38 @@ export async function GET(request: Request) {
   const cx = await conexionTiktok();
   if (!cx) return NextResponse.json({ error: "TikTok Shop no está conectado." }, { status: 409 });
 
+  /* Catálogo y ventas son independientes: que falle uno no debe impedir el otro.
+     La API de TikTok devuelve errores internos transitorios (36009003) en
+     /products/search con cierta frecuencia, y hasta ahora eso abortaba la ruta
+     entera — el cron diario se quedaba sin importar ventas por un fallo que no
+     tenía nada que ver con ellas. */
+  let resumen: Awaited<ReturnType<typeof importacionCompletaTikTok>> | null = null;
+  let errorCatalogo: string | null = null;
   try {
-    const resumen = await importacionCompletaTikTok(cx);
-    // Red de seguridad de ventas: su fallo no tira la sync de catálogo.
-    let ventas = null;
-    try {
-      ventas = await importarVentasTikTok(cx);
-    } catch (e) {
-      console.error("[tiktok] importación de ventas:", e);
-    }
-    return NextResponse.json({ ok: true, ...resumen, ventas });
+    resumen = await importacionCompletaTikTok(cx);
   } catch (e) {
-    return respuestaError(e, "tiktok sync", "Falló la sincronización.");
+    errorCatalogo = e instanceof Error ? e.message : "Falló la sincronización del catálogo.";
+    console.error("[tiktok] sincronización de catálogo:", e);
   }
+
+  let ventas = null;
+  let errorVentas: string | null = null;
+  try {
+    ventas = await importarVentasTikTok(cx, opcionesReimportacion(request));
+  } catch (e) {
+    errorVentas = e instanceof Error ? e.message : "Falló la importación de ventas.";
+    console.error("[tiktok] importación de ventas:", e);
+  }
+
+  // Solo es un fallo de verdad si se cayeron las DOS mitades.
+  if (errorCatalogo && errorVentas) {
+    return respuestaError(new Error(errorCatalogo), "tiktok sync", "Falló la sincronización.");
+  }
+  return NextResponse.json({
+    ok: true,
+    ...(resumen ?? {}),
+    ventas,
+    ...(errorCatalogo ? { error_catalogo: errorCatalogo } : {}),
+    ...(errorVentas ? { error_ventas: errorVentas } : {}),
+  });
 }

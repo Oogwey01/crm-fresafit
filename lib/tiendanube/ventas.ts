@@ -10,11 +10,22 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
+import {
+  aMonto,
+  guardarTotalesOrden,
+  refrescarRenglones,
+  ventanaDesde,
+  type OpcionesImportacion,
+  type TotalOrden,
+} from "@/lib/canales/ventas-cuadre";
+import { diaMX } from "@/lib/fecha";
+import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { HUB_VENTAS_ACTIVO, productosDelPiloto } from "@/lib/inventario/hub-config";
 import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
 import {
   conexionTiendanube,
+  dominioAdminTN,
   listarOrdenesTN,
   obtenerOrdenTN,
   type ConexionTN,
@@ -24,6 +35,7 @@ import {
 export type ResumenVentasTN = {
   ordenes: number;
   insertadas: number;
+  actualizadas: number; // renglones ya importados que se corrigieron (fecha, monto, envío)
   existentes: number;
   retiradas: number; // renglones eliminados por órdenes canceladas
   clientes: number; // clientes creados o actualizados desde las órdenes
@@ -63,19 +75,129 @@ function estadoDeEnvio(orden: OrdenTN): "nuevo" | "preparando" | "enviado" | "en
   }
 }
 
+/* Día de la venta, en hora de México. `paid_at`/`created_at` vienen con el huso
+   de la tienda; cortarlos con slice(0,10) dejaba la venta en el día equivocado y
+   descuadraba los totales por rango contra el panel de Tienda Nube. */
+function fechaDe(orden: OrdenTN): string {
+  return diaMX(orden.paid_at ?? orden.created_at);
+}
+
+/* Medio de pago en palabras. `payment_details.method` viene en inglés y sin la
+   tarjeta; se junta con la marca para que "credit_card + visa" se lea como el
+   equipo lo diría. */
+const METODOS: Record<string, string> = {
+  credit_card: "Tarjeta de crédito",
+  debit_card: "Tarjeta de débito",
+  cash: "Efectivo",
+  bank_transfer: "Transferencia",
+  ticket: "Pago en tienda",
+  wallet: "Monedero",
+  boleto: "Pago en tienda",
+};
+
+function pagoDe(orden: OrdenTN): { metodo_pago: string | null; meses: number | null } {
+  const d = orden.payment_details;
+  const base = d?.method ? (METODOS[d.method] ?? d.method) : null;
+  const marca = d?.credit_card_company?.trim();
+  const metodo = base
+    ? marca && base.startsWith("Tarjeta")
+      ? `${base} · ${marca}`
+      : base
+    : (orden.gateway_name?.trim() || null);
+  const meses = Number(d?.installments);
+  return { metodo_pago: metodo, meses: Number.isFinite(meses) && meses > 0 ? meses : null };
+}
+
+/* Totales de la orden tal como los reporta el panel de Tienda Nube: `total` ya
+   trae envío y descuentos aplicados, que `sales.monto` no incluye. */
+function totalDeOrden(orden: OrdenTN, clienteId: string | null): TotalOrden {
+  const envio = aMonto(orden.shipping_cost_customer);
+  const descuento = aMonto(orden.discount) + aMonto(orden.promotional_discount);
+  const total = aMonto(orden.total);
+  const subtotal = orden.subtotal != null ? aMonto(orden.subtotal) : total - envio + descuento;
+  return {
+    canal: "tienda_nube",
+    referencia_orden: String(orden.id),
+    numero: orden.number != null ? String(orden.number) : null,
+    fecha: fechaDe(orden),
+    total,
+    subtotal,
+    envio,
+    descuento,
+    impuesto: 0, // Tienda Nube entrega los precios con impuesto incluido.
+    moneda: orden.currency?.trim() || "MXN",
+    estado: orden.status ?? null,
+    cliente_id: clienteId,
+    ...pagoDe(orden),
+    cupon: orden.coupon?.find((c) => c?.code)?.code?.trim() || null,
+  };
+}
+
+/* Dirección de envío de la orden, traducida al formato común del CRM. */
+function direccionDe(orden: OrdenTN): DireccionEnvio | null {
+  const d = orden.shipping_address;
+  if (!d) return null;
+  return normalizarDireccion({
+    nombre: d.name ?? orden.contact_name,
+    telefono: d.phone ?? orden.contact_phone,
+    calle: d.address,
+    numero: d.number,
+    colonia: d.locality,
+    ciudad: d.city,
+    estado: d.province,
+    cp: d.zipcode,
+    pais: d.country,
+    referencias: d.floor,
+  });
+}
+
+/* Paquetería, guía y enlace de rastreo de la orden.
+
+   En la API 2025-03 esto vive en `fulfillments`, no en los campos planos
+   `shipping_carrier_name` / `shipping_tracking_number` que el CRM venía leyendo
+   (y que solo se rellenaban en la v1). El resultado era que TODOS los pedidos de
+   Tienda Nube aparecían como "Agregar guía" aunque la tienda sí la tuviera: 0 de
+   329 en julio, contra 129 órdenes con rastreo del lado de Tienda Nube.
+
+   Una orden puede tener varios paquetes; se toma el primero que traiga guía. El
+   nombre del transportista suele venir genérico en el fulfillment ("Envío
+   estándar"), así que se prefiere `shipping_option`, que sí dice cuál es
+   ("Envío Nube - Estafeta Terrestre"). La URL la da la propia plataforma: mejor
+   esa que adivinarla a partir del nombre. */
+function envioDe(orden: OrdenTN): {
+  paqueteria: string | null;
+  num_guia: string | null;
+  url_rastreo: string | null;
+} {
+  const conGuia = (orden.fulfillments ?? []).find((f) => f?.tracking_info?.code?.trim());
+  const guia =
+    conGuia?.tracking_info?.code?.trim() || orden.shipping_tracking_number?.trim() || null;
+  const nombre =
+    orden.shipping_option?.trim() ||
+    conGuia?.shipping?.option?.name?.trim() ||
+    conGuia?.shipping?.carrier?.name?.trim() ||
+    orden.shipping_carrier_name?.trim() ||
+    null;
+  return {
+    paqueteria: guia ? nombre : null, // sin guía, el nombre del envío no ayuda a nadie
+    num_guia: guia,
+    url_rastreo: conGuia?.tracking_info?.url?.trim() || null,
+  };
+}
+
 /* Renglones de `sales` de una orden (la orden ya debe ser vendible). */
 function filasDeOrden(
   orden: OrdenTN,
   productoPorVariante: Map<number, string>,
   clientePorCorreo: Map<string, string>,
 ) {
-  const fecha = (orden.paid_at ?? orden.created_at).slice(0, 10);
+  const fecha = fechaDe(orden);
+  const direccion = direccionDe(orden);
   const cliente = orden.contact_name?.trim();
   const correo = correoDe(orden);
   const clienteId = correo ? (clientePorCorreo.get(correo) ?? null) : null;
   const estado = estadoDeEnvio(orden);
-  const paqueteria = orden.shipping_carrier_name?.trim() || null;
-  const numGuia = orden.shipping_tracking_number?.trim() || null;
+  const envio = envioDe(orden);
   return (orden.products ?? []).map((linea) => {
     const cantidad = Math.max(1, Math.trunc(Number(linea.quantity) || 1));
     const unitario = Number(linea.price) || 0;
@@ -88,8 +210,10 @@ function filasDeOrden(
       monto: Math.round(unitario * cantidad * 100) / 100,
       cliente_id: clienteId,
       estado,
-      paqueteria,
-      num_guia: numGuia,
+      paqueteria: envio.paqueteria,
+      num_guia: envio.num_guia,
+      url_rastreo: envio.url_rastreo,
+      envio_direccion: direccion,
       origen: "api",
       referencia_externa: `${orden.id}:${linea.variant_id}`,
       notas: `Orden TN #${orden.number}${cliente ? ` — ${cliente}` : ""}`,
@@ -104,14 +228,23 @@ async function sincronizarClientes(ordenes: OrdenTN[]): Promise<Map<string, stri
   const admin = createAdminClient();
 
   /* Un cliente por correo; se queda con el nombre/teléfono de su orden más
-     reciente (las órdenes llegan de la más nueva a la más vieja). */
-  const porCorreo = new Map<string, { nombre: string; telefono: string | null }>();
+     reciente (las órdenes llegan de la más nueva a la más vieja). De ahí sale
+     también de dónde es, que es lo que permite ver a qué parte del país se
+     vende más. */
+  const porCorreo = new Map<
+    string,
+    { nombre: string; telefono: string | null; ciudad: string | null; estado: string | null; cp: string | null }
+  >();
   for (const o of ordenes) {
     const correo = correoDe(o);
     if (!correo || porCorreo.has(correo)) continue;
+    const d = direccionDe(o);
     porCorreo.set(correo, {
       nombre: o.contact_name?.trim() || correo,
       telefono: o.contact_phone?.trim() || null,
+      ciudad: d?.ciudad ?? null,
+      estado: d?.estado ?? null,
+      cp: d?.cp ?? null,
     });
   }
   if (porCorreo.size === 0) return new Map();
@@ -120,21 +253,40 @@ async function sincronizarClientes(ordenes: OrdenTN[]): Promise<Map<string, stri
     correo,
     nombre: c.nombre,
     telefono: c.telefono,
+    ciudad: c.ciudad,
+    estado: c.estado,
+    cp: c.cp,
     canal: "tienda_nube",
   }));
 
   /* Upsert por correo: el contacto se refresca desde la tienda; `notas` no se
-     toca (es del equipo) porque no va en el payload. */
-  const { error } = await admin.from("customers").upsert(filas, { onConflict: "correo" });
-  if (error) throw new Error(error.message);
+     toca (es del equipo) porque no va en el payload.
 
-  const { data, error: errSel } = await admin
-    .from("customers")
-    .select("id, correo")
-    .in("correo", [...porCorreo.keys()]);
-  if (errSel) throw new Error(errSel.message);
+     En tandas: reimportar el histórico completo son cientos de compradores, y
+     un `.in()` con todos ellos arma una URL que el servidor rechaza con 400
+     (la misma lección que ya llevaba anotada el importador de Mercado Libre).
+     Con la ventana corta del cron diario nunca se notaba. */
+  const LOTE = 200;
+  const correos = [...porCorreo.keys()];
+  const mapa = new Map<string, string>();
 
-  return new Map((data ?? []).map((c) => [c.correo as string, c.id as string]));
+  for (let i = 0; i < filas.length; i += LOTE) {
+    const { error } = await admin
+      .from("customers")
+      .upsert(filas.slice(i, i + LOTE), { onConflict: "correo" });
+    if (error) throw new Error(error.message);
+  }
+
+  for (let i = 0; i < correos.length; i += LOTE) {
+    const { data, error: errSel } = await admin
+      .from("customers")
+      .select("id, correo")
+      .in("correo", correos.slice(i, i + LOTE));
+    if (errSel) throw new Error(errSel.message);
+    for (const c of data ?? []) mapa.set(c.correo as string, c.id as string);
+  }
+
+  return mapa;
 }
 
 /* Mapa variante de Tienda Nube → id de producto del CRM. Con pocas variantes
@@ -167,6 +319,7 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
 
   const filas = vendibles.flatMap((o) => filasDeOrden(o, variantes, clientes));
   let insertadas = 0;
+  let actualizadas = 0;
   if (filas.length > 0) {
     const { data, error } = await admin
       .from("sales")
@@ -232,25 +385,36 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
         .in("referencia_externa", refs);
     }
 
-    /* Estado/guía de envío: Tienda Nube es la fuente de verdad del fulfillment
-       de los pedidos online, así que se refresca SIEMPRE en cada sync (no solo
-       al crear). Agrupado por estado para hacer pocos UPDATE. El estado de las
-       ventas manuales / de mostrador lo maneja el equipo y no se toca aquí. */
-    const porEstado = new Map<string, string[]>();
-    for (const f of filas) {
-      const lista = porEstado.get(f.estado) ?? [];
-      lista.push(f.referencia_externa);
-      porEstado.set(f.estado, lista);
-    }
-    for (const [estado, refs] of porEstado) {
-      await admin
-        .from("sales")
-        .update({ estado })
-        .eq("canal", "tienda_nube")
-        .eq("origen", "api")
-        .in("referencia_externa", refs);
-    }
+    /* Refrescar los renglones que YA estaban importados. Tienda Nube es la
+       fuente de verdad del fulfillment, así que el estado y la guía se releen
+       en cada sync; y como el upsert de arriba ignora los duplicados, éste es
+       también el único momento en que se corrige la FECHA de lo ya guardado
+       (los renglones viejos se importaron con el día sin convertir a México).
+       Solo toca `origen = 'api'`: las ventas de mostrador son del equipo. */
+    actualizadas = await refrescarRenglones(
+      "tienda_nube",
+      filas.map((f) => ({
+        referencia_externa: f.referencia_externa,
+        fecha: f.fecha,
+        monto: f.monto,
+        cantidad: f.cantidad,
+        estado: f.estado,
+        paqueteria: f.paqueteria,
+        num_guia: f.num_guia,
+        url_rastreo: f.url_rastreo,
+        envio_direccion: f.envio_direccion,
+      })),
+    );
   }
+
+  /* Totales por orden: es lo que reporta el panel de Tienda Nube (con envío y
+     descuentos), y de aquí sale el KPI de ventas de Métricas. */
+  await guardarTotalesOrden(
+    vendibles.map((o) => {
+      const correo = correoDe(o);
+      return totalDeOrden(o, correo ? (clientes.get(correo) ?? null) : null);
+    }),
+  );
 
   // Órdenes canceladas/reembolsadas: retirar sus renglones si se importaron.
   const refsCanceladas = ordenes
@@ -305,6 +469,7 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
   return {
     ordenes: ordenes.length,
     insertadas,
+    actualizadas,
     existentes: filas.length - insertadas,
     retiradas,
     clientes: clientes.size,
@@ -316,7 +481,7 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
    rellenar datos nuevos (p. ej. ligar clientes a ventas ya importadas). */
 export async function importarVentasTN(
   cxParam?: ConexionTN,
-  opts?: { completo?: boolean },
+  opts?: OpcionesImportacion,
 ): Promise<ResumenVentasTN> {
   const cx = cxParam ?? (await conexionTiendanube());
   if (!cx) throw new Error("Tienda Nube no está conectada.");
@@ -325,13 +490,23 @@ export async function importarVentasTN(
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
-  const desde = new Date(ultimaSync ?? Date.now());
-  desde.setDate(desde.getDate() - (ultimaSync ? DIAS_TRASLAPE : DIAS_PRIMERA_VEZ));
+  const desde = ventanaDesde(ultimaSync, opts, DIAS_PRIMERA_VEZ, DIAS_TRASLAPE);
 
   const ordenes = await listarOrdenesTN(cx, desde.toISOString());
   const resumen = await aplicarOrdenes(ordenes);
 
-  await mezclarDatosIntegracion("tiendanube", { ventas_ultima_sync: new Date().toISOString() }, datos);
+  /* De paso, el dominio del panel: lo necesita el enlace "ver la orden en Tienda
+     Nube" de Pedidos, y cambia tan poco que basta refrescarlo con cada sync. */
+  const dominio = await dominioAdminTN(cx).catch(() => null);
+
+  await mezclarDatosIntegracion(
+    "tiendanube",
+    {
+      ventas_ultima_sync: new Date().toISOString(),
+      ...(dominio ? { dominio_admin: dominio } : {}),
+    },
+    datos,
+  );
 
   return resumen;
 }

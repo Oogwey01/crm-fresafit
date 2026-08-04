@@ -126,6 +126,17 @@ async function tnFetch(cx: ConexionTN, path: string, init?: RequestInit): Promis
   }
 }
 
+/* Dominio del panel de la tienda ("fresafit2.mitiendanube.com"). El admin de
+   Tienda Nube vive en el subdominio de cada tienda, así que sin este dato no se
+   puede armar el enlace "ver la orden en Tienda Nube". Se consulta una vez por
+   sync y se guarda en `integraciones.datos`. */
+export async function dominioAdminTN(cx: ConexionTN): Promise<string | null> {
+  const res = await tnFetch(cx, "/store");
+  if (!res.ok) return null;
+  const store = (await res.json()) as { original_domain?: string | null };
+  return store.original_domain?.trim() || null;
+}
+
 /* ------------------------------ Productos -------------------------------- */
 
 export async function obtenerProductoTN(cx: ConexionTN, id: number): Promise<ProductoTN | null> {
@@ -217,7 +228,25 @@ export type OrdenTN = {
   payment_status: string; // pending | paid | voided | refunded | …
   created_at: string;
   paid_at?: string | null;
+  /* Totales de la orden. El panel de Tienda Nube reporta `total` (con envío y
+     descuentos); `sales.monto` solo suma producto, de ahí que los números no
+     cuadraran. Se guardan en `sale_orders`. */
   total: string;
+  subtotal?: string | null;
+  shipping_cost_customer?: string | null;
+  discount?: string | null;
+  promotional_discount?: string | null;
+  currency?: string | null;
+  /* Cómo se pagó. `gateway_name` es la pasarela ("Pago Nube", "Mercado Pago") y
+     `payment_details` el medio concreto con sus mensualidades. */
+  gateway_name?: string | null;
+  payment_details?: {
+    method?: string | null; // credit_card | cash | bank_transfer …
+    credit_card_company?: string | null;
+    installments?: number | string | null;
+  } | null;
+  /* Cupones aplicados. Es un arreglo aunque casi siempre trae uno solo. */
+  coupon?: { code?: string | null }[] | null;
   products: LineaOrdenTN[];
   /* OJO: Tienda Nube NO envía `customer` en las órdenes (ni en el listado ni en
      /orders/{id}); los datos del comprador vienen en estos campos planos. */
@@ -226,8 +255,42 @@ export type OrdenTN = {
   contact_phone?: string | null;
   /* Estado de preparación/envío: unpacked | unshipped | shipped | delivered. */
   shipping_status?: string | null;
+  /* OJO: en la API 2025-03 estos dos campos ya NO se rellenan —solo existían en
+     v1— y el rastreo vive en `fulfillments`. Leerlos era la razón de que ningún
+     pedido de Tienda Nube mostrara guía en el CRM. Se dejan declarados porque la
+     API los sigue devolviendo (siempre en null) y para no romper si vuelven. */
   shipping_tracking_number?: string | null;
   shipping_carrier_name?: string | null;
+  /* Nombre comercial del envío elegido en la tienda ("Envío Nube - Estafeta
+     Terrestre"): es lo más cercano a la paquetería cuando el fulfillment solo
+     dice "Envío estándar". */
+  shipping_option?: string | null;
+  /* Envíos de la orden (2025-03). Una orden puede partirse en varios paquetes;
+     el CRM se queda con el primero que traiga guía. */
+  fulfillments?: {
+    id?: string | null;
+    number?: string | null;
+    status?: string | null; // PENDING | DISPATCHED | DELIVERED …
+    shipping?: {
+      carrier?: { name?: string | null } | null;
+      option?: { name?: string | null } | null;
+    } | null;
+    tracking_info?: { code?: string | null; url?: string | null } | null;
+  }[] | null;
+  /* Dirección de envío. La API sí la manda; el CRM no la guardaba, así que para
+     empacar había que entrar al panel de la tienda. */
+  shipping_address?: {
+    name?: string | null;
+    phone?: string | null;
+    address?: string | null; // calle
+    number?: string | null;
+    floor?: string | null; // interior / referencias
+    locality?: string | null; // colonia
+    city?: string | null;
+    province?: string | null; // estado
+    zipcode?: string | null;
+    country?: string | null;
+  } | null;
 };
 
 export async function obtenerOrdenTN(cx: ConexionTN, id: number): Promise<OrdenTN | null> {

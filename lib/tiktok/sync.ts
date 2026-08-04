@@ -7,12 +7,32 @@
      2. SKU ya anotado en `tiktok_publicaciones` → su ficha ya tiene dueño; es una
         publicación secundaria y no hay nada que crear.
      3. Sin vincular y con seller_sku → si EXACTAMENTE una fila del CRM tiene ese
-        sku y sigue sin vínculo TikTok, se vincula.
-     4. Con seller_sku pero la única fila del CRM que lo lleva ya tiene otra
-        publicación → se anota como publicación SECUNDARIA de esa ficha. Antes se
-        creaba una ficha nueva, y de ahí salieron 32 renglones fantasma con 328
-        unidades inventadas (02/08/2026).
-     5. Sin seller_sku o con el sku repartido en varias fichas → fila nueva.
+        sku, sigue sin vínculo TikTok Y NO vive en Tienda Nube/Mercado Libre
+        (ficha huérfana, sin canal), se vincula esa misma fila.
+     4. Con seller_sku pero la única fila que ya lleva ese SKU y tiene vínculo
+        de TikTok tiene otra publicación (no la de este renglón) → si la
+        entrante y esa publicación anterior NO están las DOS activas ahora
+        mismo en TikTok (desactivada o de plano borrada; el fetch pide status
+        "ALL", así que las desactivadas también aparecen), es una
+        republicación real: se anota como publicación SECUNDARIA de esa ficha
+        (antes se creaba una ficha nueva, y de ahí salieron 32 renglones
+        fantasma con 328 unidades inventadas el 02/08/2026; una versión más
+        simple de este chequeo, que solo miraba si la publicación anterior
+        "existía" sin mirar si estaba activa, volvió a crear fichas fantasma
+        para ese mismo caso —el propio "Gamuza Lavanda" (SBD043)— el
+        03/08/2026). Si las DOS están activas a la vez, son probablemente dos
+        artículos distintos con el SKU repetido por error en TikTok → fila
+        nueva (igual que el caso 5).
+     5. Sin seller_sku, con el sku repartido en varias fichas, o cuyo ÚNICO
+        dueño del sku es una ficha de bodega (Tienda Nube/Mercado Libre) sin
+        vínculo de TikTok → fila nueva. TikTok NUNCA adopta una ficha de
+        bodega así comparta SKU: para este negocio el inventario de TikTok es
+        un almacén aparte, no el mismo conteo (confirmado con datos reales:
+        SBD019 "Rick and Morty" tenía 73/72/0/0 en TikTok Seller Center contra
+        53/54/0/0 en la bodega — números genuinamente distintos, no el mismo
+        stock repetido). Por eso cada publicación de TikTok tiene su PROPIA
+        ficha, con su PROPIO stock, aunque el mismo diseño también se venda en
+        Tienda Nube/Mercado Libre bajo otra ficha con el mismo SKU.
 
    Requiere la tabla `tiktok_publicaciones`
    (supabase/migrations/20260805000000_tiktok_publicaciones.sql): aplicar esa
@@ -20,6 +40,14 @@
    El stock de TikTok es por almacén; se suma el inventario de todos los
    almacenes del SKU. El almacén principal (para escribir stock) se guarda en
    integraciones.datos al conectar. Solo servidor (service role).
+
+   `tiktok_stock` (supabase/migrations/20260808000000_tiktok_stock.sql) es un
+   respaldo defensivo para el caso raro de que una ficha de bodega termine con
+   vínculo de TikTok de todos modos (dato viejo, edición a mano): si pasa,
+   `stock` lo sigue gobernando bodega y el número de TikTok se guarda aparte
+   ahí, en vez de perderse. El camino normal, desde esta versión, es que cada
+   publicación de TikTok tenga su propia ficha (caso 5) y ese campo se quede
+   en null.
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -68,13 +96,14 @@ type FilaProducto = {
   sku: string | null;
   tiktok_product_id: string | null;
   tiktok_sku_id: string | null;
+  tiktok_stock: number | null;
   /* Para no pisar las fotos buenas de TN/ML con las de TikTok en fichas unificadas. */
   tiendanube_variant_id: number | null;
   meli_item_id: string | null;
 };
 
 const CAMPOS_FILA =
-  "id, stock, sku, tiktok_product_id, tiktok_sku_id, tiendanube_variant_id, meli_item_id";
+  "id, stock, sku, tiktok_product_id, tiktok_sku_id, tiktok_stock, tiendanube_variant_id, meli_item_id";
 
 /* URL utilizable de una imagen de TikTok: primero las grandes (`urls`), luego
    las miniaturas; se dejan `url_list`/`thumb_url_list` como respaldo de la API
@@ -333,6 +362,16 @@ export async function sincronizarProductosTikTok(
   const admin = createAdminClient();
   const unidades = productos.flatMap(unidadesDe);
   const skuIds = [...new Set(unidades.map((u) => u.skuId))];
+  // Unidad completa (con su `activo`) por sku_id, para el chequeo de la rama
+  // ambigua más abajo. listarProductosTikTok pide status "ALL": trae activos
+  // e inactivos, así que una publicación vieja desactivada (pero NO borrada)
+  // sigue apareciendo aquí — no basta con mirar si el sku_id sigue existiendo,
+  // hay que mirar si sigue ACTIVO. Confirmado con datos reales: el "Cinturón
+  // de Powerlift Gamuza Lavanda" (SBD043, el mismo del incidente del
+  // 02/08/2026) seguía devuelto por TikTok con status distinto de ACTIVATE, y
+  // una versión anterior de este chequeo que solo miraba "existe" lo tomó
+  // como publicación viva y le creó una ficha fantasma con su stock viejo.
+  const unidadPorSkuId = new Map(unidades.map((u) => [u.skuId, u]));
 
   // 1) Filas ya vinculadas a estos SKUs (la publicación PRINCIPAL de la ficha).
   const vinculadas = new Map<string, FilaProducto>();
@@ -380,6 +419,11 @@ export async function sincronizarProductosTikTok(
      esta corrida descubrió. Es el mapa que usa la importación de ventas. */
   const publicaciones: Publicacion[] = [];
   const reclamadas = new Set<string>();
+  // tiktok_sku_id que reclamó cada ficha EN ESTA MISMA corrida (rama
+  // libres.length === 1, más abajo) — hace falta para el chequeo de "sigue
+  // vivo" de la rama ambigua, cuando el sku_id dueño todavía no está guardado
+  // en `products` porque se acaba de vincular en este mismo loop.
+  const reclamadaPorSkuId = new Map<string, string>();
   let vinculados = 0;
 
   for (const u of unidades) {
@@ -392,14 +436,20 @@ export async function sincronizarProductosTikTok(
     if (existente) {
       publicaciones.push({ ...tiktokIds, producto_id: existente.id, principal: true });
       /* Un producto que también vive en Tienda Nube o Mercado Libre tiene ahí su
-         dueño del catálogo Y del inventario. TikTok es un canal más, con su stock
-         INDEPENDIENTE: no debe pisar su stock, ni su estado activo, ni su ficha.
-         Ya pasó una vez —la sync dejó MQR004 en stock 0 y desactivado, copiando
-         los valores de su publicación de TikTok encima de los reales de TN/ML—.
-         El vínculo con TikTok ya está puesto (por eso es `existente`), así que
-         para un producto multicanal no hay nada que actualizar aquí. */
+         dueño del catálogo Y del inventario: `stock`, nombre, fotos y estado los
+         gobierna ese canal, no TikTok. Ya pasó una vez —la sync dejó MQR004 en
+         stock 0 y desactivado, copiando los valores de su publicación de TikTok
+         encima de los reales de TN/ML—.
+         Pero el número que TikTok reporta para SU publicación es un dato real y
+         distinto al de la bodega (mismo motivo que `meli_stock_full`): se guarda
+         aparte en `tiktok_stock`, sin tocar `stock` ni nada más de la ficha. */
       const soloTikTok = existente.tiendanube_variant_id == null && existente.meli_item_id == null;
-      if (!soloTikTok) continue;
+      if (!soloTikTok) {
+        if (u.stock !== existente.tiktok_stock) {
+          cambios.push({ id: existente.id, fila: { tiktok_stock: u.stock } });
+        }
+        continue;
+      }
 
       /* Ficha que vive SOLO en TikTok: aquí TikTok sí es la única fuente de
          verdad, así que aporta todo (ficha, fotos, estado y su propio stock). */
@@ -417,29 +467,66 @@ export async function sincronizarProductosTikTok(
     }
 
     const conEseSku = (u.sku && porSku.get(u.sku)) || [];
-    const libres = conEseSku.filter((f) => f.tiktok_sku_id == null && !reclamadas.has(f.id));
+
+    /* Candidatas para vincular DIRECTO (misma ficha, sin crear otra): solo
+       fichas huérfanas, sin ningún canal (creadas a mano en el CRM, o
+       resultado de una fila nueva de una corrida anterior). Una ficha que
+       YA vive en Tienda Nube o Mercado Libre queda fuera aunque su SKU
+       coincida y no tenga vínculo de TikTok: para este negocio, el inventario
+       de TikTok es un almacén aparte del de bodega —no el mismo conteo—, así
+       que TikTok nunca debe adoptar/absorber una ficha de bodega. Siempre
+       recibe su PROPIA ficha, con su propio stock (ver "fila nueva" abajo). */
+    const libres = conEseSku.filter(
+      (f) =>
+        f.tiktok_sku_id == null &&
+        !reclamadas.has(f.id) &&
+        f.tiendanube_variant_id == null &&
+        f.meli_item_id == null,
+    );
     if (libres.length === 1) {
       // Match único por SKU → vincular (conserva el stock vigente del CRM).
       const fila = libres[0];
       reclamadas.add(fila.id);
+      reclamadaPorSkuId.set(fila.id, u.skuId);
       cambios.push({ id: fila.id, fila: tiktokIds });
       publicaciones.push({ ...tiktokIds, producto_id: fila.id, principal: true });
       vinculados++;
       continue;
     }
 
-    /* Sin ficha libre pero con UNA ficha que ya lleva ese SKU: es el mismo
-       artículo publicado dos veces en TikTok. Antes se creaba una ficha nueva y
-       de ahí salieron los 32 renglones fantasma con 328 unidades inventadas del
-       02/08/2026. Ahora se anota como publicación secundaria de la ficha que ya
-       existe: sin duplicar el inventario y sin perder las ventas que entren por
-       esa publicación. */
-    if (libres.length === 0 && conEseSku.length === 1) {
-      publicaciones.push({ ...tiktokIds, producto_id: conEseSku[0].id, principal: false });
-      continue;
+    /* Candidatas ya tomadas por OTRA publicación de TikTok (sin importar si
+       además viven en bodega): puede ser el mismo artículo publicado dos
+       veces en TikTok (republicación real) O DOS ARTÍCULOS DISTINTOS que
+       comparten seller_sku por error en TikTok — caso ya documentado y a
+       propósito NO fusionado en la limpieza histórica
+       (20260805000000_tiktok_publicaciones.sql, líneas 24-28: MQR017P, dos
+       muñequeras distintas con el mismo SKU).
+       Se distinguen exigiendo que TANTO la entrante (`u`) COMO la publicación
+       que ya tiene la ficha estén ACTIVAS ahora mismo en TikTok (no solo que
+       existan: status "ALL" también devuelve publicaciones desactivadas). Si
+       las dos están activas a la vez → son probablemente dos artículos
+       distintos, no se debe esconder (cae a "fila nueva", más abajo, igual
+       que hace Mercado Libre ante un SKU ambiguo). Si cualquiera de las dos
+       NO está activa —desactivada o de plano ya no existe— se trata como
+       republicación real: se anota como publicación secundaria de la ficha que
+       ya existe, sin duplicar inventario ni perder ventas. */
+    const tomadas = conEseSku.filter((f) => f.tiktok_sku_id != null);
+    if (libres.length === 0 && tomadas.length === 1) {
+      const ficha = tomadas[0];
+      const skuIdDueño = ficha.tiktok_sku_id ?? reclamadaPorSkuId.get(ficha.id) ?? null;
+      const dueño = skuIdDueño != null ? unidadPorSkuId.get(skuIdDueño) : undefined;
+      const dosActivasALaVez = u.activo && !!dueño?.activo;
+      if (!dosActivasALaVez) {
+        publicaciones.push({ ...tiktokIds, producto_id: ficha.id, principal: false });
+        continue;
+      }
+      // Las dos publicaciones están activas a la vez → no ocultar: cae a "fila nueva".
     }
 
-    // Sin SKU, sin match o SKU ambiguo → fila nueva.
+    /* Sin SKU, sin match, SKU ambiguo, dos publicaciones activas con el mismo
+       SKU, o el único match es una ficha de bodega (TN/ML) sin vínculo de
+       TikTok → fila nueva: TikTok siempre recibe su propia ficha delegada,
+       con su propio stock, nunca se mete en la de bodega. */
     nuevos.push({
       nombre: u.nombre,
       variante: u.variante,

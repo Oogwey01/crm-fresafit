@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, respuestaError } from "@/lib/canales/http";
+import { autorizarCron, opcionesReimportacion, respuestaError } from "@/lib/canales/http";
 import { conexionTiendanube, registrarWebhooksTN } from "@/lib/tiendanube/api";
 import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
@@ -30,7 +30,7 @@ export async function GET(request: Request) {
     // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
     let ventas = null;
     try {
-      ventas = await importarVentasTN(cx);
+      ventas = await importarVentasTN(cx, opcionesReimportacion(request));
     } catch (e) {
       console.error("[tiendanube] importación de ventas:", e);
     }

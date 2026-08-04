@@ -17,6 +17,22 @@ export async function autorizarCron(request: Request): Promise<NextResponse | nu
   return null;
 }
 
+/* Opciones de reimportación leídas de la URL de una ruta de sync:
+     ?completo=1        → rescanea la ventana entera, ignorando la última sync
+     ?dias=180          → cuántos días atrás mirar
+   Sirven para REPARAR el histórico: las ventas importadas antes de que la fecha
+   se convirtiera a hora de México quedaron en el día equivocado, y solo se
+   corrigen volviendo a pasar la sincronización por encima de ellas. */
+export function opcionesReimportacion(request: Request): { completo?: boolean; dias?: number } {
+  const p = new URL(request.url).searchParams;
+  const completo = p.get("completo") === "1" || p.get("completo") === "true";
+  const dias = Number(p.get("dias"));
+  return {
+    completo: completo || dias > 0,
+    dias: Number.isFinite(dias) && dias > 0 ? Math.min(dias, 730) : undefined,
+  };
+}
+
 /* Cierre de error uniforme de esas mismas rutas: loguea con su ámbito y
    responde 500 con el mensaje de la excepción (o el texto por defecto). */
 export function respuestaError(e: unknown, ambito: string, porDefecto: string): NextResponse {

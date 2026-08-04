@@ -17,6 +17,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
+  aMonto,
+  guardarTotalesOrden,
+  refrescarRenglones,
+  ventanaDesde,
+  type OpcionesImportacion,
+  type TotalOrden,
+} from "@/lib/canales/ventas-cuadre";
+import { diaMX } from "@/lib/fecha";
+import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
+import {
   conexionTiktok,
   listarOrdenesTikTok,
   obtenerOrdenTikTok,
@@ -27,6 +37,7 @@ import {
 export type ResumenVentasTikTok = {
   ordenes: number;
   insertadas: number;
+  actualizadas: number; // renglones ya importados que se corrigieron (fecha, monto, envío)
   existentes: number;
   retiradas: number;
   clientes: number;
@@ -63,9 +74,67 @@ function refLinea(orderId: string, lineItemId: string): string {
   return `${orderId}:${lineItemId}`;
 }
 
+/* Día de la venta, en hora de México. `create_time` es epoch en segundos y antes
+   se convertía con toISOString(), que normaliza a UTC: toda venta hecha después
+   de las ~18:00 quedaba registrada al día siguiente. Era el canal peor desfasado
+   de los tres. */
 function fechaDe(o: OrdenTikTok): string {
   const ms = (o.create_time ?? Math.floor(Date.now() / 1000)) * 1000;
-  return new Date(ms).toISOString().slice(0, 10);
+  return diaMX(ms);
+}
+
+/* Importes de la orden como los reporta el panel de TikTok Shop. */
+function totalDeOrden(orden: OrdenTikTok, clienteId: string | null): TotalOrden {
+  const p = orden.payment;
+  const subtotal = aMonto(p?.sub_total);
+  const envio = aMonto(p?.shipping_fee);
+  const impuesto = aMonto(p?.tax);
+  const descuento = aMonto(p?.seller_discount) + aMonto(p?.platform_discount);
+  const total = p?.total_amount != null ? aMonto(p.total_amount) : subtotal + envio + impuesto - descuento;
+  return {
+    canal: "tiktok_shop",
+    referencia_orden: orden.id,
+    numero: orden.id,
+    fecha: fechaDe(orden),
+    total,
+    subtotal,
+    envio,
+    descuento,
+    impuesto,
+    moneda: p?.currency?.trim() || "MXN",
+    estado: orden.status ?? null,
+    cliente_id: clienteId,
+  };
+}
+
+/* Nivel de la jerarquía de TikTok por su nombre ("State", "City", "District"…).
+   Se compara en minúsculas porque el rótulo llega localizado y sin garantía de
+   mayúsculas. */
+function nivel(orden: OrdenTikTok, ...nombres: string[]): string | null {
+  const niveles = orden.recipient_address?.district_info ?? [];
+  for (const n of nombres) {
+    const hit = niveles.find((d) => (d.address_level_name ?? "").toLowerCase() === n);
+    if (hit?.address_name) return hit.address_name;
+  }
+  return null;
+}
+
+/* Dirección de entrega de la orden, traducida al formato común del CRM. */
+function direccionDe(orden: OrdenTikTok): DireccionEnvio | null {
+  const d = orden.recipient_address;
+  if (!d) return null;
+  return normalizarDireccion({
+    nombre: d.name,
+    telefono: d.phone_number,
+    /* TikTok no separa calle y número: el detalle viene en una sola cadena. */
+    calle: d.address_detail ?? d.address_line1,
+    colonia: nivel(orden, "district", "neighborhood"),
+    ciudad: nivel(orden, "city", "municipality"),
+    estado: nivel(orden, "state", "province"),
+    cp: d.postal_code,
+    pais: nivel(orden, "country") ?? d.region_code,
+    referencias: d.full_address,
+  });
 }
 
 /* Renglones de `sales` de una orden (ya vendible). */
@@ -76,8 +145,9 @@ function filasDeOrden(
 ) {
   const fecha = fechaDe(orden);
   const estado = estadoDe(orden);
-  const paqueteria = null;
+  const paqueteria = orden.shipping_provider?.trim() || null;
   const numGuia = orden.tracking_number?.trim() || null;
+  const direccion = direccionDe(orden);
   const clienteId = orden.buyer_email ? (clientePorBuyer.get(orden.buyer_email) ?? null) : null;
   return (orden.line_items ?? []).map((li) => {
     const monto = Math.round((Number(li.sale_price) || 0) * 100) / 100;
@@ -92,6 +162,7 @@ function filasDeOrden(
       estado,
       paqueteria,
       num_guia: numGuia,
+      envio_direccion: direccion,
       origen: "api",
       referencia_externa: refLinea(orden.id, li.id),
       notas: `Orden TikTok #${orden.id}`,
@@ -130,15 +201,29 @@ async function sincronizarClientes(ordenes: OrdenTikTok[]): Promise<Map<string, 
     nombre: email,
     canal: "tiktok_shop",
   }));
-  const { error } = await admin.from("customers").upsert(filas, { onConflict: "tiktok_buyer_id" });
-  if (error) throw new Error(error.message);
+  /* En tandas: reimportar el histórico son cientos de compradores, y un `.in()`
+     con todos arma una URL que el servidor rechaza con 400. Con la ventana corta
+     del cron diario no se notaba; al reparar el histórico se cayó entero. */
+  const LOTE = 200;
+  const lista = [...buyers];
+  const mapa = new Map<string, string>();
 
-  const { data, error: errSel } = await admin
-    .from("customers")
-    .select("id, tiktok_buyer_id")
-    .in("tiktok_buyer_id", [...buyers]);
-  if (errSel) throw new Error(errSel.message);
-  return new Map((data ?? []).map((c) => [c.tiktok_buyer_id as string, c.id as string]));
+  for (let i = 0; i < filas.length; i += LOTE) {
+    const { error } = await admin
+      .from("customers")
+      .upsert(filas.slice(i, i + LOTE), { onConflict: "tiktok_buyer_id" });
+    if (error) throw new Error(error.message);
+  }
+
+  for (let i = 0; i < lista.length; i += LOTE) {
+    const { data, error: errSel } = await admin
+      .from("customers")
+      .select("id, tiktok_buyer_id")
+      .in("tiktok_buyer_id", lista.slice(i, i + LOTE));
+    if (errSel) throw new Error(errSel.message);
+    for (const c of data ?? []) mapa.set(c.tiktok_buyer_id as string, c.id as string);
+  }
+  return mapa;
 }
 
 /* Inserta renglones nuevos, refresca estado y retira los de canceladas. */
@@ -162,6 +247,7 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
 
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes));
   let insertadas = 0;
+  let actualizadas = 0;
   if (filas.length > 0) {
     const { data, error } = await admin
       .from("sales")
@@ -189,24 +275,31 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
       }
     }
 
-    // Estado de envío: TikTok es la fuente de verdad; se refresca SIEMPRE.
-    // En tandas de 200 (un .in() enorme rompe la URL — lección de ML).
-    const porEstado = new Map<string, string[]>();
-    for (const f of filas) {
-      (porEstado.get(f.estado) ?? porEstado.set(f.estado, []).get(f.estado)!).push(f.referencia_externa);
-    }
-    for (const [estado, refs] of porEstado) {
-      for (let i = 0; i < refs.length; i += 200) {
-        const { error } = await admin
-          .from("sales")
-          .update({ estado })
-          .eq("canal", "tiktok_shop")
-          .eq("origen", "api")
-          .in("referencia_externa", refs.slice(i, i + 200));
-        if (error) console.error("[tiktok] refresco de estado:", error.message);
-      }
-    }
+    /* Refrescar los renglones ya importados: TikTok es la fuente de verdad del
+       estado y de la guía. Además corrige la FECHA, que aquí importa más que en
+       los otros canales: hasta ahora se calculaba en UTC, así que buena parte
+       del histórico está corrido un día. */
+    actualizadas = await refrescarRenglones(
+      "tiktok_shop",
+      filas.map((f) => ({
+        referencia_externa: f.referencia_externa,
+        fecha: f.fecha,
+        monto: f.monto,
+        cantidad: f.cantidad,
+        estado: f.estado,
+        paqueteria: f.paqueteria,
+        num_guia: f.num_guia,
+        envio_direccion: f.envio_direccion,
+      })),
+    );
   }
+
+  /* Totales por orden: de aquí sale el KPI de ventas de Métricas. */
+  await guardarTotalesOrden(
+    vendibles.map((o) =>
+      totalDeOrden(o, o.buyer_email ? (clientes.get(o.buyer_email) ?? null) : null),
+    ),
+  );
 
   const refsCanceladas = ordenes
     .filter(estaCancelada)
@@ -228,6 +321,7 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
   return {
     ordenes: ordenes.length,
     insertadas,
+    actualizadas,
     existentes: filas.length - insertadas,
     retiradas,
     clientes: clientes.size,
@@ -237,7 +331,7 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
 /* Importación por ventana de fechas (cron / botón). */
 export async function importarVentasTikTok(
   cxParam?: ConexionTikTok,
-  opts?: { completo?: boolean },
+  opts?: OpcionesImportacion,
 ): Promise<ResumenVentasTikTok> {
   const cx = cxParam ?? (await conexionTiktok());
   if (!cx) throw new Error("TikTok Shop no está conectado.");
@@ -246,9 +340,9 @@ export async function importarVentasTikTok(
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
-  const base = ultimaSync ? Date.parse(ultimaSync) : Date.now();
-  const dias = ultimaSync ? DIAS_TRASLAPE : DIAS_PRIMERA_VEZ;
-  const desdeUnix = Math.floor((base - dias * 24 * 60 * 60 * 1000) / 1000);
+  const desdeUnix = Math.floor(
+    ventanaDesde(ultimaSync, opts, DIAS_PRIMERA_VEZ, DIAS_TRASLAPE).getTime() / 1000,
+  );
 
   const ordenes = await listarOrdenesTikTok(cx, desdeUnix);
   const resumen = await aplicarOrdenes(ordenes);
