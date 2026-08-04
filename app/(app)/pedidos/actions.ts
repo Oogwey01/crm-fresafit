@@ -29,11 +29,15 @@ export async function guardarEnvio(
   const cx = await exigirRol("interno", "Solo el equipo interno puede editar envíos.");
   if ("error" in cx) return cx;
 
+  /* Se borra la URL de rastreo que hubiera dado el canal: apuntaba a la guía
+     anterior, y un enlace que lleva al paquete equivocado es peor que ninguno.
+     Sin ella, el CRM la deriva de la paquetería (lib/pedidos/rastreo.ts). */
   const { error } = await cx.supabase
     .from("sales")
     .update({
       paqueteria: textoONulo(paqueteria),
       num_guia: textoONulo(numGuia),
+      url_rastreo: null,
     })
     .eq("id", id);
   if (error) return { error: error.message };

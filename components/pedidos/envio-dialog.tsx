@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { ExternalLink, MapPin } from "lucide-react";
+import { direccionEnUnaLinea } from "@/lib/canales/direccion";
+import { urlRastreo } from "@/lib/pedidos/rastreo";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +35,7 @@ export function EnvioDialog({
   const { pending, ejecutar } = useAccionServidor();
   const [paqueteria, setPaqueteria] = useState(pedido.paqueteria ?? "");
   const [numGuia, setNumGuia] = useState(pedido.num_guia ?? "");
+  const rastreo = urlRastreo(pedido.paqueteria, pedido.num_guia, pedido.url_rastreo);
 
   function guardar() {
     ejecutar(() => guardarEnvio(pedido.id, paqueteria, numGuia), {
@@ -60,6 +64,32 @@ export function EnvioDialog({
             )}
           </p>
 
+          {/* Dirección de entrega tal como la mandó el canal. Es de solo lectura
+              a propósito: la fuente de verdad es la plataforma, y aquí solo se
+              necesita para empacar sin tener que ir a buscarla allá. */}
+          {pedido.envio_direccion && (
+            <div className="rounded-lg border px-3 py-2 text-[13px]">
+              <div className="mb-1 flex items-start gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <MapPin className="size-3.5" aria-hidden="true" />
+                Enviar a
+              </div>
+              {pedido.envio_direccion.nombre && (
+                <div className="font-medium">{pedido.envio_direccion.nombre}</div>
+              )}
+              <div className="text-muted-foreground">
+                {direccionEnUnaLinea(pedido.envio_direccion)}
+              </div>
+              {pedido.envio_direccion.telefono && (
+                <div className="text-muted-foreground">Tel. {pedido.envio_direccion.telefono}</div>
+              )}
+              {pedido.envio_direccion.referencias && (
+                <div className="mt-1 text-[12px] italic text-muted-foreground">
+                  {pedido.envio_direccion.referencias}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="envio-paqueteria">Paquetería</Label>
             <Input
@@ -85,6 +115,19 @@ export function EnvioDialog({
               value={numGuia}
               onChange={(e) => setNumGuia(e.target.value)}
             />
+            {/* Se ofrece sobre lo GUARDADO, no sobre lo que se está escribiendo:
+                el enlace lleva al paquete que de verdad está registrado. */}
+            {rastreo && (
+              <a
+                href={rastreo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-fit items-center gap-1 text-[12.5px] font-medium text-primary hover:underline"
+              >
+                <ExternalLink className="size-3.5" />
+                Ver dónde va el paquete
+              </a>
+            )}
           </div>
         </div>
 
