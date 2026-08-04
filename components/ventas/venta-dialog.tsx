@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, Unlock, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -22,7 +22,8 @@ import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { aNumero } from "@/lib/validacion";
-import { CANALES } from "@/lib/catalogos";
+import { CANALES, obtenerCanal } from "@/lib/catalogos";
+import { cn } from "@/lib/utils";
 import { hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
@@ -45,12 +46,14 @@ export function VentaDialog({
   productos,
   clientes,
   gestor,
+  direccion = false,
   onClose,
 }: {
   venta: VentaMetricas | null; // null = alta
   productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
   clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
   gestor: boolean;
+  direccion?: boolean; // solo Dirección puede corregir a mano una venta importada
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -72,6 +75,22 @@ export function VentaDialog({
   const [creandoCliente, setCreandoCliente] = useState(false);
 
   const seleccionado = productoId ? (productos.find((p) => p.id === productoId) ?? null) : null;
+
+  /* Una venta traída de un canal la manda la plataforma, no el CRM. Editar aquí
+     su precio o su cantidad descuadraba el CRM contra el canal para siempre: la
+     re-sincronización no pisa renglones ya existentes, así que el cambio nunca
+     se revertía y nadie se enteraba. Se quedan de solo lectura los campos que
+     dicta el canal; el cliente y las notas sí son del equipo.
+
+     Dirección conserva la llave —a veces hay que corregir algo a mano— pero
+     detrás de un clic explícito: que el campo esté abierto de entrada invita a
+     tocarlo sin querer, y ese fue justo el reclamo ("me deja modificar el precio
+     y la cantidad… eso no debería estar ahí"). El servidor y la RLS aplican la
+     misma regla; esto es la primera de las tres capas. */
+  const importada = venta?.origen === "api";
+  const [desbloqueado, setDesbloqueado] = useState(false);
+  const bloqueado = importada && !desbloqueado;
+  const nombreCanal = venta ? (obtenerCanal(venta.canal)?.nombre ?? "la plataforma") : "";
 
   const coincidencias = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -172,12 +191,34 @@ export function VentaDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {venta?.origen === "api" && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-              Venta importada de {venta.canal === "tienda_nube" ? "Tienda Nube" : "una plataforma"}
-              {venta.referencia_externa ? ` (ref. ${venta.referencia_externa})` : ""}. Si la orden
-              cambia allá, la sincronización puede volver a ajustarla.
-            </p>
+          {importada && (
+            <div
+              className={cn(
+                "rounded-lg px-3 py-2 text-xs",
+                bloqueado
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+              )}
+            >
+              <p className="wrap-anywhere">
+                Venta importada de {nombreCanal}
+                {venta?.referencia_externa ? ` (ref. ${venta.referencia_externa})` : ""}.{" "}
+                {bloqueado
+                  ? "Producto, canal, fecha, cantidad y total los manda la plataforma: aquí solo se editan el cliente y las notas."
+                  : "Edición manual abierta: lo que cambies dejará de coincidir con la plataforma y la sincronización no lo va a revertir."}
+              </p>
+              {/* La llave es de Dirección, y solo aparece mientras está cerrada. */}
+              {bloqueado && direccion && (
+                <button
+                  type="button"
+                  onClick={() => setDesbloqueado(true)}
+                  className="mt-1.5 inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                >
+                  <Unlock className="size-3" />
+                  Corregir a mano
+                </button>
+              )}
+            </div>
           )}
 
           {/* Producto: chip seleccionado o buscador */}
@@ -187,16 +228,21 @@ export function VentaDialog({
               <div className="flex items-center gap-2">
                 <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
                   <span className="truncate">{etiquetaProducto(seleccionado)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setProductoId(null)}
-                    aria-label="Quitar producto"
-                    className="shrink-0 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3.5" />
-                  </button>
+                  {!bloqueado && (
+                    <button
+                      type="button"
+                      onClick={() => setProductoId(null)}
+                      aria-label="Quitar producto"
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
                 </span>
               </div>
+            ) : bloqueado ? (
+              /* Sin producto del catálogo: la descripción que mandó el canal. */
+              <p className="text-sm text-muted-foreground">{venta?.descripcion ?? "Sin producto"}</p>
             ) : (
               <div className="relative">
                 <Input
@@ -225,7 +271,7 @@ export function VentaDialog({
                 )}
               </div>
             )}
-            {!seleccionado && (
+            {!seleccionado && !bloqueado && (
               <Input
                 placeholder="…o describe qué se vendió (fuera de catálogo)"
                 value={descripcion}
@@ -237,7 +283,11 @@ export function VentaDialog({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
               <Label>Canal</Label>
-              <Select value={canal} onValueChange={(v) => v && setCanal(v as CanalId)}>
+              <Select
+                value={canal}
+                onValueChange={(v) => v && setCanal(v as CanalId)}
+                disabled={bloqueado}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(v: string) => CANALES.find((c) => c.id === v)?.nombre ?? "Canal"}
@@ -254,7 +304,7 @@ export function VentaDialog({
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="venta-fecha">Fecha</Label>
-              <DatePicker id="venta-fecha" value={fecha} onChange={setFecha} />
+              <DatePicker id="venta-fecha" value={fecha} onChange={setFecha} disabled={bloqueado} />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="venta-cantidad">Cantidad</Label>
@@ -264,6 +314,7 @@ export function VentaDialog({
                 min="1"
                 step="1"
                 value={cantidad}
+                disabled={bloqueado}
                 onChange={(e) => {
                   setCantidad(e.target.value);
                   recalcularMonto(seleccionado, e.target.value, montoTocado);
@@ -279,6 +330,7 @@ export function VentaDialog({
                 step="0.01"
                 placeholder="0.00"
                 value={monto}
+                disabled={bloqueado}
                 onChange={(e) => {
                   setMontoTocado(true);
                   setMonto(e.target.value);

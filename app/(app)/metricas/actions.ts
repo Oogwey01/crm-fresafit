@@ -69,7 +69,26 @@ export async function editarVenta(id: string, input: VentaInput): Promise<Result
   const invalido = validarVenta(input);
   if (invalido) return { error: invalido };
 
-  const { error } = await cx.supabase.from("sales").update(filaDeVenta(input)).eq("id", id);
+  /* Las ventas traídas de un canal las gobierna la plataforma. Editar su precio
+     o su cantidad aquí descuadraba el CRM contra el canal de forma permanente:
+     la re-sincronización no reescribe renglones ya existentes, así que el cambio
+     no se revertía nunca y nadie se enteraba. Se permiten solo los campos que sí
+     son del equipo (cliente y notas); del resto manda el canal.
+     La RLS refuerza lo mismo, esto es la defensa en profundidad de siempre. */
+  const { data: actual, error: errLeer } = await cx.supabase
+    .from("sales")
+    .select("origen")
+    .eq("id", id)
+    .single();
+  if (errLeer) return { error: errLeer.message };
+
+  const esImportada = actual?.origen === "api";
+  const cambios =
+    esImportada && cx.rol !== "direccion"
+      ? { cliente_id: input.cliente_id, notas: textoONulo(input.notas) }
+      : filaDeVenta(input);
+
+  const { error } = await cx.supabase.from("sales").update(cambios).eq("id", id);
   if (error) return { error: error.message };
   RUTAS_VENTAS.forEach((r) => revalidatePath(r));
   return { ok: true };

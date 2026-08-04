@@ -34,9 +34,14 @@ export function ClienteDetalle({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2">
+      {/* overflow-x-hidden + wrap-anywhere: los clientes de TikTok llegan con un
+          correo enmascarado de 40 caracteres sin un solo espacio
+          (v4bEHU…@scs2.tiktok.com). Sin esto no rompe línea, estira el diálogo y
+          aparece scroll horizontal: había que arrastrar de lado para leer la
+          ficha. */}
+      <DialogContent className="overflow-x-hidden sm:max-w-xl">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="flex min-w-0 flex-wrap items-center gap-2 wrap-anywhere">
             {cliente.nombre}
             {cliente.recurrente && (
               <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10.5px] font-bold text-primary">
@@ -51,14 +56,14 @@ export function ClienteDetalle({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           {/* Datos de contacto */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
+            <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Contacto
               </div>
-              <div className="mt-1">
+              <div className="mt-1 wrap-anywhere">
                 {cliente.correo ? (
                   <a href={`mailto:${cliente.correo}`} className="hover:underline">
                     {cliente.correo}
@@ -86,6 +91,23 @@ export function ClienteDetalle({
                   <Pastilla nombre={canal.nombre} color={canal.color} />
                 ) : (
                   <span className="text-muted-foreground/60">—</span>
+                )}
+              </div>
+            </div>
+            {/* De dónde es. Solo Tienda Nube manda estos datos: Mercado Libre
+                anonimiza al comprador y TikTok solo da un correo enmascarado,
+                así que en esos canales queda vacío a propósito. */}
+            <div className="col-span-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Ubicación
+              </div>
+              <div className="mt-1">
+                {[cliente.ciudad, cliente.estado, cliente.cp].filter(Boolean).length > 0 ? (
+                  [cliente.ciudad, cliente.estado, cliente.cp].filter(Boolean).join(", ")
+                ) : (
+                  <span className="text-muted-foreground/60">
+                    Sin ubicación (el canal no la comparte)
+                  </span>
                 )}
               </div>
             </div>
@@ -137,11 +159,11 @@ export function ClienteDetalle({
                 Todavía no tiene compras registradas.
               </p>
             ) : (
-              <ul className="max-h-64 overflow-y-auto rounded-xl border">
+              <ul className="max-h-64 overflow-y-auto overflow-x-hidden rounded-xl border">
                 {historial.map((v) => (
                   <li
                     key={v.id}
-                    className="flex items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0"
+                    className="flex min-w-0 items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0"
                   >
                     <span className="w-16 shrink-0 text-muted-foreground">
                       {formatearFecha(v.fecha)}
