@@ -21,7 +21,9 @@ export function MobileNav(props: {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-3 md:hidden">
+    /* `no-imprimir`: la vista de impresión de reportes la usa para dejar fuera
+       del papel el andamiaje de la app. */
+    <header className="no-imprimir sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-3 md:hidden">
       <Sheet open={open} onOpenChange={(o) => setOpen(o)}>
         <SheetTrigger
           aria-label="Abrir menú"
