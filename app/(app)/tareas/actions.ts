@@ -40,6 +40,10 @@ export type TaskInput = {
   titulo: string;
   descripcion: string;
   responsable_id: string | null;
+  /* Las DEMÁS personas que trabajan la tarea (tabla task_assignees). El
+     responsable principal no va aquí: es quien manda en el área y en el carril
+     del tablero. Sin definir = no se toca el equipo actual. */
+  coasignados?: string[];
   area: AreaId;
   prioridad: PrioridadId;
   estado: EstadoId;
@@ -49,6 +53,52 @@ export type TaskInput = {
   motivo_atorado?: string | null;
   etiquetas: string[];
 };
+
+/* Deja `task_assignees` exactamente con la lista pedida: agrega los que faltan
+   y quita los que sobran, sin borrar y reinsertar a todos (eso dispararía otra
+   vez el aviso "Te sumaron a…" para quien ya estaba).
+
+   El principal nunca se guarda como coasignado: ya está en `responsable_id` y
+   duplicarlo pintaría su avatar dos veces. Si la tabla todavía no existe (la
+   migración se aplica a mano) se devuelve el error para que la acción lo
+   reporte en vez de guardar a medias. */
+async function sincronizarCoasignados(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  taskId: string,
+  deseados: string[] | undefined,
+  responsableId: string | null,
+): Promise<string | null> {
+  if (!deseados) return null;
+
+  const querer = new Set(deseados.filter((id) => id && id !== responsableId));
+
+  const { data, error } = await supabase
+    .from("task_assignees")
+    .select("user_id")
+    .eq("task_id", taskId);
+  if (error) return error.message;
+
+  const actuales = new Set(((data ?? []) as { user_id: string }[]).map((f) => f.user_id));
+
+  const agregar = [...querer].filter((id) => !actuales.has(id));
+  const quitar = [...actuales].filter((id) => !querer.has(id));
+
+  if (agregar.length) {
+    const { error: e } = await supabase
+      .from("task_assignees")
+      .insert(agregar.map((user_id) => ({ task_id: taskId, user_id })));
+    if (e) return e.message;
+  }
+  if (quitar.length) {
+    const { error: e } = await supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", taskId)
+      .in("user_id", quitar);
+    if (e) return e.message;
+  }
+  return null;
+}
 
 /* El área de una tarea sigue a su responsable: si se asigna a alguien, se toma
    el área de su perfil (lo pidió Armando en la junta). Sin responsable —o si su
@@ -92,21 +142,34 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
   const titulo = input.titulo.trim();
   if (!titulo) return { error: "La tarea necesita un título." };
 
-  const { error } = await cx.supabase.from("tasks").insert({
-    titulo,
-    descripcion: textoONulo(input.descripcion),
-    responsable_id: input.responsable_id,
-    area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
-    prioridad: input.prioridad,
-    estado: input.estado,
-    fecha_limite: input.fecha_limite || null,
-    recordatorio_at: input.recordatorio_at || null,
-    motivo_atorado: motivoParaEstado(input.estado, input.motivo_atorado),
-    etiquetas: input.etiquetas ?? [],
-    created_by: cx.user.id,
-  });
+  const { data, error } = await cx.supabase
+    .from("tasks")
+    .insert({
+      titulo,
+      descripcion: textoONulo(input.descripcion),
+      responsable_id: input.responsable_id,
+      area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
+      prioridad: input.prioridad,
+      estado: input.estado,
+      fecha_limite: input.fecha_limite || null,
+      recordatorio_at: input.recordatorio_at || null,
+      motivo_atorado: motivoParaEstado(input.estado, input.motivo_atorado),
+      etiquetas: input.etiquetas ?? [],
+      created_by: cx.user.id,
+    })
+    .select("id")
+    .single();
 
   if (error) return { error: error.message };
+
+  const falloEquipo = await sincronizarCoasignados(
+    cx.supabase,
+    data.id,
+    input.coasignados,
+    input.responsable_id,
+  );
+  if (falloEquipo) return { error: `La tarea se creó, pero no se pudo sumar al equipo: ${falloEquipo}` };
+
   revalidatePath("/tareas");
   empujarAvisos();
   return { ok: true };
@@ -136,8 +199,17 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
     .eq("id", id);
 
   if (error) return { error: error.message };
+
+  const falloEquipo = await sincronizarCoasignados(
+    cx.supabase,
+    id,
+    input.coasignados,
+    input.responsable_id,
+  );
+  if (falloEquipo) return { error: `Se guardó la tarea, pero no el equipo: ${falloEquipo}` };
+
   revalidatePath("/tareas");
-  empujarAvisos(); // editar puede cambiar el responsable
+  empujarAvisos(); // editar puede cambiar el responsable o sumar gente
   return { ok: true };
 }
 
@@ -188,6 +260,38 @@ export async function reasignarTarea(id: string, responsableId: string | null): 
   }
   const { error } = await cx.supabase.from("tasks").update(patch).eq("id", id);
   if (error) return { error: error.message };
+
+  /* Si quien pasa a principal venía como acompañante, se sale de la tabla: ya
+     está en `responsable_id` y si no, saldría con el avatar repetido. */
+  if (responsableId) {
+    await cx.supabase
+      .from("task_assignees")
+      .delete()
+      .eq("task_id", id)
+      .eq("user_id", responsableId);
+  }
+
+  revalidatePath("/tareas");
+  empujarAvisos();
+  return { ok: true };
+}
+
+/* Cambiar el equipo de apoyo de una tarea sin tocar nada más (el selector de
+   personas del detalle). El principal se administra con `reasignarTarea`. */
+export async function guardarCoasignados(id: string, userIds: string[]): Promise<Resultado> {
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar el equipo de una tarea.");
+  if ("error" in cx) return cx;
+
+  const { data, error } = await cx.supabase
+    .from("tasks")
+    .select("responsable_id")
+    .eq("id", id)
+    .single();
+  if (error) return { error: error.message };
+
+  const fallo = await sincronizarCoasignados(cx.supabase, id, userIds, data.responsable_id);
+  if (fallo) return { error: fallo };
+
   revalidatePath("/tareas");
   empujarAvisos();
   return { ok: true };

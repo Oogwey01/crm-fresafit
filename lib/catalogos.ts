@@ -59,6 +59,9 @@ export const ETIQUETAS = [
   { id: "reunion", nombre: "Reunión", color: "#0984e3" },
   { id: "cliente", nombre: "Cliente", color: "#fdcb6e" },
   { id: "recurrente", nombre: "Recurrente", color: "#b2bec3" },
+  /* Trabajo de "Los Locos" (el equipo de la agencia): lo pidió Armando en la
+     junta del 03/08/2026 para marcar lo que se hace en conjunto. */
+  { id: "locos", nombre: "Los Locos", color: "#f0932b" },
 
   /* Diseño */
   { id: "grafico", nombre: "Gráfico", area: "diseno", color: "#6c5ce7" },

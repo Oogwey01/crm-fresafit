@@ -4,8 +4,9 @@ import { useState } from "react";
 import { AlertTriangle, ChevronDown, Info, Plus } from "lucide-react";
 import { AREAS, ROLES, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida, formatearFecha } from "@/lib/fecha";
-import type { EstadoId, RolId, TaskConResponsable } from "@/lib/types";
-import { cn, iniciales } from "@/lib/utils";
+import { trabajaLaTarea, type EstadoId, type RolId, type TaskConResponsable } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
 
 /* Vista móvil del módulo Tareas (portada del diseño de Claude Design).
    Lista agrupada por ÁREA con tarjetas compactas — en vez de las vistas
@@ -52,7 +53,7 @@ export function VistaMovil({
      (los filtros de persona/área son de escritorio y aquí no aplican). */
   const base =
     alcance === "mis"
-      ? tareas.filter((t) => t.responsable_id === currentUserId)
+      ? tareas.filter((t) => trabajaLaTarea(t, currentUserId))
       : alcance === "delegadas"
         ? tareas.filter((t) => t.created_by === currentUserId)
         : tareas;
@@ -227,26 +228,14 @@ export function VistaMovil({
                         {t.titulo}
                       </div>
 
-                      {/* Responsable */}
+                      {/* Equipo */}
                       <div className="mt-2.5 flex items-center gap-2">
-                        {t.responsable ? (
-                          <>
-                            <span
-                              className="flex size-[22px] shrink-0 items-center justify-center rounded-full text-[9.5px] font-semibold text-white"
-                              style={{ backgroundColor: t.responsable.color }}
-                              aria-hidden="true"
-                            >
-                              {iniciales(t.responsable.nombre)}
-                            </span>
-                            <span className="truncate text-[12.5px] text-muted-foreground">
-                              {t.responsable.nombre}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-[12.5px] italic text-muted-foreground">
-                            Sin asignar
-                          </span>
-                        )}
+                        <AvataresEquipo
+                          tarea={t}
+                          tamano="md"
+                          maximo={2}
+                          className="text-[12.5px] font-normal text-muted-foreground"
+                        />
                       </div>
 
                       {/* Estado + prioridad + fecha */}

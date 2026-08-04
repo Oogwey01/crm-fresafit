@@ -1,6 +1,6 @@
 "use client";
 
-import type { TaskConResponsable, Profile } from "@/lib/types";
+import { equipoDeTarea, type TaskConResponsable, type Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /* Barra de "carga por persona": un chip por integrante con su número de tareas
@@ -19,10 +19,14 @@ export function CargaPersonas({
   seleccion: string; // "todos" o el id del perfil
   onSeleccionar: (id: string) => void;
 }) {
+  /* La carga cuenta a TODO el equipo de la tarea, no solo a la responsable: si
+     Julio y Manuel adaptan el estudio juntos, es trabajo pendiente para los dos. */
   const activas = tareas.filter((t) => t.estado !== "hecho");
   const conteo = new Map<string, number>();
   for (const t of activas) {
-    if (t.responsable_id) conteo.set(t.responsable_id, (conteo.get(t.responsable_id) ?? 0) + 1);
+    for (const persona of equipoDeTarea(t)) {
+      conteo.set(persona.id, (conteo.get(persona.id) ?? 0) + 1);
+    }
   }
 
   const items = equipo

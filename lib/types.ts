@@ -94,11 +94,36 @@ export type Task = {
 
 /* Tarea con el perfil del responsable ya resuelto (para pintar la tarjeta).
    `leido_at` es la marca de lectura DE QUIEN MIRA (tabla task_reads): si es
-   anterior a `ultima_actividad_at`, la tarea trae algo nuevo para esa persona. */
+   anterior a `ultima_actividad_at`, la tarea trae algo nuevo para esa persona.
+   `coasignados` son las DEMÁS personas que trabajan la tarea (tabla
+   task_assignees), sin incluir al responsable principal. */
 export type TaskConResponsable = Task & {
   responsable: Pick<Profile, "id" | "nombre" | "color"> | null;
+  coasignados: Pick<Profile, "id" | "nombre" | "color">[];
   leido_at?: string | null;
 };
+
+/* Todas las personas que trabajan una tarea: la principal primero y luego los
+   coasignados. Es lo que se pinta en las tarjetas y lo que decide si la tarea
+   es "mía". Devuelve lista vacía si no hay nadie asignado. */
+export function equipoDeTarea(
+  t: Pick<TaskConResponsable, "responsable" | "coasignados">,
+): Pick<Profile, "id" | "nombre" | "color">[] {
+  const equipo = t.responsable ? [t.responsable] : [];
+  for (const c of t.coasignados ?? []) {
+    if (c && c.id !== t.responsable?.id) equipo.push(c);
+  }
+  return equipo;
+}
+
+/* ¿Esta persona trabaja la tarea? (principal o coasignada). */
+export function trabajaLaTarea(
+  t: Pick<TaskConResponsable, "responsable_id" | "coasignados">,
+  userId: string | null,
+): boolean {
+  if (!userId) return false;
+  return t.responsable_id === userId || (t.coasignados ?? []).some((c) => c.id === userId);
+}
 
 /* ¿Esta tarea tiene novedades para mí? Sin marca de lectura, se considera vista:
    así las tareas viejas no aparecen todas con punto el primer día. */

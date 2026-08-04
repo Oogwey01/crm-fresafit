@@ -17,7 +17,14 @@ import { toast } from "sonner";
 import { ESTADOS, AREAS, ROLES, esGestor } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
 import { moverTarea, cambiarPrioridad, reasignarTarea } from "@/app/(app)/tareas/actions";
-import type { TaskConResponsable, Profile, EstadoId, PrioridadId, RolId } from "@/lib/types";
+import {
+  trabajaLaTarea,
+  type TaskConResponsable,
+  type Profile,
+  type EstadoId,
+  type PrioridadId,
+  type RolId,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -229,12 +236,12 @@ export function Board({
      (es estrictamente lo asignado a mí); "todas" aplica ambos filtros. */
   const porAlcance =
     alcance === "mis"
-      ? tareas.filter((t) => t.responsable_id === currentUserId)
+      ? tareas.filter((t) => trabajaLaTarea(t, currentUserId))
       : alcance === "delegadas"
         ? tareas.filter((t) => t.created_by === currentUserId)
         : tareas.filter(
             (t) =>
-              (filtroResponsable === "todos" || t.responsable_id === filtroResponsable) &&
+              (filtroResponsable === "todos" || trabajaLaTarea(t, filtroResponsable)) &&
               (filtroArea === "todas" || t.area === filtroArea),
           );
 
@@ -264,7 +271,13 @@ export function Board({
       )
     : porVencidas;
   /* Carriles del tablero agrupado. Por ÁREA: las áreas con tareas (respetando el
-     filtro). Por PERSONA: cada responsable con tareas + un carril "Sin asignar". */
+     filtro). Por PERSONA: cada responsable con tareas + un carril "Sin asignar".
+
+     Los carriles de persona van por responsable PRINCIPAL, no por todo el equipo
+     de la tarea: repetir la misma tarjeta en varios carriles le daría dos veces
+     el mismo id de arrastre a dnd-kit y rompería el drag. Quién más la trabaja se
+     ve en los avatares de la tarjeta, y el filtro de persona sí toma en cuenta a
+     los acompañantes. */
   const grupos: Grupo[] =
     ejeAgrupacion === "area"
       ? AREAS.filter(

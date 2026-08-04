@@ -38,10 +38,32 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: true, enviados: 0, push });
     }
 
-    // Un aviso por tarea para cada destinatario (responsable y quien delegó, sin
+    /* Las demás personas sumadas a estas tareas: el recordatorio es de todo el
+       equipo, no solo del principal. Si la tabla aún no existe (la migración de
+       coasignados se aplica a mano), se sigue avisando como antes. */
+    const coasignadosPorTarea = new Map<string, string[]>();
+    const { data: coasignados, error: coasErr } = await admin
+      .from("task_assignees")
+      .select("task_id, user_id")
+      .in(
+        "task_id",
+        filas.map((t) => t.id),
+      );
+    if (coasErr) {
+      console.warn("[recordatorios] task_assignees no disponible:", coasErr.message);
+    }
+    for (const c of (coasignados ?? []) as { task_id: string; user_id: string }[]) {
+      coasignadosPorTarea.set(c.task_id, [...(coasignadosPorTarea.get(c.task_id) ?? []), c.user_id]);
+    }
+
+    // Un aviso por tarea para cada destinatario (el equipo y quien delegó, sin
     // duplicar si son la misma persona).
     const avisos = filas.flatMap((t) => {
-      const destinatarios = [...new Set([t.responsable_id, t.created_by].filter(Boolean))] as string[];
+      const destinatarios = [
+        ...new Set(
+          [t.responsable_id, t.created_by, ...(coasignadosPorTarea.get(t.id) ?? [])].filter(Boolean),
+        ),
+      ] as string[];
       return destinatarios.map((uid) => ({
         user_id: uid,
         task_id: t.id,

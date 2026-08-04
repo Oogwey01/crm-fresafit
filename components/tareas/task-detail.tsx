@@ -17,9 +17,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react";
 import { ESTADOS, PRIORIDADES, AREAS, esGestor, obtenerArea } from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { isoALocalInput, localInputAIso, formatearFecha } from "@/lib/fecha";
@@ -50,33 +57,64 @@ import type {
   PrioridadId,
   TaskDetalle,
 } from "@/lib/types";
+import { trabajaLaTarea } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
 import { DatePicker } from "@/components/compartido/date-picker";
 
 const SIN_ASIGNAR = "none";
 
+/* En el teléfono los campos de meta se leen como una lista de propiedades (tipo
+   ajustes del sistema): la etiqueta a la izquierda y el valor a la derecha, sin
+   caja alrededor. De md en adelante el control recupera su borde y su ancho
+   completo, que es como se ve hoy en escritorio.
+
+   El control se queda con TODO el espacio libre de la fila (flex-1) aunque el
+   texto vaya pegado a la derecha: el desplegable de un Select toma el ancho de
+   su disparador, y con un disparador angosto los nombres largos del equipo se
+   salían de la pantalla. De paso, se puede picar toda la mitad derecha. */
+const CTRL_MOVIL =
+  "h-11 min-w-0 flex-1 justify-end border-0 bg-transparent px-0 text-right font-medium " +
+  /* El valor del Select es a su vez un flex que estira a la izquierda, y el
+     DatePicker abre con un icono de calendario que sin caja queda suelto a
+     media fila: ambos sobran cuando el dato va pegado a la derecha. */
+  "[&>[data-slot=select-value]]:justify-end [&>svg:first-child]:hidden " +
+  "md:h-8 md:w-full md:flex-none md:justify-between md:border md:px-2.5 md:text-left md:font-normal " +
+  "md:[&>[data-slot=select-value]]:justify-start md:[&>svg:first-child]:block";
+
 /* El mismo detalle se usa de dos formas: como pop-up desde el tablero (móvil y
    accesos rápidos) y como PÁGINA propia en /tareas/[id]. Armando pidió lo
    segundo —"me gustaría que pueda abrir la tarea y que no sea un pop-up"—, y
    además hace falta para que la campana lleve directo a la tarea. El contenido
-   es idéntico; lo único que cambia es el marco. */
+   es idéntico; lo único que cambia es el marco.
+
+   En modo página el marco además se parte por tamaño: en escritorio es la
+   tarjeta de siempre; en el teléfono el contenido va a sangre entre dos barras
+   fijas (volver/título/⋯ arriba, Guardar abajo) para que se sienta una pantalla
+   de app y no un formulario de computadora encogido. */
 function Envoltorio({
   comoPagina,
   titulo,
   onClose,
+  barraSuperior,
+  barraInferior,
   children,
 }: {
   comoPagina: boolean;
   titulo: string;
   onClose: () => void;
+  barraSuperior?: React.ReactNode;
+  barraInferior?: React.ReactNode;
   children: React.ReactNode;
 }) {
   if (comoPagina) {
     return (
-      <div className="mx-auto w-full max-w-3xl rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
-        <h1 className="mb-4 text-[22px] font-bold tracking-tight">{titulo}</h1>
+      <div className="mx-auto w-full max-w-3xl md:rounded-2xl md:border md:bg-card md:p-6 md:shadow-sm">
+        {barraSuperior}
+        <h1 className="hidden text-[22px] font-bold tracking-tight md:mb-4 md:block">{titulo}</h1>
         {children}
+        {barraInferior}
       </div>
     );
   }
@@ -122,7 +160,9 @@ export function TaskDetail({
   onClose: () => void;
 }) {
   const gestor = esGestor(rol);
-  const esResponsable = tarea.responsable_id === currentUserId;
+  /* Quien acompaña la tarea tiene los mismos permisos que la responsable: si se
+     le pidió el trabajo, tiene que poder moverla y comentarla. */
+  const esResponsable = trabajaLaTarea(tarea, currentUserId);
   const puedeContribuir = gestor || esResponsable;
   const puedeMover = gestor || esResponsable;
 
@@ -154,15 +194,24 @@ export function TaskDetail({
   const [motivoAtorado, setMotivoAtorado] = useState(tarea.motivo_atorado ?? "");
   const [atorarAbierto, setAtorarAbierto] = useState(false);
   const [etiquetas, setEtiquetas] = useState<string[]>(tarea.etiquetas ?? []);
+  const [coasignados, setCoasignados] = useState<string[]>(
+    (tarea.coasignados ?? []).map((p) => p.id),
+  );
 
-  /* Al cambiar el responsable, el área se autollena con la de su perfil. */
+  /* Al cambiar el responsable, el área se autollena con la de su perfil. Si esa
+     persona acompañaba la tarea, deja de hacerlo: ahora es la principal. */
   function elegirResponsable(v: string) {
     const id = v ?? SIN_ASIGNAR;
     setResponsable(id);
     if (id !== SIN_ASIGNAR) {
       const p = equipo.find((x) => x.id === id);
       if (p?.area) setArea(p.area);
+      setCoasignados((prev) => prev.filter((x) => x !== id));
     }
+  }
+
+  function toggleCoasignado(id: string) {
+    setCoasignados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   const [nuevoComentario, setNuevoComentario] = useState("");
@@ -196,6 +245,7 @@ export function TaskDetail({
       titulo,
       descripcion,
       responsable_id: responsable === SIN_ASIGNAR ? null : responsable,
+      coasignados,
       area,
       prioridad,
       estado,
@@ -254,25 +304,84 @@ export function TaskDetail({
 
   const checklist = detalle?.checklist ?? [];
   const hechos = checklist.filter((c) => c.hecho).length;
+  const tituloPantalla = gestor ? "Editar tarea" : "Detalle de la tarea";
+
+  /* Barra superior del teléfono. Va por DEBAJO del header de navegación, que ya
+     es sticky con z-40 y 3.5rem de alto: de ahí el top-14 y el z-30. El -mx-4
+     cancela el padding del <main> para que llegue a los bordes. */
+  const barraSuperior = (
+    <div className="sticky top-14 z-30 -mx-4 mb-3 flex h-14 items-center gap-1 border-b bg-lienzo/95 px-1.5 backdrop-blur md:hidden">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Volver a tareas"
+        className="flex size-11 shrink-0 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted"
+      >
+        <ArrowLeft className="size-5" strokeWidth={2} aria-hidden="true" />
+      </button>
+      <span className="truncate text-[15px] font-bold tracking-tight">{tituloPantalla}</span>
+      {gestor && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label="Más acciones"
+            className="ml-auto flex size-11 shrink-0 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted"
+          >
+            <MoreHorizontal className="size-5" strokeWidth={2} aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem variant="destructive" onClick={borrar}>
+              <Trash2 aria-hidden="true" />
+              Borrar tarea
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </div>
+  );
+
+  /* Guardar al alcance del pulgar: con subtareas, comentarios e historial de por
+     medio, el pie de escritorio quedaba a varias pantallas de scroll. Solo tiene
+     sentido para quien edita la meta; a un miembro el cambio de estado se le
+     aplica al vuelo. */
+  const barraInferior = gestor ? (
+    <div className="sticky bottom-0 z-30 -mx-4 mt-4 border-t bg-lienzo/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
+      <Button className="h-12 w-full text-[15px]" onClick={guardarMeta}>
+        Guardar
+      </Button>
+    </div>
+  ) : null;
 
   return (
     <>
-    <Envoltorio comoPagina={comoPagina} onClose={onClose} titulo={gestor ? "Editar tarea" : "Detalle de la tarea"}>
+    <Envoltorio
+      comoPagina={comoPagina}
+      onClose={onClose}
+      titulo={tituloPantalla}
+      barraSuperior={barraSuperior}
+      barraInferior={barraInferior}
+    >
 
         {/* ===== Meta ===== */}
         {gestor ? (
           <div className="flex flex-col gap-3">
-            <Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título" />
+            <Input
+              className="h-11 md:h-8"
+              value={titulo}
+              onChange={(e) => setTitulo(e.target.value)}
+              placeholder="Título"
+            />
             <Textarea
               rows={3}
               value={descripcion}
               onChange={(e) => setDescripcion(e.target.value)}
               placeholder="Descripción…"
             />
-            <div className="grid grid-cols-2 gap-3">
+            {/* En el teléfono, tarjeta con filas separadas (etiqueta ↔ valor);
+                en escritorio, la rejilla de dos columnas de siempre. */}
+            <div className="grid grid-cols-1 divide-y rounded-2xl border bg-card md:grid-cols-2 md:gap-3 md:divide-y-0 md:rounded-none md:border-0 md:bg-transparent">
               <Meta label="Responsable">
                 <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
-                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
+                  <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
                     {equipo.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
@@ -287,15 +396,17 @@ export function TaskDetail({
               <Meta label="Área">
                 {areaManual ? (
                   <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                    <SelectTrigger className="w-full"><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
+                    <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
                     <SelectContent>
                       {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <div className="flex h-9 items-center gap-2 text-sm">
+                  <div className="flex items-center gap-2 text-sm md:h-9 md:w-full">
                     <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
-                    <span className="text-xs text-muted-foreground">
+                    {/* De dónde salió el área solo cabe en escritorio; en el
+                        teléfono se come la fila entera. */}
+                    <span className="hidden text-xs text-muted-foreground md:inline">
                       {responsable === SIN_ASIGNAR
                         ? "sin responsable"
                         : `según ${equipo.find((p) => p.id === responsable)?.nombre ?? "el responsable"}`}
@@ -303,7 +414,7 @@ export function TaskDetail({
                     <button
                       type="button"
                       onClick={() => setAreaManual(true)}
-                      className="ml-auto text-xs font-medium text-primary hover:underline"
+                      className="ml-auto shrink-0 text-xs font-medium text-primary hover:underline"
                     >
                       cambiar
                     </button>
@@ -312,7 +423,7 @@ export function TaskDetail({
               </Meta>
               <Meta label="Prioridad">
                 <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
-                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
+                  <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {PRIORIDADES.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
                   </SelectContent>
@@ -320,23 +431,33 @@ export function TaskDetail({
               </Meta>
               <Meta label="Estado">
                 <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
-                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}</SelectValue></SelectTrigger>
+                  <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}</SelectValue></SelectTrigger>
                   <SelectContent>
                     {ESTADOS.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </Meta>
               <Meta label="Fecha límite">
-                <DatePicker value={fecha} onChange={setFecha} limpiable />
+                <DatePicker className={CTRL_MOVIL} value={fecha} onChange={setFecha} limpiable />
               </Meta>
               <Meta label="Recordatorio">
                 <Input
+                  className={CTRL_MOVIL}
                   type="datetime-local"
                   value={recordatorio}
                   onChange={(e) => setRecordatorio(e.target.value)}
                 />
               </Meta>
             </div>
+
+            <Seccion titulo="¿Quién más trabaja esta tarea?" abiertaPorDefecto>
+              <SelectorPersonas
+                equipo={equipo}
+                seleccionados={coasignados}
+                principalId={responsable === SIN_ASIGNAR ? null : responsable}
+                onToggle={toggleCoasignado}
+              />
+            </Seccion>
 
             {estado === "atorado" && (
               <div className="flex flex-col gap-1.5">
@@ -352,7 +473,7 @@ export function TaskDetail({
               </div>
             )}
 
-            <Seccion titulo="Etiquetas">
+            <Seccion titulo="Etiquetas" abiertaPorDefecto>
               <SelectorEtiquetas
                 area={area}
                 seleccionadas={etiquetas}
@@ -371,6 +492,14 @@ export function TaskDetail({
               <span className="text-muted-foreground">
                 Responsable: <b className="text-foreground">{nombrePorId(tarea.responsable_id)}</b>
               </span>
+              {(tarea.coasignados ?? []).length > 0 && (
+                <span className="text-muted-foreground">
+                  Con:{" "}
+                  <b className="text-foreground">
+                    {tarea.coasignados.map((p) => p.nombre).join(", ")}
+                  </b>
+                </span>
+              )}
               <span className="text-muted-foreground">
                 Te la puso: <b className="text-foreground">{nombrePorId(tarea.created_by)}</b>
               </span>
@@ -412,12 +541,18 @@ export function TaskDetail({
         ) : (
           <>
             {/* ===== Checklist ===== */}
-            <Seccion titulo={`Subtareas${checklist.length ? ` (${hechos}/${checklist.length})` : ""}`}>
+            <Seccion
+              titulo="Subtareas"
+              contador={checklist.length ? `${hechos}/${checklist.length}` : null}
+              sufijoEscritorio={checklist.length ? `(${hechos}/${checklist.length})` : null}
+              abiertaPorDefecto={checklist.length > 0}
+            >
               <div className="flex flex-col gap-1">
                 {checklist.map((it) => (
-                  <label key={it.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted/60">
+                  <label key={it.id} className="flex items-center gap-2.5 rounded-md px-1.5 py-2 hover:bg-muted/60 md:gap-2 md:py-1">
                     <input
                       type="checkbox"
+                      className="size-[18px] shrink-0 md:size-4"
                       checked={it.hecho}
                       disabled={!puedeContribuir}
                       onChange={(e) => accion(() => toggleChecklist(it.id, e.target.checked))}
@@ -435,6 +570,7 @@ export function TaskDetail({
               {puedeContribuir && (
                 <div className="mt-2 flex gap-2">
                   <Input
+                    className="h-11 md:h-8"
                     value={nuevaSubtarea}
                     onChange={(e) => setNuevaSubtarea(e.target.value)}
                     placeholder="Agregar subtarea…"
@@ -450,10 +586,10 @@ export function TaskDetail({
             </Seccion>
 
             {/* ===== Enlaces ===== */}
-            <Seccion titulo="Enlaces">
+            <Seccion titulo="Enlaces" contador={(detalle?.enlaces ?? []).length || null}>
               <div className="flex flex-col gap-1">
                 {(detalle?.enlaces ?? []).map((l) => (
-                  <div key={l.id} className="flex items-center gap-2 text-sm">
+                  <div key={l.id} className="flex items-center gap-2 py-1 text-sm md:py-0">
                     <a href={l.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
                       🔗 {l.titulo || l.url}
                     </a>
@@ -466,11 +602,11 @@ export function TaskDetail({
               </div>
               {puedeContribuir && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Input className="min-w-[38%] flex-1" value={enlaceTitulo}
+                  <Input className="h-11 w-full md:h-8 md:w-auto md:min-w-[38%] md:flex-1" value={enlaceTitulo}
                     onChange={(e) => setEnlaceTitulo(e.target.value)} placeholder="Nombre (opcional)" />
-                  <Input className="min-w-[38%] flex-1" value={enlaceUrl}
+                  <Input className="h-11 w-full md:h-8 md:w-auto md:min-w-[38%] md:flex-1" value={enlaceUrl}
                     onChange={(e) => setEnlaceUrl(e.target.value)} placeholder="https://…" />
-                  <Button variant="outline" size="sm"
+                  <Button variant="outline" size="sm" className="h-10 w-full md:h-8 md:w-auto"
                     onClick={() => {
                       if (!enlaceUrl.trim()) return;
                       accion(() => agregarEnlace(tarea.id, enlaceTitulo, enlaceUrl));
@@ -481,10 +617,10 @@ export function TaskDetail({
             </Seccion>
 
             {/* ===== Adjuntos ===== */}
-            <Seccion titulo="Adjuntos / fotos">
+            <Seccion titulo="Adjuntos / fotos" contador={(detalle?.adjuntos ?? []).length || null}>
               <div className="flex flex-col gap-1">
                 {(detalle?.adjuntos ?? []).map((a) => (
-                  <div key={a.id} className="flex items-center gap-2 text-sm">
+                  <div key={a.id} className="flex items-center gap-2 py-1 text-sm md:py-0">
                     <button className="text-primary hover:underline" onClick={() => verAdjunto(a.storage_path)}>
                       📎 {a.nombre}
                     </button>
@@ -498,7 +634,7 @@ export function TaskDetail({
               {puedeContribuir && (
                 <div className="mt-2">
                   <input ref={fileRef} type="file" className="hidden" onChange={onSubir} />
-                  <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+                  <Button variant="outline" size="sm" className="h-10 w-full md:h-8 md:w-auto" onClick={() => fileRef.current?.click()}>
                     📎 Adjuntar archivo / foto
                   </Button>
                 </div>
@@ -506,7 +642,11 @@ export function TaskDetail({
             </Seccion>
 
             {/* ===== Comentarios ===== */}
-            <Seccion titulo="Comentarios">
+            <Seccion
+              titulo="Comentarios"
+              contador={(detalle?.comentarios ?? []).length || null}
+              abiertaPorDefecto
+            >
               <div ref={hiloRef} className="flex flex-col gap-2">
                 {(detalle?.comentarios ?? []).length === 0 && (
                   <p className="text-sm text-muted-foreground">Sin comentarios todavía.</p>
@@ -525,10 +665,10 @@ export function TaskDetail({
                   </div>
                 ))}
               </div>
-              <div className="mt-2 flex gap-2">
+              <div className="mt-2 flex flex-col gap-2 md:flex-row">
                 <Textarea ref={comentarioRef} rows={2} value={nuevoComentario}
                   onChange={(e) => setNuevoComentario(e.target.value)} placeholder="Escribe un comentario…" />
-                <Button variant="outline" size="sm"
+                <Button variant="outline" size="sm" className="h-10 self-end px-5 md:h-8 md:self-auto md:px-3"
                   onClick={() => {
                     if (!nuevoComentario.trim()) return;
                     accion(() => comentar(tarea.id, nuevoComentario), "Comentario agregado.");
@@ -538,7 +678,7 @@ export function TaskDetail({
             </Seccion>
 
             {/* ===== Historial ===== */}
-            <Seccion titulo="Historial de actividad">
+            <Seccion titulo="Historial de actividad" contador={(detalle?.actividad ?? []).length || null}>
               <div className="flex flex-col gap-1">
                 {(detalle?.actividad ?? []).map((a) => (
                   <div key={a.id} className="text-xs text-muted-foreground">
@@ -552,7 +692,23 @@ export function TaskDetail({
         )}
 
         {/* ===== Pie ===== */}
-        <div className="mt-4 flex items-center gap-2 border-t pt-4">
+        {/* En el teléfono el pie se parte en dos: la procedencia se queda aquí
+            como nota y las acciones viven en las barras fijas (⋯ arriba,
+            Guardar abajo). En escritorio sigue siendo la fila de siempre. */}
+        {comoPagina && (
+          <p className="mt-4 border-t pt-3 text-xs text-muted-foreground md:hidden">
+            Delegada por {nombrePorId(tarea.created_by)}
+            {tarea.fecha_inicio && ` · Inicio ${formatearFecha(tarea.fecha_inicio)}`}
+          </p>
+        )}
+        <div
+          className={cn(
+            "mt-4 flex items-center gap-2 border-t pt-4",
+            /* Solo la página tiene barras fijas que lo sustituyan; el pop-up
+               conserva su pie en cualquier tamaño. */
+            comoPagina && "hidden md:flex",
+          )}
+        >
           <span className="text-xs text-muted-foreground">
             Delegada por {nombrePorId(tarea.created_by)}
             {tarea.fecha_inicio && ` · Inicio ${formatearFecha(tarea.fecha_inicio)}`}
@@ -584,20 +740,76 @@ export function TaskDetail({
   );
 }
 
+/* Fila de propiedad en el teléfono (etiqueta ↔ valor) y campo apilado en
+   escritorio. Ver CTRL_MOVIL, que es la otra mitad del truco. */
 function Meta({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
+    <div className="flex min-h-12 items-center justify-between gap-3 px-3.5 md:min-h-0 md:flex-col md:items-stretch md:gap-1.5 md:px-0">
+      <span className="shrink-0 text-[13.5px] font-medium text-muted-foreground md:text-xs md:font-semibold md:uppercase md:tracking-wide">
+        {label}
+      </span>
       {children}
     </div>
   );
 }
 
-function Seccion({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+/* En el teléfono las secciones se pliegan —con la tarea abierta, subtareas +
+   enlaces + adjuntos + comentarios + historial eran varias pantallas de scroll—
+   y el encabezado muestra cuánto hay dentro. De md en adelante el encabezado
+   deja de responder al clic, el chevron desaparece y el contenido queda siempre
+   abierto: en escritorio se ve igual que antes.
+
+   El plegado usa el mismo grid 0fr→1fr que la vista móvil del tablero. */
+function Seccion({
+  titulo,
+  contador,
+  sufijoEscritorio,
+  abiertaPorDefecto = false,
+  children,
+}: {
+  titulo: string;
+  contador?: string | number | null;
+  /* Lo que en el teléfono va como pastilla, en escritorio se sigue leyendo
+     dentro del propio encabezado (así estaba «Subtareas (2/5)»). */
+  sufijoEscritorio?: string | null;
+  abiertaPorDefecto?: boolean;
+  children: React.ReactNode;
+}) {
+  const [abierta, setAbierta] = useState(abiertaPorDefecto);
   return (
     <div className="mt-4 border-t pt-3">
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">{titulo}</h3>
-      {children}
+      <button
+        type="button"
+        onClick={() => setAbierta((v) => !v)}
+        aria-expanded={abierta}
+        className="flex w-full items-center gap-2 py-1 text-left md:pointer-events-none md:mb-2 md:py-0"
+      >
+        <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          {titulo}
+          {sufijoEscritorio && <span className="hidden md:inline"> {sufijoEscritorio}</span>}
+        </h3>
+        {contador != null && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground md:hidden">
+            {contador}
+          </span>
+        )}
+        <ChevronDown
+          className={cn(
+            "ml-auto size-4 shrink-0 text-muted-foreground transition-transform md:hidden",
+            !abierta && "-rotate-90",
+          )}
+          strokeWidth={2}
+          aria-hidden="true"
+        />
+      </button>
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-200 md:grid-rows-[1fr]",
+          abierta ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">{children}</div>
+      </div>
     </div>
   );
 }

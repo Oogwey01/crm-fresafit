@@ -11,8 +11,15 @@ import {
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { AREAS, ESTADOS, PRIORIDADES, obtenerEstado, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida, formatearFecha, formatearFechaHora } from "@/lib/fecha";
-import { tieneNovedades, type TaskConResponsable, type EstadoId, type PrioridadId } from "@/lib/types";
-import { cn, iniciales } from "@/lib/utils";
+import {
+  tieneNovedades,
+  trabajaLaTarea,
+  type TaskConResponsable,
+  type EstadoId,
+  type PrioridadId,
+} from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
 
 const COLS = "grid-cols-[minmax(160px,1fr)_150px_140px_120px_100px_150px]";
 
@@ -114,27 +121,16 @@ export function VistaTabla({
     {
       clave: "responsable",
       label: "Responsable",
-      celda: (t) =>
-        t.responsable ? (
-          <span className="flex items-center justify-end gap-2 md:justify-start">
-            <span
-              className="flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
-              style={{ backgroundColor: t.responsable.color }}
-            >
-              {iniciales(t.responsable.nombre)}
-            </span>
-            <span className="truncate">{t.responsable.nombre}</span>
-          </span>
-        ) : (
-          <span className="italic text-muted-foreground">Sin asignar</span>
-        ),
+      celda: (t) => (
+        <AvataresEquipo tarea={t} tamano="md" className="justify-end md:justify-start" />
+      ),
     },
     {
       clave: "estado",
       label: "Estado",
-      /* Editable en celda si es el responsable (o gestor). */
+      /* Editable en celda si trabaja la tarea (o es gestor). */
       celda: (t) =>
-        gestor || t.responsable_id === currentUserId ? (
+        gestor || trabajaLaTarea(t, currentUserId) ? (
           <Select value={t.estado} onValueChange={(v) => v && onMoverEstado(t.id, v as EstadoId)}>
             <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
               <PastillaEstado estado={t.estado} />

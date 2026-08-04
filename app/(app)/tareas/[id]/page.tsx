@@ -25,7 +25,7 @@ export default async function TareaPage({
   const { supabase, user, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const [tareaRes, equipoRes] = await Promise.all([
+  const [tareaRes, equipoRes, asignadosRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("*, responsable:profiles!responsable_id(id, nombre, color)")
@@ -33,16 +33,32 @@ export default async function TareaPage({
       .is("deleted_at", null)
       .maybeSingle(),
     supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    /* Aparte del select de la tarea para que la página siga abriendo aunque la
+       migración de coasignados no se haya aplicado todavía. */
+    supabase
+      .from("task_assignees")
+      .select("perfil:profiles!user_id(id, nombre, color)")
+      .eq("task_id", id),
   ]);
 
-  const tarea = tareaRes.data as unknown as TaskConResponsable | null;
-  if (!tarea) notFound();
+  const base = tareaRes.data as unknown as TaskConResponsable | null;
+  if (!base) notFound();
+
+  type FilaAsignado = { perfil: Pick<Profile, "id" | "nombre" | "color"> | null };
+  const tarea: TaskConResponsable = {
+    ...base,
+    coasignados: ((asignadosRes.data ?? []) as unknown as FilaAsignado[])
+      .map((a) => a.perfil)
+      .filter((p): p is Pick<Profile, "id" | "nombre" | "color"> => Boolean(p)),
+  };
 
   return (
     <div>
+      {/* En el teléfono este enlace lo sustituye la flecha de la barra fija del
+          detalle, que además queda pegada al header de navegación. */}
       <Link
         href="/tareas"
-        className="mb-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-muted-foreground hover:text-foreground"
+        className="mb-3 hidden items-center gap-1.5 text-[13px] font-semibold text-muted-foreground hover:text-foreground md:inline-flex"
       >
         <ArrowLeft className="size-4" aria-hidden="true" />
         Volver a tareas

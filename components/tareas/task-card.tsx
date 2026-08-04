@@ -6,7 +6,8 @@ import { AlertTriangle, CheckSquare, ChevronLeft, ChevronRight } from "lucide-re
 import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
 import { tieneNovedades, type TaskConResponsable, type EstadoId } from "@/lib/types";
-import { cn, iniciales } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
 
 export function TaskCard({
   tarea,
@@ -124,22 +125,9 @@ export function TaskCard({
         </div>
       )}
 
-      {/* Pie: responsable + fecha */}
+      {/* Pie: equipo + fecha */}
       <div className="flex items-center justify-between gap-2 text-xs">
-        {tarea.responsable ? (
-          <span className="flex min-w-0 items-center gap-1.5 font-medium text-foreground">
-            <span
-              className="flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-bold text-white"
-              style={{ backgroundColor: tarea.responsable.color }}
-              aria-hidden="true"
-            >
-              {iniciales(tarea.responsable.nombre)}
-            </span>
-            <span className="truncate">{tarea.responsable.nombre}</span>
-          </span>
-        ) : (
-          <span className="italic text-muted-foreground">Sin asignar</span>
-        )}
+        <AvataresEquipo tarea={tarea} />
         {tarea.fecha_limite && (
           <span
             className={cn(

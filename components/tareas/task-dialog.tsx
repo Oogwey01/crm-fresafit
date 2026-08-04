@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ESTADOS, PRIORIDADES, AREAS, obtenerArea } from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
+import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { localInputAIso, hoyISO } from "@/lib/fecha";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
 import { DatePicker } from "@/components/compartido/date-picker";
@@ -57,15 +58,23 @@ export function TaskDialog({
   const [recordatorio, setRecordatorio] = useState("");
   const [motivoAtorado, setMotivoAtorado] = useState("");
   const [etiquetas, setEtiquetas] = useState<string[]>([]);
+  const [coasignados, setCoasignados] = useState<string[]>([]);
 
-  /* Al elegir responsable, el área se autollena con la de su perfil (editable). */
+  /* Al elegir responsable, el área se autollena con la de su perfil (editable).
+     Si esa persona estaba como acompañante, se sale de la lista: ya está en la
+     tarea como principal. */
   function elegirResponsable(v: string) {
     const id = v ?? SIN_ASIGNAR;
     setResponsable(id);
     if (id !== SIN_ASIGNAR) {
       const p = equipo.find((x) => x.id === id);
       if (p?.area) setArea(p.area);
+      setCoasignados((prev) => prev.filter((x) => x !== id));
     }
+  }
+
+  function toggleCoasignado(id: string) {
+    setCoasignados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   function toggleEtiqueta(id: string) {
@@ -83,6 +92,7 @@ export function TaskDialog({
       titulo,
       descripcion,
       responsable_id: responsable === SIN_ASIGNAR ? null : responsable,
+      coasignados,
       area,
       prioridad,
       estado,
@@ -183,6 +193,19 @@ export function TaskDialog({
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>¿Alguien más? (opcional)</Label>
+            <SelectorPersonas
+              equipo={equipo}
+              seleccionados={coasignados}
+              principalId={responsable === SIN_ASIGNAR ? null : responsable}
+              onToggle={toggleCoasignado}
+            />
+            <span className="text-xs text-muted-foreground">
+              Verán la tarea, podrán moverla y les llegarán los avisos igual que a la responsable.
+            </span>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
