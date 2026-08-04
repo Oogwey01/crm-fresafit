@@ -23,7 +23,10 @@ export function MobileNav(props: {
   return (
     /* `no-imprimir`: la vista de impresión de reportes la usa para dejar fuera
        del papel el andamiaje de la app. */
-    <header className="no-imprimir sticky top-0 z-40 flex h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-3 md:hidden">
+    /* El alto va en min-h y no en h: con la PWA instalada (viewportFit "cover")
+       el contenido arranca debajo del notch, así que la barra se alarga lo que
+       mida el inset en vez de meterse bajo la hora y la señal. */
+    <header className="no-imprimir sticky top-0 z-40 flex min-h-14 items-center gap-3 border-b border-sidebar-border bg-sidebar px-3 pt-[env(safe-area-inset-top)] md:hidden">
       <Sheet open={open} onOpenChange={(o) => setOpen(o)}>
         <SheetTrigger
           aria-label="Abrir menú"

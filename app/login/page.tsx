@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { LogoFresafit } from "@/components/logo-fresafit";
@@ -28,6 +28,22 @@ function FresaMark({ className }: { className?: string }) {
 
 /* Correo de Dirección (única fuente en lib/catalogos.ts → EQUIPO_SEED). */
 const CORREO_DIRECCION = "armando@fresafit.com.mx";
+
+/* Aviso de "te sacamos, no te trabaste": lo pone el layout de (app) al rebotar
+   aquí con ?sesion=expirada. Vive en su propio componente porque
+   useSearchParams() obliga a Next a esperar la petición para renderizar quien lo
+   use; aislado así, el resto del login se sigue prerenderizando estático. */
+function AvisoSesionExpirada() {
+  if (useSearchParams().get("sesion") !== "expirada") return null;
+  return (
+    <p
+      role="status"
+      className="mb-5 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-[13.5px] font-medium text-amber-700 dark:text-amber-400"
+    >
+      Tu sesión terminó. Vuelve a entrar para continuar.
+    </p>
+  );
+}
 
 const CLASE_INPUT =
   "w-full rounded-xl border border-input bg-background py-3 pl-11 pr-3.5 text-[14.5px] text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground focus:border-primary focus:ring-[3px] focus:ring-primary/15";
@@ -63,7 +79,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-lienzo">
+    /* dvh y no screen: en el celular `screen` ignora la barra de direcciones y
+       el login quedaba con scroll de más. */
+    <div className="flex min-h-dvh w-full bg-lienzo">
       {/* Panel de marca (solo escritorio) */}
       <div
         className="relative hidden w-[48%] max-w-[720px] shrink-0 flex-col justify-between overflow-hidden p-14 text-white lg:flex"
@@ -117,6 +135,10 @@ export default function LoginPage() {
               Ingresa con tu correo del equipo para continuar.
             </p>
           </div>
+
+          <Suspense fallback={null}>
+            <AvisoSesionExpirada />
+          </Suspense>
 
           <form onSubmit={onSubmit} noValidate>
             {/* Correo */}

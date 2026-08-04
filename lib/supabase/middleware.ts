@@ -83,9 +83,12 @@ export async function updateSession(request: NextRequest) {
 
   // Redirige copiando las cookies de sesión ya refrescadas por getUser(); si no,
   // los tokens rotados se perderían y la sesión podría romperse.
+  // El search se descarta a propósito: un redirect de navegación no debe
+  // arrastrar el `?_rsc=` de un prefetch ni el `?sesion=` del aviso de expirada.
   function redirigir(pathname: string) {
     const url = request.nextUrl.clone();
     url.pathname = pathname;
+    url.search = "";
     const res = NextResponse.redirect(url);
     supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c));
     return res;
@@ -94,8 +97,43 @@ export async function updateSession(request: NextRequest) {
   // Sin sesión y en ruta protegida → al login.
   if (!autenticado && !esPublica) return redirigir("/login");
 
-  // Con sesión y en el login → directo al tablero.
-  if (autenticado && path === "/login") return redirigir("/tareas");
+  /* Con sesión aparente y en el login → al tablero, pero SOLO tras confirmarlo
+     contra Supabase.
+
+     getClaims() únicamente verifica la firma del JWT: un token revocado (cerrar
+     sesión en otro dispositivo, cambio de contraseña, refresh token ya rotado)
+     se sigue viendo válido hasta que expira, hasta una hora después. El layout
+     de (app) sí pregunta por red, así que veía lo contrario y rebotaba a
+     /login... que aquí rebotaba a /tareas. Ese ping-pong es el
+     ERR_TOO_MANY_REDIRECTS que dejaba a la gente fuera del CRM — y en la PWA
+     instalada, sin barra de direcciones, sin escapatoria.
+
+     La confirmación se paga solo en /login, que casi no se visita; el resto de
+     las rutas conserva el getClaims() rápido de arriba. */
+  if (autenticado && path === "/login") {
+    /* Red de seguridad: si el layout de (app) acaba de rebotar aquí porque su
+       getUser() no vio sesión, no se vuelve a mandar al tablero pase lo que
+       pase. Así ningún desajuste futuro entre las dos guardias puede reabrir el
+       bucle — y de paso se ahorra la llamada de red, porque la respuesta ya se
+       sabe. */
+    const rebotadoPorSesion = request.nextUrl.searchParams.get("sesion") === "expirada";
+
+    let vivo = false;
+    if (!rebotadoPorSesion) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      vivo = !!user;
+    }
+    if (vivo) return redirigir("/tareas");
+
+    /* Sesión zombi: firmada pero muerta. Se borran las cookies (scope local: no
+       toca las sesiones de los demás dispositivos, y no cuesta red) para que la
+       próxima visita arranque limpia en vez de repetir este rodeo en cada
+       request hasta que el token expire. signOut escribe las cookies vacías en
+       supabaseResponse a través de setAll, así que basta con devolverla. */
+    await supabase.auth.signOut({ scope: "local" });
+  }
 
   return supabaseResponse;
 }

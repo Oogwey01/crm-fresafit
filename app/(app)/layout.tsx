@@ -15,7 +15,11 @@ export default async function AppLayout({
 }) {
   const { supabase, user, perfil } = await usuarioActual();
 
-  if (!user) redirect("/login");
+  /* El `?sesion=expirada` no es cosmético: le avisa al proxy que esta guardia
+     —que sí pregunta por red— no vio sesión, para que no rebote de vuelta al
+     tablero creyendo válido un JWT que solo lo parece por la firma. Sin esa
+     señal, las dos guardias se rebotaban entre sí hasta el ERR_TOO_MANY_REDIRECTS. */
+  if (!user) redirect("/login?sesion=expirada");
 
   const [{ count: tareasActivas }, notisRes] = await Promise.all([
     supabase
@@ -41,7 +45,10 @@ export default async function AppLayout({
   };
 
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
+    /* min-h-dvh y no min-h-screen: en el celular, `screen` mide la ventana sin
+       descontar la barra de direcciones, así que el shell quedaba más alto que
+       lo visible y el scroll pegaba un salto cada vez que esa barra aparecía. */
+    <div className="flex min-h-dvh flex-col md:flex-row">
       {/* Móvil: header con hamburguesa. Escritorio: aside lateral. */}
       <MobileNav {...navProps} />
       <Sidebar {...navProps} />
@@ -49,7 +56,12 @@ export default async function AppLayout({
           debajo de su contenido y fuerza scroll horizontal de toda la página.
           El scroll horizontal vive ahora en los componentes que sí lo requieren
           (tablas anchas, calendario, kanban), no en el shell. */}
-      <main className="min-w-0 flex-1 bg-lienzo p-4 sm:p-6 md:p-7">{children}</main>
+      {/* pb con el inset: en la PWA instalada la barra de gestos de Android/iOS
+          se comía la última fila de cada pantalla. El max() conserva el padding
+          normal donde no hay inset (escritorio y teléfonos con botones). */}
+      <main className="min-w-0 flex-1 bg-lienzo p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] md:p-7 md:pb-[max(1.75rem,env(safe-area-inset-bottom))]">
+        {children}
+      </main>
     </div>
   );
 }
