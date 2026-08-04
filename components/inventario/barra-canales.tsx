@@ -1,6 +1,5 @@
 "use client";
 
-import { useTransition } from "react";
 import { Music2, RefreshCw, ShoppingCart, Store, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -8,17 +7,24 @@ import {
   sincronizarTiendanube,
   sincronizarTiktok,
 } from "@/app/(app)/inventario/actions";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /* Los tres canales usan el mismo par de botones (Conectar / Sincronizar); era
    el mismo JSX triplicado en el panel. El id coincide con la ruta de OAuth
-   (/api/<id>/conectar). */
+   (/api/<id>/conectar).
+
+   `confirmacion` existe porque estos botones no son gratis: cada uno recorre el
+   catálogo entero y las ventas del canal, tarda minutos y se dispara solo por
+   cron. Estaban a un clic de distancia de "Conectar", que es justo el vecino
+   más peligroso para tocar sin querer. */
 const CANALES: {
   id: "tiendanube" | "mercadolibre" | "tiktok";
   etiquetaSync: string;
   etiquetaConectar: string;
   icono: LucideIcon;
+  confirmacion: string;
   sincronizar: () => Promise<{ ok: true; detalle: string } | { error: string }>;
 }[] = [
   {
@@ -26,6 +32,8 @@ const CANALES: {
     etiquetaSync: "Sincronizar",
     etiquetaConectar: "Conectar Tienda Nube",
     icono: Store,
+    confirmacion:
+      "Sincronizar Tienda Nube: se vuelven a leer el catálogo y las ventas. Puede tardar unos minutos. ¿Seguir?",
     sincronizar: sincronizarTiendanube,
   },
   {
@@ -33,6 +41,8 @@ const CANALES: {
     etiquetaSync: "Mercado Libre",
     etiquetaConectar: "Conectar Mercado Libre",
     icono: ShoppingCart,
+    confirmacion:
+      "Sincronizar Mercado Libre: se vuelven a leer las publicaciones y las ventas. Puede tardar unos minutos. ¿Seguir?",
     sincronizar: sincronizarMercadolibre,
   },
   {
@@ -40,6 +50,8 @@ const CANALES: {
     etiquetaSync: "TikTok Shop",
     etiquetaConectar: "Conectar TikTok Shop",
     icono: Music2,
+    confirmacion:
+      "Sincronizar TikTok Shop: se vuelven a leer el catálogo y las ventas. Puede tardar unos minutos. ¿Seguir?",
     sincronizar: sincronizarTiktok,
   },
 ];
@@ -76,13 +88,17 @@ function BotonCanal({
   canal: (typeof CANALES)[number];
   conectada: boolean;
 }) {
-  const [sincronizando, startSync] = useTransition();
+  const { pending: sincronizando, ejecutar } = useAccionServidor();
 
   function sincronizar() {
-    startSync(async () => {
-      const r = await canal.sincronizar();
-      if ("error" in r) toast.error(r.error);
-      else toast.success(r.detalle);
+    ejecutar(canal.sincronizar, {
+      confirmar: canal.confirmacion,
+      error: "No se pudo sincronizar. Revisa tu conexión.",
+      /* El detalle lo arma el server action (cuántos productos, cuántas
+         ventas), así que el toast sale de la respuesta y no de un literal. */
+      alExito: (r) => {
+        toast.success(r.detalle);
+      },
     });
   }
 
