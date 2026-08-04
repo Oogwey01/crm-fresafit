@@ -3,7 +3,14 @@
 import { useMemo, useState } from "react";
 import { ArrowDownCircle, ArrowUpCircle, Paperclip, Plus, Wallet } from "lucide-react";
 import { CATEGORIAS_GASTO, obtenerCategoriaGasto } from "@/lib/catalogos";
-import { formatearFecha, rangosDePeriodo } from "@/lib/fecha";
+import {
+  formatearFecha,
+  hoyISO,
+  rangoPersonalizado,
+  rangosDePeriodo,
+  type PresetRangoId,
+} from "@/lib/fecha";
+import { RangoFechas } from "@/components/compartido/rango-fechas";
 import { ETIQUETA_DELTA, deltaPct, enRango } from "@/lib/metricas";
 import { formatearMXN } from "@/lib/moneda";
 import type { ExpenseConComprobantes, Sale } from "@/lib/types";
@@ -20,16 +27,14 @@ import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { GastoDialog } from "@/components/finanzas/gasto-dialog";
-import { cn } from "@/lib/utils";
 
-type PeriodoId = "hoy" | "semana" | "mes" | "mes_pasado";
+/* "" = rango elegido a mano en el calendario (sin atajo activo). */
+type PeriodoId = PresetRangoId | "";
 
-const PERIODOS: [PeriodoId, string][] = [
-  ["hoy", "Hoy"],
-  ["semana", "Semana"],
-  ["mes", "Mes"],
-  ["mes_pasado", "Mes pasado"],
-];
+const ETIQUETA_PERIODO: Record<PeriodoId, string> = {
+  ...ETIQUETA_DELTA,
+  "": "vs. periodo anterior",
+};
 
 const COLS = "grid-cols-[95px_minmax(180px,1fr)_130px_140px_120px_40px]";
 
@@ -41,10 +46,13 @@ export function PanelFinanzas({
   ventas: Pick<Sale, "fecha" | "monto">[];
 }) {
   const [periodo, setPeriodo] = useState<PeriodoId>("mes");
+  /* Rango a mano (cuando no hay atajo activo). */
+  const [desde, setDesde] = useState(() => hoyISO().slice(0, 8) + "01");
+  const [hasta, setHasta] = useState(hoyISO);
   const [filtroCategoria, setFiltroCategoria] = useState("todas");
   const [dialog, setDialog] = useState<ExpenseConComprobantes | "nuevo" | null>(null);
 
-  const rangos = rangosDePeriodo(periodo);
+  const rangos = periodo ? rangosDePeriodo(periodo) : rangoPersonalizado(desde, hasta);
 
   const gastosPeriodo = useMemo(
     () => gastos.filter((g) => enRango(g.fecha, rangos.actual)),
@@ -144,20 +152,19 @@ export function PanelFinanzas({
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-          <div className="flex w-full rounded-lg bg-muted p-0.5 md:inline-flex md:w-auto">
-            {PERIODOS.map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setPeriodo(id)}
-                className={cn(
-                  "flex-1 rounded-md px-3 py-1.5 text-sm font-semibold transition-colors md:flex-none",
-                  periodo === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* Mismo selector que Métricas: atajos y rango a mano en un solo sitio. */}
+          <RangoFechas
+            desde={desde}
+            hasta={hasta}
+            preset={periodo}
+            onPreset={setPeriodo}
+            onChange={(d, h) => {
+              setDesde(d);
+              setHasta(h);
+              setPeriodo("");
+            }}
+            className="w-full md:w-[220px]"
+          />
           <Button
             onClick={() => setDialog("nuevo")}
             className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
@@ -176,7 +183,7 @@ export function PanelFinanzas({
           icono={ArrowUpCircle}
           valorClassName="text-green-600"
           delta={deltaPct(entradas, entradasAnterior)}
-          deltaEtiqueta={ETIQUETA_DELTA[periodo]}
+          deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
         />
         <StatCard
           etiqueta="Salidas (gastos)"
@@ -184,7 +191,7 @@ export function PanelFinanzas({
           icono={ArrowDownCircle}
           valorClassName="text-red-600"
           delta={deltaPct(salidas, salidasAnterior)}
-          deltaEtiqueta={ETIQUETA_DELTA[periodo]}
+          deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
         />
         <StatCard
           etiqueta="Saldo"

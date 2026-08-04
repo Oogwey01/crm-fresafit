@@ -41,6 +41,21 @@ export function ahoraMX(): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Mexico_City" }));
 }
 
+/* Día calendario (AAAA-MM-DD) de un INSTANTE, visto desde México.
+   Es la conversión que faltaba en los importadores de ventas: las APIs de los
+   canales devuelven un instante con su propio huso ("2026-08-02T23:30:00-04:00",
+   o epoch en segundos), y cortarlo con slice(0,10) —o pasarlo por toISOString()—
+   se queda con el día de ESE huso, no con el nuestro. De ahí que una venta de la
+   noche apareciera al día siguiente y los totales por rango no cuadraran contra
+   los paneles oficiales.
+
+   "en-CA" se usa porque su formato de fecha corta ya es AAAA-MM-DD. */
+export function diaMX(instante: string | number | Date): string {
+  const d = instante instanceof Date ? instante : new Date(instante);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+}
+
 /* Hoy en formato AAAA-MM-DD (zona de México). */
 export function hoyISO(): string {
   const d = ahoraMX();
@@ -132,9 +147,26 @@ export function rangoPersonalizado(desde: string, hasta: string): {
   };
 }
 
+/* Atajos de rango que ofrece el selector de fechas. Son los que pidió Armando
+   ("últimos 30 días, últimos 7, últimos 15, mes actual, semana actual"), más
+   ayer, que sale gratis. El orden es el que se pinta en la columna. */
+export const PRESETS_RANGO = [
+  { id: "hoy", nombre: "Hoy" },
+  { id: "ayer", nombre: "Ayer" },
+  { id: "ultimos_7", nombre: "Últimos 7 días" },
+  { id: "ultimos_15", nombre: "Últimos 15 días" },
+  { id: "ultimos_30", nombre: "Últimos 30 días" },
+  { id: "semana", nombre: "Semana actual" },
+  { id: "mes", nombre: "Mes actual" },
+  { id: "mes_pasado", nombre: "Mes pasado" },
+] as const;
+
+export type PresetRangoId = (typeof PRESETS_RANGO)[number]["id"];
+
 /* Rango del periodo elegido y su equivalente ANTERIOR (para el Δ de
-   comparación): hoy↔ayer, semana↔semana pasada, mes↔mes pasado, etc. */
-export function rangosDePeriodo(id: "hoy" | "semana" | "mes" | "mes_pasado"): {
+   comparación): hoy↔ayer, semana↔semana pasada, mes↔mes pasado, etc.
+   Los "últimos N días" se comparan contra los N días inmediatamente previos. */
+export function rangosDePeriodo(id: PresetRangoId): {
   actual: Periodo;
   anterior: Periodo;
 } {
@@ -146,6 +178,21 @@ export function rangosDePeriodo(id: "hoy" | "semana" | "mes" | "mes_pasado"): {
     return {
       actual: { desde: hoyISO(), hasta: hoyISO() },
       anterior: { desde: diasDesdeHoy(-1), hasta: diasDesdeHoy(-1) },
+    };
+  }
+  if (id === "ayer") {
+    return {
+      actual: { desde: diasDesdeHoy(-1), hasta: diasDesdeHoy(-1) },
+      anterior: { desde: diasDesdeHoy(-2), hasta: diasDesdeHoy(-2) },
+    };
+  }
+  if (id === "ultimos_7" || id === "ultimos_15" || id === "ultimos_30") {
+    /* Ventana móvil que INCLUYE hoy: "últimos 7" = hoy y los 6 anteriores, que
+       es como lo cuentan los paneles de los canales. */
+    const n = id === "ultimos_7" ? 7 : id === "ultimos_15" ? 15 : 30;
+    return {
+      actual: { desde: diasDesdeHoy(-(n - 1)), hasta: hoyISO() },
+      anterior: { desde: diasDesdeHoy(-(2 * n - 1)), hasta: diasDesdeHoy(-n) },
     };
   }
   if (id === "semana") {

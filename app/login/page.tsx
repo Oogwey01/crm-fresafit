@@ -63,7 +63,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen w-full bg-[#f4f4f6]">
+    <div className="flex min-h-screen w-full bg-lienzo">
       {/* Panel de marca (solo escritorio) */}
       <div
         className="relative hidden w-[48%] max-w-[720px] shrink-0 flex-col justify-between overflow-hidden p-14 text-white lg:flex"

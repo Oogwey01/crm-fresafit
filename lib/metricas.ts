@@ -1,13 +1,17 @@
 /* Helpers de periodos/deltas compartidos por Finanzas y Métricas (cada panel
    tenía su copia idéntica). */
 
-import type { Periodo } from "@/lib/fecha";
+import type { Periodo, PresetRangoId } from "@/lib/fecha";
 
 /* Periodos con comparativo (los paneles pueden extender con "personalizado"). */
-export type PeriodoBaseId = "hoy" | "semana" | "mes" | "mes_pasado";
+export type PeriodoBaseId = PresetRangoId;
 
 export const ETIQUETA_DELTA: Record<PeriodoBaseId, string> = {
   hoy: "vs. ayer",
+  ayer: "vs. anteayer",
+  ultimos_7: "vs. 7 días previos",
+  ultimos_15: "vs. 15 días previos",
+  ultimos_30: "vs. 30 días previos",
   semana: "vs. semana pasada",
   mes: "vs. mes pasado",
   mes_pasado: "vs. antepasado",

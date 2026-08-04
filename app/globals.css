@@ -6,6 +6,7 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-lienzo: var(--lienzo);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
@@ -51,6 +52,10 @@
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  /* Fondo del área de contenido. Va un punto por debajo de `--card` para que las
+     tarjetas blancas se despeguen del lienzo. Estaba fijo como #f4f4f6 dentro
+     del layout, que es lo que impedía el modo oscuro. */
+  --lienzo: oklch(0.968 0.001 286);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -86,6 +91,9 @@
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
+  /* En oscuro la relación se invierte: el lienzo es MÁS oscuro que las tarjetas,
+     que es lo que las hace flotar por encima. */
+  --lienzo: oklch(0.13 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);

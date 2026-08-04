@@ -49,7 +49,7 @@ export default async function AppLayout({
           debajo de su contenido y fuerza scroll horizontal de toda la página.
           El scroll horizontal vive ahora en los componentes que sí lo requieren
           (tablas anchas, calendario, kanban), no en el shell. */}
-      <main className="min-w-0 flex-1 bg-[#f4f4f6] p-4 sm:p-6 md:p-7">{children}</main>
+      <main className="min-w-0 flex-1 bg-lienzo p-4 sm:p-6 md:p-7">{children}</main>
     </div>
   );
 }

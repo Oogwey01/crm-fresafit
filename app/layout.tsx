@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Space_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/tema-provider";
 
 const instrumentSans = Instrument_Sans({
   variable: "--font-sans",
@@ -40,13 +41,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    /* suppressHydrationWarning: next-themes escribe la clase del tema en <html>
+       antes de que React hidrate, así que el HTML del servidor y el del cliente
+       difieren siempre en ese atributo. Es el patrón oficial de la librería. */
     <html
       lang="es"
+      suppressHydrationWarning
       className={`${instrumentSans.variable} ${spaceGrotesk.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        {children}
-        <Toaster richColors position="top-center" />
+        {/* El bloque `.dark` de globals.css ya existía; faltaba quien pusiera la
+            clase. `defaultTheme="system"` respeta la preferencia del equipo sin
+            obligar a nadie a elegir. */}
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {children}
+          <Toaster richColors position="top-center" />
+        </ThemeProvider>
       </body>
     </html>
   );
