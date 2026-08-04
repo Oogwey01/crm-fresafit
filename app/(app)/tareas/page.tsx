@@ -9,7 +9,7 @@ export default async function TareasPage() {
   const { supabase, user, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const [tareasRes, borradasRes, equipoRes, checklistRes] = await Promise.all([
+  const [tareasRes, borradasRes, equipoRes, checklistRes, lecturasRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("*, responsable:profiles!responsable_id(id, nombre, color)")
@@ -24,9 +24,30 @@ export default async function TareasPage() {
     supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
     // Resumen de subtareas por tarea (para el chip de progreso en las tarjetas).
     supabase.from("task_checklist").select("task_id, hecho"),
+    /* Cuándo vi cada tarea por última vez (RLS ya las acota a las mías): es lo
+       que permite marcar cuáles traen algo nuevo PARA MÍ. */
+    supabase.from("task_reads").select("task_id, leido_at"),
   ]);
 
-  const tareas = (tareasRes.data ?? []) as unknown as TaskConResponsable[];
+  /* La marca de lectura se pega a cada tarea para que las vistas solo tengan que
+     comparar dos fechas. `task_reads` es de una migración reciente que se aplica
+     a mano: sin ella, `tieneNovedades` devuelve false y el tablero funciona
+     igual, solo que sin puntos de "hay algo nuevo". */
+  if (lecturasRes.error) {
+    console.warn("[tareas] task_reads no disponible:", lecturasRes.error.message);
+  }
+  const leidoPorTarea = new Map(
+    ((lecturasRes.data ?? []) as { task_id: string; leido_at: string }[]).map((l) => [
+      l.task_id,
+      l.leido_at,
+    ]),
+  );
+  const conLectura = (t: TaskConResponsable): TaskConResponsable => ({
+    ...t,
+    leido_at: leidoPorTarea.get(t.id) ?? null,
+  });
+
+  const tareas = ((tareasRes.data ?? []) as unknown as TaskConResponsable[]).map(conLectura);
   const borradas = (borradasRes.data ?? []) as unknown as TaskConResponsable[];
   const equipo = (equipoRes.data ?? []) as Profile[];
 

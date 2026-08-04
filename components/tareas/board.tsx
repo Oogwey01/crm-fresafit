@@ -1,6 +1,7 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -11,7 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { AlertTriangle, ChevronDown, Info, List, LayoutGrid, Calendar as CalendarIcon, Plus } from "lucide-react";
+import { AlertTriangle, ChevronDown, Clock, Info, List, LayoutGrid, Calendar as CalendarIcon, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { ESTADOS, AREAS, ROLES, esGestor } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
@@ -30,7 +31,6 @@ import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { Column } from "@/components/tareas/column";
 import { TaskCard } from "@/components/tareas/task-card";
 import { TaskDialog } from "@/components/tareas/task-dialog";
-import { TaskDetail } from "@/components/tareas/task-detail";
 import { TaskFilters } from "@/components/tareas/task-filters";
 import { CargaPersonas } from "@/components/tareas/carga-personas";
 import { ExportButton } from "@/components/tareas/export-button";
@@ -97,11 +97,19 @@ export function Board({
   const [alcance, setAlcance] = useState<Alcance>("todas");
   const [filtroResponsable, setFiltroResponsable] = useState("todos");
   const [filtroArea, setFiltroArea] = useState("todas");
+  /* "Quién te puso la tarea" (created_by). Aplica en cualquier alcance. */
+  const [filtroAsignador, setFiltroAsignador] = useState("todos");
   const [soloVencidas, setSoloVencidas] = useState(false);
+  const [ordenActividad, setOrdenActividad] = useState(false);
   const [, startTransition] = useTransition();
 
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
-  const [detalle, setDetalle] = useState<TaskConResponsable | null>(null);
+  /* Abrir una tarea NAVEGA a su página. Antes era un pop-up montado aquí; se
+     cambió porque Armando quería "abrir la tarea y que no sea un pop-up", y de
+     paso la tarea gana una URL propia que se puede compartir y a la que pueden
+     apuntar los avisos de la campana. */
+  const router = useRouter();
+  const abrirTarea = (t: TaskConResponsable) => router.push(`/tareas/${t.id}`);
   const [activeId, setActiveId] = useState<string | null>(null);
   /* Tarea en espera de motivo para atorarse (abre MotivoAtoradoDialog). */
   const [atorarPendiente, setAtorarPendiente] = useState<{ id: string; motivoInicial: string } | null>(null);
@@ -213,9 +221,13 @@ export function Board({
 
   const activa = activeId ? tareas.find((t) => t.id === activeId) : null;
 
+  /* Quiénes han delegado alguna de las tareas visibles: ofrecer el equipo entero
+     llenaría el Select de gente que nunca ha asignado nada. */
+  const asignadores = equipo.filter((p) => tareas.some((t) => t.created_by === p.id));
+
   /* Conjunto base según el alcance: "mis" ignora los filtros de persona/área
      (es estrictamente lo asignado a mí); "todas" aplica ambos filtros. */
-  const base =
+  const porAlcance =
     alcance === "mis"
       ? tareas.filter((t) => t.responsable_id === currentUserId)
       : alcance === "delegadas"
@@ -226,14 +238,31 @@ export function Board({
               (filtroArea === "todas" || t.area === filtroArea),
           );
 
+  /* Quién te puso la tarea. A diferencia de los de persona/área, éste aplica en
+     TODOS los alcances: el caso que lo motivó es «en mis tareas, enséñame solo
+     las que me puso René». "Delegadas por mí" es el caso inverso y ya existía. */
+  const base =
+    filtroAsignador === "todos"
+      ? porAlcance
+      : porAlcance.filter((t) => t.created_by === filtroAsignador);
+
   /* Contador de vencidas sobre lo mostrado (antes del filtro "solo vencidas"). */
   const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
 
   /* Filtro rápido "solo vencidas" (se alterna con clic en el contador).
      `filtradas` alimenta las TRES vistas: tabla, calendario y tablero. */
-  const filtradas = soloVencidas
+  const porVencidas = soloVencidas
     ? base.filter((t) => esVencida(t.fecha_limite, t.estado))
     : base;
+
+  /* Orden por movimiento reciente: "¿qué se movió hoy?" — lo que pidió Armando
+     para poder revisar por últimos comentarios. El orden natural (por creación)
+     sigue siendo el de por defecto porque es el que respeta el arrastre. */
+  const filtradas = ordenActividad
+    ? [...porVencidas].sort((a, b) =>
+        (b.ultima_actividad_at ?? b.created_at).localeCompare(a.ultima_actividad_at ?? a.created_at),
+      )
+    : porVencidas;
   /* Carriles del tablero agrupado. Por ÁREA: las áreas con tareas (respetando el
      filtro). Por PERSONA: cada responsable con tareas + un carril "Sin asignar". */
   const grupos: Grupo[] =
@@ -276,7 +305,7 @@ export function Board({
           setAlcance={setAlcance}
           soloVencidas={soloVencidas}
           setSoloVencidas={setSoloVencidas}
-          onAbrir={setDetalle}
+          onAbrir={abrirTarea}
           onNueva={() => setNuevaAbierta(true)}
           checklistPorTarea={checklistPorTarea}
         />
@@ -319,7 +348,9 @@ export function Board({
             title="Ver solo las tareas vencidas (clic para alternar)"
             className={cn(
               "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-bold transition-colors",
-              soloVencidas ? "bg-red-600 text-white" : "bg-red-100 text-red-600 hover:bg-red-200",
+              soloVencidas
+                ? "bg-red-600 text-white"
+                : "bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900",
             )}
           >
             <AlertTriangle className="size-4" aria-hidden="true" />
@@ -401,6 +432,47 @@ export function Board({
             <TaskFilters filtroArea={filtroArea} setFiltroArea={setFiltroArea} />
           </>
         )}
+
+        {/* Quién te asignó la tarea. A diferencia de los dos de arriba, sirve en
+            cualquier alcance: el caso real es filtrar MIS tareas por quien me
+            las puso. Solo se ofrecen las personas que efectivamente delegaron. */}
+        {asignadores.length > 1 && (
+          <Select value={filtroAsignador} onValueChange={(v) => setFiltroAsignador(v ?? "todos")}>
+            <SelectTrigger className="w-full bg-card sm:w-[200px]">
+              <SelectValue>
+                {(value: string) =>
+                  value === "todos"
+                    ? "Quien sea que asignó"
+                    : `De ${equipo.find((p) => p.id === value)?.nombre ?? "?"}`}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Quien sea que asignó</SelectItem>
+              {asignadores.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  De {p.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Orden por movimiento reciente. */}
+        <button
+          type="button"
+          onClick={() => setOrdenActividad((v) => !v)}
+          aria-pressed={ordenActividad}
+          title="Ordena por lo que se movió más recientemente (comentarios incluidos)"
+          className={cn(
+            "flex h-9 items-center gap-1.5 rounded-lg border px-3 text-[13px] font-semibold transition-colors",
+            ordenActividad
+              ? "border-primary bg-primary/10 text-primary"
+              : "bg-card text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Clock className="size-4" strokeWidth={1.9} aria-hidden="true" />
+          Novedades
+        </button>
       </div>
 
       {/* Aviso de rol — es el rol REAL del usuario; la seguridad se aplica en la BD (RLS). */}
@@ -431,7 +503,7 @@ export function Board({
           tareas={filtradas}
           currentUserId={currentUserId}
           gestor={gestor}
-          onAbrir={setDetalle}
+          onAbrir={abrirTarea}
           onMoverEstado={mover}
           onCambiarPrioridad={cambiarPrio}
           checklistPorTarea={checklistPorTarea}
@@ -439,7 +511,7 @@ export function Board({
       )}
 
       {/* ---- Vista CALENDARIO ---- */}
-      {vistaTop === "calendario" && <VistaCalendario tareas={filtradas} onAbrir={setDetalle} />}
+      {vistaTop === "calendario" && <VistaCalendario tareas={filtradas} onAbrir={abrirTarea} />}
 
       {/* ---- Vista TABLERO (kanban) ---- */}
       {vistaTop === "tablero" && (
@@ -462,7 +534,7 @@ export function Board({
                     nombre={estado.nombre}
                     tareas={filtradas.filter((t) => t.estado === estado.id)}
                     onMover={mover}
-                    onEditar={setDetalle}
+                    onEditar={abrirTarea}
                     checklistPorTarea={checklistPorTarea}
                   />
                 </div>
@@ -534,7 +606,7 @@ export function Board({
                               ocultarNombreXl
                               tareas={g.tareas.filter((t) => t.estado === estado.id)}
                               onMover={mover}
-                              onEditar={setDetalle}
+                              onEditar={abrirTarea}
                               checklistPorTarea={checklistPorTarea}
                             />
                           </div>
@@ -560,17 +632,6 @@ export function Board({
           equipo={equipo}
           currentUserId={currentUserId}
           onClose={() => setNuevaAbierta(false)}
-        />
-      )}
-
-      {detalle && (
-        <TaskDetail
-          key={detalle.id}
-          tarea={detalle}
-          equipo={equipo}
-          rol={rol}
-          currentUserId={currentUserId}
-          onClose={() => setDetalle(null)}
         />
       )}
 

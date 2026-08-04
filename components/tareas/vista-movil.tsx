@@ -141,7 +141,7 @@ export function VistaMovil({
               "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition-colors",
               soloVencidas
                 ? "bg-red-600 text-white"
-                : "border border-[#F3C9DA] bg-[#FDEEF4] text-[#C11862]",
+                : "border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
             )}
           >
             <AlertTriangle className="size-3" strokeWidth={2.2} aria-hidden="true" />

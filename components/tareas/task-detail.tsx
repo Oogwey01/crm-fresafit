@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { toast } from "sonner";
@@ -20,7 +20,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS, esGestor } from "@/lib/catalogos";
+import { ESTADOS, PRIORIDADES, AREAS, esGestor, obtenerArea } from "@/lib/catalogos";
+import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { isoALocalInput, localInputAIso, formatearFecha } from "@/lib/fecha";
 import {
   editarTarea,
@@ -55,6 +56,42 @@ import { DatePicker } from "@/components/compartido/date-picker";
 
 const SIN_ASIGNAR = "none";
 
+/* El mismo detalle se usa de dos formas: como pop-up desde el tablero (móvil y
+   accesos rápidos) y como PÁGINA propia en /tareas/[id]. Armando pidió lo
+   segundo —"me gustaría que pueda abrir la tarea y que no sea un pop-up"—, y
+   además hace falta para que la campana lleve directo a la tarea. El contenido
+   es idéntico; lo único que cambia es el marco. */
+function Envoltorio({
+  comoPagina,
+  titulo,
+  onClose,
+  children,
+}: {
+  comoPagina: boolean;
+  titulo: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (comoPagina) {
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-2xl border bg-card p-5 shadow-sm sm:p-6">
+        <h1 className="mb-4 text-[22px] font-bold tracking-tight">{titulo}</h1>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{titulo}</DialogTitle>
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function fmtFechaHora(iso: string) {
   return new Date(iso).toLocaleString("es-MX", {
     day: "numeric",
@@ -69,12 +106,19 @@ export function TaskDetail({
   equipo,
   rol,
   currentUserId,
+  comoPagina = false,
+  enfocarComentario = false,
   onClose,
 }: {
   tarea: TaskConResponsable;
   equipo: Profile[];
   rol: RolId;
   currentUserId: string;
+  /* true = se pinta como página (/tareas/[id]); false = pop-up del tablero. */
+  comoPagina?: boolean;
+  /* Se llega desde un aviso de comentario: hay que dejar el cursor en el hilo.
+     Armando: "necesito darle enfoque a la sección del comentario". */
+  enfocarComentario?: boolean;
   onClose: () => void;
 }) {
   const gestor = esGestor(rol);
@@ -100,6 +144,9 @@ export function TaskDetail({
   const [descripcion, setDescripcion] = useState(tarea.descripcion ?? "");
   const [responsable, setResponsable] = useState(tarea.responsable_id ?? SIN_ASIGNAR);
   const [area, setArea] = useState<AreaId>(tarea.area);
+  /* El área sale del perfil del responsable; solo se edita a mano si alguien lo
+     pide expresamente con «cambiar». */
+  const [areaManual, setAreaManual] = useState(false);
   const [prioridad, setPrioridad] = useState<PrioridadId>(tarea.prioridad);
   const [estado, setEstado] = useState<EstadoId>(tarea.estado);
   const [fecha, setFecha] = useState(tarea.fecha_limite ?? "");
@@ -119,6 +166,17 @@ export function TaskDetail({
   }
 
   const [nuevoComentario, setNuevoComentario] = useState("");
+  const comentarioRef = useRef<HTMLTextAreaElement>(null);
+  const hiloRef = useRef<HTMLDivElement>(null);
+
+  /* Al llegar desde un aviso de comentario, lo primero que se quiere ver es el
+     hilo, no el formulario de arriba. Se espera a que el detalle cargue: antes
+     de eso los comentarios aún no están en el DOM. */
+  useEffect(() => {
+    if (!enfocarComentario || cargando) return;
+    hiloRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    comentarioRef.current?.focus({ preventScroll: true });
+  }, [enfocarComentario, cargando]);
   const [nuevaSubtarea, setNuevaSubtarea] = useState("");
   const [enlaceTitulo, setEnlaceTitulo] = useState("");
   const [enlaceUrl, setEnlaceUrl] = useState("");
@@ -199,11 +257,7 @@ export function TaskDetail({
 
   return (
     <>
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{gestor ? "Editar tarea" : "Detalle de la tarea"}</DialogTitle>
-        </DialogHeader>
+    <Envoltorio comoPagina={comoPagina} onClose={onClose} titulo={gestor ? "Editar tarea" : "Detalle de la tarea"}>
 
         {/* ===== Meta ===== */}
         {gestor ? (
@@ -225,13 +279,36 @@ export function TaskDetail({
                   </SelectContent>
                 </Select>
               </Meta>
-              <Meta label="Área (según responsable)">
-                <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                  <SelectTrigger className="w-full"><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
-                  <SelectContent>
-                    {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
-                  </SelectContent>
-                </Select>
+              {/* El área la dicta el perfil del responsable, así que en el 99 %
+                  de los casos es un campo que se rellena solo y solo estorba
+                  ("si le creo una tarea a René no es necesario poner el área,
+                  su área ya es operaciones"). Se muestra como dato, con un
+                  atajo para el caso raro en que haya que cambiarla. */}
+              <Meta label="Área">
+                {areaManual ? (
+                  <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
+                    <SelectTrigger className="w-full"><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
+                    <SelectContent>
+                      {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="flex h-9 items-center gap-2 text-sm">
+                    <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {responsable === SIN_ASIGNAR
+                        ? "sin responsable"
+                        : `según ${equipo.find((p) => p.id === responsable)?.nombre ?? "el responsable"}`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setAreaManual(true)}
+                      className="ml-auto text-xs font-medium text-primary hover:underline"
+                    >
+                      cambiar
+                    </button>
+                  </div>
+                )}
               </Meta>
               <Meta label="Prioridad">
                 <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
@@ -276,25 +353,11 @@ export function TaskDetail({
             )}
 
             <Seccion titulo="Etiquetas">
-              <div className="flex flex-wrap gap-1.5">
-                {ETIQUETAS.map((et) => {
-                  const on = etiquetas.includes(et.id);
-                  return (
-                    <button
-                      key={et.id}
-                      type="button"
-                      onClick={() => toggleEtiquetaGestor(et.id)}
-                      className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                        on ? "text-white" : "text-muted-foreground hover:bg-accent",
-                      )}
-                      style={on ? { backgroundColor: et.color, borderColor: et.color } : undefined}
-                    >
-                      {et.nombre}
-                    </button>
-                  );
-                })}
-              </div>
+              <SelectorEtiquetas
+                area={area}
+                seleccionadas={etiquetas}
+                onToggle={toggleEtiquetaGestor}
+              />
             </Seccion>
           </div>
         ) : (
@@ -444,7 +507,7 @@ export function TaskDetail({
 
             {/* ===== Comentarios ===== */}
             <Seccion titulo="Comentarios">
-              <div className="flex flex-col gap-2">
+              <div ref={hiloRef} className="flex flex-col gap-2">
                 {(detalle?.comentarios ?? []).length === 0 && (
                   <p className="text-sm text-muted-foreground">Sin comentarios todavía.</p>
                 )}
@@ -463,7 +526,7 @@ export function TaskDetail({
                 ))}
               </div>
               <div className="mt-2 flex gap-2">
-                <Textarea rows={2} value={nuevoComentario}
+                <Textarea ref={comentarioRef} rows={2} value={nuevoComentario}
                   onChange={(e) => setNuevoComentario(e.target.value)} placeholder="Escribe un comentario…" />
                 <Button variant="outline" size="sm"
                   onClick={() => {
@@ -500,12 +563,13 @@ export function TaskDetail({
                 Borrar
               </Button>
             )}
-            <Button variant="outline" onClick={onClose}>Cerrar</Button>
+            <Button variant="outline" onClick={onClose}>
+              {comoPagina ? "Volver" : "Cerrar"}
+            </Button>
             {gestor && <Button onClick={guardarMeta}>Guardar</Button>}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </Envoltorio>
 
     <MotivoAtoradoDialog
       open={atorarAbierto}

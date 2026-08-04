@@ -10,11 +10,11 @@ import {
 } from "@/components/ui/select";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { AREAS, ESTADOS, PRIORIDADES, obtenerEstado, obtenerPrioridad } from "@/lib/catalogos";
-import { esVencida, formatearFecha } from "@/lib/fecha";
-import type { TaskConResponsable, EstadoId, PrioridadId } from "@/lib/types";
+import { esVencida, formatearFecha, formatearFechaHora } from "@/lib/fecha";
+import { tieneNovedades, type TaskConResponsable, type EstadoId, type PrioridadId } from "@/lib/types";
 import { cn, iniciales } from "@/lib/utils";
 
-const COLS = "grid-cols-[minmax(160px,1fr)_170px_150px_130px_110px]";
+const COLS = "grid-cols-[minmax(160px,1fr)_150px_140px_120px_100px_150px]";
 
 function PastillaEstado({ estado }: { estado: string }) {
   const e = obtenerEstado(estado);
@@ -84,6 +84,13 @@ export function VistaTabla({
         const chk = checklistPorTarea?.[t.id];
         return (
           <div className="flex min-w-0 items-center gap-2">
+            {tieneNovedades(t) && (
+              <span
+                className="size-2 shrink-0 rounded-full bg-primary"
+                title="Hay algo nuevo desde la última vez que la abriste"
+                aria-label="Con novedades"
+              />
+            )}
             <button
               type="button"
               onClick={() => onAbrir(t)}
@@ -181,6 +188,25 @@ export function VistaTabla({
         );
       },
     },
+    {
+      /* Cuándo se movió por última vez, contando comentarios e historial. Es lo
+         que Armando quería ver "desde fuera", sin abrir cada tarea. */
+      clave: "actividad",
+      label: "Última actualización",
+      celda: (t) =>
+        t.ultima_actividad_at ? (
+          <span
+            className={cn("text-[13px]", tieneNovedades(t) && "font-semibold text-foreground")}
+            title={new Date(t.ultima_actividad_at).toLocaleString("es-MX", {
+              timeZone: "America/Mexico_City",
+            })}
+          >
+            {formatearFechaHora(t.ultima_actividad_at)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">—</span>
+        ),
+    },
   ];
 
   /* Una TablaSimple por área; el rótulo de cada una es el encabezado de grupo
@@ -196,6 +222,11 @@ export function VistaTabla({
             columnas={columnas}
             datos={items}
             filaKey={(t) => t.id}
+            /* Toda la fila abre la tarea: apuntarle al título era innecesariamente
+               fino, sobre todo en tablet. Los controles de la fila (los selects de
+               estado y prioridad) siguen funcionando: TablaSimple ignora el clic
+               cuando cae sobre un control. */
+            onRowClick={onAbrir}
             titulo={
               <button
                 type="button"

@@ -5,7 +5,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, CheckSquare, ChevronLeft, ChevronRight } from "lucide-react";
 import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
-import type { TaskConResponsable, EstadoId } from "@/lib/types";
+import { tieneNovedades, type TaskConResponsable, type EstadoId } from "@/lib/types";
 import { cn, iniciales } from "@/lib/utils";
 
 export function TaskCard({
@@ -29,6 +29,7 @@ export function TaskCard({
   const area = obtenerArea(tarea.area);
   const idx = ESTADOS.findIndex((e) => e.id === tarea.estado);
   const vencida = esVencida(tarea.fecha_limite, tarea.estado);
+  const novedades = tieneNovedades(tarea);
 
   const style: React.CSSProperties = {
     borderLeftColor: prioridad?.color ?? "#ccc",
@@ -48,8 +49,18 @@ export function TaskCard({
         vencida && "ring-1 ring-red-300",
       )}
     >
-      {/* Título */}
-      <div className="text-[13.5px] font-semibold leading-snug">{tarea.titulo}</div>
+      {/* Título. El punto avisa de movimiento sin abrir la tarea: un comentario
+          nuevo, un cambio de estado, algo que no habías visto. */}
+      <div className="flex items-start gap-1.5">
+        {novedades && (
+          <span
+            className="mt-1.5 size-2 shrink-0 rounded-full bg-primary"
+            title="Hay algo nuevo desde la última vez que la abriste"
+            aria-label="Con novedades"
+          />
+        )}
+        <div className="text-[13.5px] font-semibold leading-snug">{tarea.titulo}</div>
+      </div>
 
       {/* Meta: prioridad · área · subtareas */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">

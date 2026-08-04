@@ -21,12 +21,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ESTADOS, PRIORIDADES, AREAS, ETIQUETAS } from "@/lib/catalogos";
+import { ESTADOS, PRIORIDADES, AREAS, obtenerArea } from "@/lib/catalogos";
+import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { localInputAIso, hoyISO } from "@/lib/fecha";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
 import { DatePicker } from "@/components/compartido/date-picker";
 import type { Profile, AreaId, EstadoId, PrioridadId } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 const SIN_ASIGNAR = "none";
 
@@ -49,6 +49,7 @@ export function TaskDialog({
   const [area, setArea] = useState<AreaId>(
     equipo.find((p) => p.id === currentUserId)?.area ?? "operaciones",
   );
+  const [areaManual, setAreaManual] = useState(false);
   const [prioridad, setPrioridad] = useState<PrioridadId>("media");
   const [estado, setEstado] = useState<EstadoId>("por_hacer");
   /* Fecha límite por defecto: hoy (se le pidió en la junta; editable). */
@@ -148,22 +149,39 @@ export function TaskDialog({
               </Select>
             </div>
 
+            {/* El área la dicta el perfil del responsable: pedirla otra vez al
+                crear la tarea es trabajo de más ("si le creo una tarea a René no
+                es necesario poner el área, su área ya es operaciones"). Se
+                enseña como dato y solo se edita si alguien lo pide. */}
             <div className="flex flex-col gap-1.5">
-              <Label>Área (según responsable)</Label>
-              <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {AREAS.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>Área</Label>
+              {areaManual ? (
+                <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREAS.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex h-9 items-center gap-2 text-sm">
+                  <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAreaManual(true)}
+                    className="ml-auto text-xs font-medium text-primary hover:underline"
+                  >
+                    cambiar
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -241,25 +259,7 @@ export function TaskDialog({
 
           <div className="flex flex-col gap-1.5">
             <Label>Etiquetas</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {ETIQUETAS.map((et) => {
-                const on = etiquetas.includes(et.id);
-                return (
-                  <button
-                    key={et.id}
-                    type="button"
-                    onClick={() => toggleEtiqueta(et.id)}
-                    className={cn(
-                      "rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors",
-                      on ? "text-white" : "text-muted-foreground hover:bg-accent",
-                    )}
-                    style={on ? { backgroundColor: et.color, borderColor: et.color } : undefined}
-                  >
-                    {et.nombre}
-                  </button>
-                );
-              })}
-            </div>
+            <SelectorEtiquetas area={area} seleccionadas={etiquetas} onToggle={toggleEtiqueta} />
           </div>
         </div>
 
