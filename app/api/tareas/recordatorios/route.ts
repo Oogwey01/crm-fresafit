@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { autorizarCron, respuestaError } from "@/lib/canales/http";
+import { despacharPushPendientes } from "@/lib/push/enviar";
 
 /* Recordatorios de tarea: genera un aviso in-app para el responsable cuando su
    `recordatorio_at` ya llegó. Igual que /api/inventario/foto, NO va en los crons
@@ -30,7 +31,11 @@ export async function GET(request: Request) {
 
     const filas = pendientes ?? [];
     if (filas.length === 0) {
-      return NextResponse.json({ ok: true, enviados: 0 });
+      /* Aunque no haya recordatorios, este barrido es la red de seguridad del
+         push: si el despacho falló al comentar o al asignar (servidor caído,
+         timeout del servicio de push), aquí se recoge lo pendiente. */
+      const push = await despacharPushPendientes();
+      return NextResponse.json({ ok: true, enviados: 0, push });
     }
 
     // Un aviso por tarea para cada destinatario (responsable y quien delegó, sin
@@ -57,7 +62,11 @@ export async function GET(request: Request) {
       );
     if (updErr) throw updErr;
 
-    return NextResponse.json({ ok: true, enviados: filas.length });
+    // Empujar al celular/escritorio lo recién creado (y lo que hubiera quedado
+    // pendiente de barridos anteriores).
+    const push = await despacharPushPendientes();
+
+    return NextResponse.json({ ok: true, enviados: filas.length, push });
   } catch (e) {
     return respuestaError(e, "tareas recordatorios", "Falló el envío de recordatorios.");
   }

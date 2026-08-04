@@ -1,7 +1,9 @@
 "use server";
 
 import { refresh, revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { despacharPushPendientes } from "@/lib/push/enviar";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { esGestor } from "@/lib/catalogos";
 import type { Resultado } from "@/lib/acciones";
@@ -20,6 +22,19 @@ import type {
   PrioridadId,
   TaskDetalle,
 } from "@/lib/types";
+
+/* Los avisos los insertan TRIGGERS de Postgres (asignación, comentario), que no
+   pueden hablar con los servidores de push. Esta llamada barre lo pendiente y lo
+   empuja a los dispositivos.
+
+   Va en `after` para que no retrase la respuesta: quien comenta ya vio su
+   comentario publicado mientras el aviso sale por detrás. Si el barrido falla,
+   el cron de recordatorios lo recoge en la siguiente pasada. */
+function empujarAvisos() {
+  after(async () => {
+    await despacharPushPendientes();
+  });
+}
 
 export type TaskInput = {
   titulo: string;
@@ -93,6 +108,7 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
 
   if (error) return { error: error.message };
   revalidatePath("/tareas");
+  empujarAvisos();
   return { ok: true };
 }
 
@@ -121,6 +137,7 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
 
   if (error) return { error: error.message };
   revalidatePath("/tareas");
+  empujarAvisos(); // editar puede cambiar el responsable
   return { ok: true };
 }
 
@@ -141,6 +158,7 @@ export async function moverTarea(
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
+  empujarAvisos(); // pasar a "atorado" avisa a quien delegó
   return { ok: true };
 }
 
@@ -171,6 +189,7 @@ export async function reasignarTarea(id: string, responsableId: string | null): 
   const { error } = await cx.supabase.from("tasks").update(patch).eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/tareas");
+  empujarAvisos();
   return { ok: true };
 }
 
@@ -257,6 +276,7 @@ export async function comentar(taskId: string, texto: string): Promise<Resultado
   const { error } = await cx.supabase.from("task_comments").insert({ task_id: taskId, autor: cx.user.id, texto: t });
   if (error) return { error: error.message };
   revalidatePath("/tareas");
+  empujarAvisos();
   return { ok: true };
 }
 
@@ -476,6 +496,23 @@ export async function marcarTodasLeidas(): Promise<Resultado> {
     .update({ leida: true })
     .eq("user_id", cx.user.id)
     .eq("leida", false);
+  if (error) return { error: error.message };
+  refresh();
+  return { ok: true };
+}
+
+/* Marca la tarea como vista POR MÍ: es lo que apaga el punto de "hay algo
+   nuevo". `ultima_actividad_at` es global a la tarea, así que la lectura tiene
+   que ser por persona (tabla task_reads). */
+export async function marcarTareaLeida(taskId: string): Promise<Resultado> {
+  const cx = await exigirRol("autenticado");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase
+    .from("task_reads")
+    .upsert(
+      { task_id: taskId, user_id: cx.user.id, leido_at: new Date().toISOString() },
+      { onConflict: "task_id,user_id" },
+    );
   if (error) return { error: error.message };
   refresh();
   return { ok: true };

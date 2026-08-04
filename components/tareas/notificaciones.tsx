@@ -29,10 +29,17 @@ export function Notificaciones({ notificaciones }: { notificaciones: Notificacio
   const [, startTransition] = useTransition();
   const noLeidas = notificaciones.filter((n) => !n.leida).length;
 
+  /* Lleva a LA tarea, no al tablero: hasta ahora todos los avisos aterrizaban en
+     /tareas y había que buscar a mano de cuál hablaban. Si el aviso es de un
+     comentario, la página abre además con el hilo enfocado. */
   function abrir(n: Notificacion) {
     startTransition(async () => {
       if (!n.leida) await marcarNotificacionLeida(n.id);
-      router.push("/tareas");
+      router.push(
+        n.task_id
+          ? `/tareas/${n.task_id}${n.tipo === "comentario" ? "?comentario=1" : ""}`
+          : "/tareas",
+      );
     });
   }
 

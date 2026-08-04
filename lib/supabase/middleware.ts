@@ -22,6 +22,11 @@ const RUTAS_PUBLICAS = [
   "/api/inventario/foto",
   "/api/inventario/reconciliacion",
   "/api/tareas/recordatorios",
+  /* El service worker y el manifest los pide el navegador SIN cookies de sesión
+     (y a veces antes de que exista sesión). Si se redirigen al login, el
+     registro del worker falla y no llega ni un aviso push. */
+  "/sw.js",
+  "/manifest.webmanifest",
 ];
 
 export async function updateSession(request: NextRequest) {
