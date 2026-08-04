@@ -14,6 +14,32 @@ import type {
   CANALES,
   CATEGORIAS_GASTO,
 } from "@/lib/catalogos";
+import type { DireccionEnvio } from "@/lib/canales/direccion";
+import type {
+  BaseCalculoId,
+  EsquemaPagoId,
+  EstadoIngresoId,
+  EstadoPagoNominaId,
+  PeriodicidadPagoId,
+  PlataformaAgenciaId,
+  SituacionLaboralId,
+  TipoIngresoId,
+} from "@/lib/agencia";
+
+export type { DireccionEnvio };
+/* Los ids de los catálogos de la Agencia se re-exportan aquí para que el resto
+   del código pida todos los tipos del dominio a un solo sitio, como ya pasa con
+   los de tareas o inventario. */
+export type {
+  BaseCalculoId,
+  EsquemaPagoId,
+  EstadoIngresoId,
+  EstadoPagoNominaId,
+  PeriodicidadPagoId,
+  PlataformaAgenciaId,
+  SituacionLaboralId,
+  TipoIngresoId,
+};
 
 /* Uniones de literales derivadas de los catálogos (p. ej. "por_hacer" | ...). */
 export type EstadoId = (typeof ESTADOS)[number]["id"];
@@ -35,7 +61,6 @@ export type Profile = {
   area: AreaId | null;
   color: string;
 };
-
 /* Tarea (tabla `tasks`). Los nombres de columna son snake_case en Postgres. */
 export type Task = {
   id: string;
@@ -59,15 +84,28 @@ export type Task = {
   recordatorio_enviado: boolean;
   /* Papelera: si tiene fecha, la tarea está borrada (borrado suave). null = activa. */
   deleted_at: string | null;
+  /* Última vez que la tarea se movió, INCLUIDOS comentarios e historial.
+     `updated_at` no sirve para esto: un comentario no toca la fila de `tasks`. */
+  ultima_actividad_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
 };
 
-/* Tarea con el perfil del responsable ya resuelto (para pintar la tarjeta). */
+/* Tarea con el perfil del responsable ya resuelto (para pintar la tarjeta).
+   `leido_at` es la marca de lectura DE QUIEN MIRA (tabla task_reads): si es
+   anterior a `ultima_actividad_at`, la tarea trae algo nuevo para esa persona. */
 export type TaskConResponsable = Task & {
   responsable: Pick<Profile, "id" | "nombre" | "color"> | null;
+  leido_at?: string | null;
 };
+
+/* ¿Esta tarea tiene novedades para mí? Sin marca de lectura, se considera vista:
+   así las tareas viejas no aparecen todas con punto el primer día. */
+export function tieneNovedades(t: Pick<TaskConResponsable, "ultima_actividad_at" | "leido_at">): boolean {
+  if (!t.ultima_actividad_at || !t.leido_at) return false;
+  return t.ultima_actividad_at > t.leido_at;
+}
 
 /* --- Tablas satélite del módulo Tareas --- */
 export type TaskComment = {
@@ -118,7 +156,7 @@ export type Notificacion = {
   id: string;
   user_id: string;
   task_id: string | null;
-  tipo: "asignacion" | "recordatorio" | "atorado";
+  tipo: "asignacion" | "recordatorio" | "atorado" | "comentario";
   texto: string;
   leida: boolean;
   created_at: string;
@@ -194,6 +232,10 @@ export type Product = {
      tiene aparte): se muestra en su propia columna y NO se suma a la bodega. */
   tiktok_product_id: string | null;
   tiktok_sku_id: string | null;
+  /* Unidades que TikTok reporta para esa publicación. Va APARTE de `stock` en
+     una ficha multicanal (`stock` ahí es la bodega); null = sin dato propio
+     todavía, o sin publicación de TikTok. */
+  tiktok_stock: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -341,6 +383,20 @@ export type Sale = {
   estado: EstadoPedidoId | null;
   paqueteria: string | null;
   num_guia: string | null;
+  /* Enlace de rastreo que dio el canal. null = derivarlo de la paquetería
+     (ver lib/pedidos/rastreo.ts). */
+  url_rastreo: string | null;
+  /* Enlace al pedido en el panel del canal. Se guarda porque Mercado Libre abre
+     el detalle por el id del carrito, que solo conoce su API. */
+  url_orden: string | null;
+  /* Dirección de entrega tal como la mandó el canal. Es del PEDIDO y no del
+     cliente: si el cliente se muda, este envío siguió yendo a donde fue. */
+  envio_direccion: DireccionEnvio | null;
+  /* Hasta cuándo hay para entregarle el paquete al transportista, y cuándo salió
+     de verdad. Hoy solo los reporta Mercado Libre, y son los dos lados de la
+     métrica de demora que decide su exposición (lib/mercadolibre/desempeno.ts). */
+  envio_limite_despacho: string | null;
+  envio_despachado_en: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -348,6 +404,54 @@ export type Sale = {
 
 export type SaleConProducto = Sale & {
   producto: Pick<Product, "id" | "nombre" | "variante" | "tipo"> | null;
+};
+
+/* Totales de una ORDEN del canal (tabla `sale_orders`).
+   `sales` guarda un renglón por producto y su `monto` es solo precio×cantidad;
+   los paneles de Tienda Nube / Mercado Libre / TikTok reportan el total de la
+   orden, que además lleva envío, descuentos e impuestos. Por eso los totales
+   viven aparte: meterlos en `sales` los duplicaría en cada renglón. */
+export type SaleOrder = {
+  id: string;
+  canal: CanalId;
+  referencia_orden: string;
+  numero: string | null;
+  fecha: string; // "AAAA-MM-DD" en hora de México
+  total: number; // bruto, comparable con el panel del canal
+  subtotal: number; // solo producto
+  envio: number;
+  descuento: number;
+  impuesto: number;
+  moneda: string;
+  estado: string | null;
+  cliente_id: string | null;
+  /* Lo que se quedó el canal por vender, en positivo. Mercado Libre lo manda
+     dentro de la orden; los demás canales todavía no, y ahí llega null. */
+  comision: number | null;
+  /* Lo que costó el flete al VENDEDOR. Ojo: `envio` de arriba es lo que pagó el
+     COMPRADOR, y en Mercado Libre casi siempre es 0 aunque el envío sí nos
+     cueste. Sumar comisión + esto es el costo real de vender por el canal. */
+  costo_envio: number | null;
+  /* Cómo se pagó y con qué cupón. Vienen dentro de la orden del canal (hoy solo
+     Tienda Nube los manda) y son de la ORDEN, no del renglón: guardarlos en
+     `sales` los repetiría por línea e inflaría cualquier conteo. */
+  metodo_pago: string | null;
+  cupon: string | null;
+  meses: number | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* Lo que Métricas necesita de una orden: agregar por fecha y canal. */
+export type OrdenMetricas = Pick<
+  SaleOrder,
+  "canal" | "fecha" | "total" | "subtotal" | "envio" | "descuento"
+> & {
+  /* Cómo pagó y con qué cupón. Solo Tienda Nube los manda hoy; en el resto de
+     canales llegan nulos y el panel simplemente no los cuenta. */
+  metodo_pago?: string | null;
+  cupon?: string | null;
+  meses?: number | null;
 };
 
 /* Pedido = venta con su cliente resuelto (para la vista de Pedidos y envíos). */
@@ -360,11 +464,41 @@ export type SaleConDetalle = SaleConProducto & {
    esos bytes cruzan hasta el navegador, así que el tipo acota el select. */
 export type PedidoEnvio = Pick<
   Sale,
-  "id" | "fecha" | "canal" | "cantidad" | "estado" | "num_guia" | "paqueteria" | "descripcion"
+  | "id"
+  | "fecha"
+  | "canal"
+  | "cantidad"
+  | "estado"
+  | "num_guia"
+  | "paqueteria"
+  | "url_rastreo"
+  | "url_orden"
+  | "descripcion"
+  /* Nº de orden en la plataforma: es por el que pregunta el cliente y por el que
+     se busca el pedido; sin él había que ir al panel del canal a cruzarlo. */
+  | "referencia_externa"
+  | "envio_direccion"
 > & {
   producto: Pick<Product, "id" | "nombre" | "variante"> | null;
   cliente: Pick<Customer, "id" | "nombre"> | null;
 };
+
+/* Venta tal como la consume el tablero de DESPACHO de Mercado Libre: lo justo
+   para ordenar por plazo y saber a quién le urge. Es el mismo criterio de acotar
+   el select que en Pedidos y Métricas. */
+export type VentaDespacho = Pick<
+  Sale,
+  | "id"
+  | "fecha"
+  | "cantidad"
+  | "descripcion"
+  | "estado"
+  | "num_guia"
+  | "url_orden"
+  | "referencia_externa"
+  | "envio_limite_despacho"
+  | "envio_despachado_en"
+>;
 
 /* Venta tal como la consume MÉTRICAS: sin los campos de envío ni las marcas de
    auditoría, que ese módulo no muestra (742 KB → 570 KB). */
@@ -396,7 +530,15 @@ export type Customer = {
   correo: string | null;
   canal: CanalId | null; // canal de origen
   notas: string | null;
+  /* De dónde es. Solo llega de Tienda Nube: Mercado Libre anonimiza al comprador
+     y TikTok entrega un correo enmascarado, así que en esos canales queda null. */
+  ciudad: string | null;
+  estado: string | null;
+  cp: string | null;
   tiendanube_customer_id: number | null;
+  /* Identidades por canal. Faltaban en el tipo aunque llevan tiempo en la BD. */
+  mercadolibre_buyer_id: number | null;
+  tiktok_buyer_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -438,4 +580,163 @@ export type ExpenseReceipt = {
 
 export type ExpenseConComprobantes = Expense & {
   comprobantes: ExpenseReceipt[];
+};
+
+/* ============================ Agencia Fresafit ============================= */
+/* Fase B: el otro negocio. Fresafit vende cinturones; la Agencia le lleva la
+   operación a otras marcas y les cobra un fijo más un porcentaje de lo que esas
+   marcas venden. Nada de esto toca inventario, ventas ni pedidos, que siguen
+   siendo de Fresafit. Ver lib/agencia.ts para el cálculo y los catálogos. */
+
+export type AgenciaEmpresa = {
+  id: string;
+  nombre: string;
+  slug: string;
+  color: string;
+  giro: string | null;
+  contacto_nombre: string | null;
+  contacto_correo: string | null;
+  contacto_telefono: string | null;
+  activa: boolean;
+  inicio: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* Quién del equipo atiende a cada empresa. Sin esto, el costo del equipo es un
+   bloque que no se puede repartir entre contratos. */
+export type AgenciaAsignacion = {
+  id: string;
+  empresa_id: string;
+  profile_id: string;
+  papel: string | null;
+  activo: boolean;
+  created_at: string;
+};
+
+export type AgenciaAsignacionConPersona = AgenciaAsignacion & {
+  persona: Pick<Profile, "id" | "nombre" | "color"> | null;
+};
+
+/* La regla de cobro. `fondo_delegado` es dinero del cliente que solo pasa por la
+   agencia (pagar al personal de sus lives): no es ingreso, por eso va aparte. */
+export type AgenciaContrato = {
+  id: string;
+  empresa_id: string;
+  nombre: string;
+  monto_fijo: number;
+  porcentaje: number;
+  base_calculo: BaseCalculoId;
+  plataforma: PlataformaAgenciaId;
+  dia_corte: number;
+  periodicidad: "mensual" | "quincenal";
+  fondo_delegado: number;
+  moneda: string;
+  inicio: string | null;
+  fin: string | null;
+  activo: boolean;
+  notas: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* Todo lo que la agencia cobra: cortes de contrato, migraciones de plataforma y
+   comisiones por referidos. El desglose se guarda congelado aunque sea
+   calculable, porque un cobro viejo debe seguir explicándose con las reglas que
+   estaban vigentes cuando se emitió. */
+export type AgenciaIngreso = {
+  id: string;
+  empresa_id: string | null;
+  contrato_id: string | null;
+  tipo: TipoIngresoId;
+  concepto: string;
+  periodo_desde: string | null;
+  periodo_hasta: string | null;
+  ventas_base: number;
+  ventas_origen: "manual" | "api";
+  ventas_nota: string | null;
+  monto_fijo: number;
+  porcentaje: number;
+  monto_variable: number;
+  fondo_delegado: number;
+  total: number;
+  socio: string | null;
+  estado: EstadoIngresoId;
+  cobrado_at: string | null;
+  pagado_at: string | null;
+  factura: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type AgenciaIngresoConEmpresa = AgenciaIngreso & {
+  empresa: Pick<AgenciaEmpresa, "id" | "nombre" | "color"> | null;
+};
+
+export type AgenciaReporte = {
+  id: string;
+  empresa_id: string;
+  titulo: string;
+  periodo_desde: string | null;
+  periodo_hasta: string | null;
+  resumen: string | null;
+  url: string | null;
+  entregado_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type AgenciaReporteConEmpresa = AgenciaReporte & {
+  empresa: Pick<AgenciaEmpresa, "id" | "nombre" | "color"> | null;
+};
+
+/* Nómina: TODO el equipo, no solo la agencia. `profile_id` liga a la cuenta del
+   CRM cuando la persona tiene una (el personal de los lives no la tiene).
+   `empresa_id` null = se carga a Fresafit. */
+export type NominaEmpleado = {
+  id: string;
+  profile_id: string | null;
+  nombre: string;
+  puesto: string | null;
+  empresa_id: string | null;
+  esquema: EsquemaPagoId;
+  monto: number;
+  periodicidad: PeriodicidadPagoId;
+  dia_corte: number | null;
+  situacion: SituacionLaboralId;
+  activo: boolean;
+  inicio: string | null;
+  fin: string | null;
+  notas: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type NominaEmpleadoConEmpresa = NominaEmpleado & {
+  empresa: Pick<AgenciaEmpresa, "id" | "nombre" | "color"> | null;
+};
+
+export type NominaPago = {
+  id: string;
+  empleado_id: string;
+  periodo_desde: string | null;
+  periodo_hasta: string | null;
+  monto: number;
+  estado: EstadoPagoNominaId;
+  fecha_pago: string | null;
+  metodo: string | null;
+  comprobante: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type NominaPagoConEmpleado = NominaPago & {
+  empleado: Pick<NominaEmpleado, "id" | "nombre" | "puesto"> | null;
 };

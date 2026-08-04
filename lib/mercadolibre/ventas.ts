@@ -17,7 +17,19 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
+  aMonto,
+  guardarTotalesOrden,
+  refrescarRenglones,
+  ventanaDesde,
+  type OpcionesImportacion,
+  type TotalOrden,
+} from "@/lib/canales/ventas-cuadre";
+import { diaMX } from "@/lib/fecha";
+import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
+import { urlOrdenML } from "@/lib/pedidos/rastreo";
+import {
   conexionMercadolibre,
+  costoEnvioVendedorML,
   listarOrdenesML,
   obtenerEnvioML,
   obtenerOrdenML,
@@ -31,6 +43,7 @@ import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
 export type ResumenVentasML = {
   ordenes: number;
   insertadas: number;
+  actualizadas: number; // renglones ya importados que se corrigieron (fecha, monto, envío)
   existentes: number;
   retiradas: number; // renglones eliminados por órdenes canceladas
   clientes: number; // clientes creados o actualizados desde las órdenes
@@ -71,7 +84,29 @@ function nombreComprador(o: OrdenML): string | null {
 }
 
 type EstadoPedido = "nuevo" | "preparando" | "enviado" | "entregado";
-type InfoEnvio = { estado: EstadoPedido; paqueteria: string | null; num_guia: string | null };
+type InfoEnvio = {
+  estado: EstadoPedido;
+  paqueteria: string | null;
+  num_guia: string | null;
+  direccion: DireccionEnvio | null;
+  /* Los dos lados de la métrica que decide nuestra exposición: hasta cuándo
+     teníamos para entregarle el paquete al transportista, y cuándo salió de
+     verdad. Ver lib/mercadolibre/desempeno.ts. */
+  limite_despacho: string | null;
+  despachado_en: string | null;
+  /* Lo que nos cuesta a NOSOTROS ese envío (no lo que pagó el comprador). */
+  costo_envio: number | null;
+};
+
+const SIN_ENVIO: InfoEnvio = {
+  estado: "nuevo",
+  paqueteria: null,
+  num_guia: null,
+  direccion: null,
+  limite_despacho: null,
+  despachado_en: null,
+  costo_envio: null,
+};
 
 /* status de un envío de Mercado Libre → estado de pedido del CRM (mismo espíritu
    que el shipping_status de Tienda Nube). */
@@ -89,37 +124,153 @@ function estadoDeEnvio(env: EnvioML | null): EstadoPedido {
   }
 }
 
-/* Resuelve el estado de envío de un lote de órdenes. Las que los `tags` marcan
-   como entregadas no consultan el envío (ahorra llamadas en el histórico); las
-   demás piden /shipments/{id} con concurrencia acotada. Nunca lanza: sin dato,
-   el pedido queda "nuevo". */
+/* Hasta cuándo hay para entregarle el paquete al transportista.
+
+   Mercado Libre documenta un `estimated_handling_limit` con la fecha ya hecha,
+   pero esta cuenta no lo recibe: llega ausente en los dos formatos del recurso
+   (verificado con scripts/probar-envios-ml.mjs). Lo que sí manda son las HORAS
+   de manejo concedidas y el instante en que el envío entró a preparación, que
+   es de donde sale ese mismo plazo.
+
+   Se reconstruye solo cuando llegan los dos datos: preferimos no tener plazo a
+   inventar uno con un default, porque un plazo inventado haría que el tablero
+   marcara como atrasados pedidos que no lo están. */
+function limiteDespacho(env: EnvioML | null): string | null {
+  const inicio = env?.status_history?.date_handling;
+  const horas = env?.shipping_option?.estimated_delivery_time?.handling;
+  if (!inicio || typeof horas !== "number" || horas <= 0) return null;
+  const arranque = Date.parse(inicio);
+  if (Number.isNaN(arranque)) return null;
+  return new Date(arranque + horas * 3_600_000).toISOString();
+}
+
+const CONCURRENCIA = 8;
+
+/* Ejecuta `tarea` sobre la lista en tandas, para no abrir cien peticiones a la
+   vez contra Mercado Libre. */
+async function enTandas<T>(lista: T[], tarea: (x: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < lista.length; i += CONCURRENCIA) {
+    await Promise.all(lista.slice(i, i + CONCURRENCIA).map(tarea));
+  }
+}
+
+/* Resuelve el estado de envío de un lote de órdenes.
+
+   Las que los `tags` marcan como entregadas se saltan el detalle del envío
+   (ahorra llamadas en el histórico) pero SÍ piden su costo: el gasto de flete
+   cuenta igual aunque el paquete ya haya llegado, y sin ellas el costo del canal
+   saldría corto justo en las ventas más viejas.
+
+   Nunca lanza: sin dato, el pedido queda "nuevo" y el costo en null. */
 async function infoEnvioDeOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Map<number, InfoEnvio>> {
   const info = new Map<number, InfoEnvio>();
   const porConsultar: OrdenML[] = [];
+  const soloCosto: OrdenML[] = [];
   for (const o of ordenes) {
     if (o.tags?.includes("delivered")) {
-      info.set(o.id, { estado: "entregado", paqueteria: null, num_guia: null });
+      info.set(o.id, { ...SIN_ENVIO, estado: "entregado" });
+      if (o.shipping?.id) soloCosto.push(o);
     } else if (o.shipping?.id) {
       porConsultar.push(o);
     } else {
-      info.set(o.id, { estado: "nuevo", paqueteria: null, num_guia: null });
+      info.set(o.id, SIN_ENVIO);
     }
   }
 
-  const CONCURRENCIA = 8;
-  for (let i = 0; i < porConsultar.length; i += CONCURRENCIA) {
-    await Promise.all(
-      porConsultar.slice(i, i + CONCURRENCIA).map(async (o) => {
-        const env = await obtenerEnvioML(cx, o.shipping!.id!);
+  /* Entregadas: una sola llamada, la del costo. */
+  await enTandas(soloCosto, async (o) => {
+    const costo = await costoEnvioVendedorML(cx, o.shipping!.id!);
+    const previo = info.get(o.id) ?? SIN_ENVIO;
+    info.set(o.id, { ...previo, costo_envio: costo });
+  });
+
+  await enTandas(porConsultar, async (o) => {
+    const [env, costo] = await Promise.all([
+      obtenerEnvioML(cx, o.shipping!.id!),
+      costoEnvioVendedorML(cx, o.shipping!.id!),
+    ]);
+    {
+        const d = env?.receiver_address;
         info.set(o.id, {
           estado: estadoDeEnvio(env),
           paqueteria: env?.tracking_method?.trim() || null,
           num_guia: env?.tracking_number?.trim() || null,
-        });
-      }),
-    );
-  }
+          costo_envio: costo,
+          limite_despacho:
+            env?.shipping_option?.estimated_handling_limit?.date ?? limiteDespacho(env),
+          despachado_en: env?.status_history?.date_shipped ?? null,
+          /* Las órdenes ya marcadas como entregadas por `tags` no pasan por aquí
+             y se quedan sin dirección: ya no hay nada que empacar, y ahorrarse
+             esas llamadas es lo que hace viable importar el histórico. */
+          direccion: d
+            ? normalizarDireccion({
+                nombre: d.receiver_name,
+                telefono: d.receiver_phone,
+                calle: d.street_name,
+                numero: d.street_number,
+                colonia: d.neighborhood?.name,
+                ciudad: d.city?.name,
+                estado: d.state?.name,
+                cp: d.zip_code,
+                pais: d.country?.name,
+                referencias: d.comment,
+              })
+            : null,
+      });
+    }
+  });
   return info;
+}
+
+/* Día de la venta, en hora de México. Mercado Libre devuelve el instante con su
+   propio offset, así que cortarlo con slice(0,10) dejaba las ventas de la noche
+   en el día siguiente. Armando lo describió al revés pero con el dato correcto:
+   ML corta el día "a las 11 pm Hermosillo", que es medianoche de Ciudad de
+   México — el mismo huso que usa el resto del CRM. */
+function fechaDe(orden: OrdenML): string {
+  return diaMX(orden.date_closed ?? orden.date_created);
+}
+
+/* Importes de la orden como los reporta el panel de ML. `total_amount` es solo
+   producto; el envío y el cupón viven aparte, y son justo lo que le faltaba al
+   CRM para cuadrar. */
+function totalDeOrden(
+  orden: OrdenML,
+  clienteId: string | null,
+  costoEnvio: number | null,
+): TotalOrden {
+  const subtotal = aMonto(orden.total_amount);
+  const envio = (orden.payments ?? []).reduce((a, p) => a + aMonto(p.shipping_cost), 0);
+  const impuesto =
+    aMonto(orden.taxes?.amount) ||
+    (orden.payments ?? []).reduce((a, p) => a + aMonto(p.taxes_amount), 0);
+  const descuento = aMonto(orden.coupon?.amount);
+  /* `paid_amount` ya viene neto de todo; si falta, se reconstruye. */
+  const total = orden.paid_amount != null ? aMonto(orden.paid_amount) : subtotal + envio - descuento;
+
+  /* Lo que se queda Mercado Libre. Se suma por línea (`sale_fee`) y, si alguna
+     no lo trae, se cae al total de la orden que reportan los pagos. Cuando no
+     hay ni uno ni otro queda null: es distinto de "no cobró comisión". */
+  const porLinea = (orden.order_items ?? []).reduce((a, l) => a + aMonto(l.sale_fee), 0);
+  const porPagos = (orden.payments ?? []).reduce((a, p) => a + aMonto(p.marketplace_fee), 0);
+  const comision = porLinea || porPagos || null;
+
+  return {
+    canal: "mercado_libre",
+    referencia_orden: String(orden.id),
+    numero: String(orden.id),
+    fecha: fechaDe(orden),
+    total,
+    subtotal,
+    envio,
+    descuento,
+    impuesto,
+    moneda: orden.currency_id?.trim() || "MXN",
+    estado: orden.status ?? null,
+    cliente_id: clienteId,
+    comision,
+    costo_envio: costoEnvio,
+  };
 }
 
 /* Renglones de `sales` de una orden (la orden ya debe ser vendible). */
@@ -129,10 +280,10 @@ function filasDeOrden(
   clientePorBuyer: Map<number, string>,
   infoEnvio: Map<number, InfoEnvio>,
 ) {
-  const fecha = (orden.date_closed ?? orden.date_created).slice(0, 10);
+  const fecha = fechaDe(orden);
   const cliente = nombreComprador(orden);
   const clienteId = orden.buyer ? (clientePorBuyer.get(orden.buyer.id) ?? null) : null;
-  const envio = infoEnvio.get(orden.id) ?? { estado: "nuevo" as EstadoPedido, paqueteria: null, num_guia: null };
+  const envio = infoEnvio.get(orden.id) ?? SIN_ENVIO;
   return (orden.order_items ?? []).map((linea) => {
     const cantidad = Math.max(1, Math.trunc(Number(linea.quantity) || 1));
     const unitario = Number(linea.unit_price) || 0;
@@ -148,6 +299,11 @@ function filasDeOrden(
       estado: envio.estado,
       paqueteria: envio.paqueteria,
       num_guia: envio.num_guia,
+      /* El detalle en el panel de ML se abre por el carrito, no por la orden. */
+      url_orden: urlOrdenML(orden.id, orden.pack_id),
+      envio_direccion: envio.direccion,
+      envio_limite_despacho: envio.limite_despacho,
+      envio_despachado_en: envio.despachado_en,
       origen: "api",
       referencia_externa: refLinea(orden.id, linea.item.id, variationId),
       notas: `Orden ML #${orden.id}${cliente ? ` — ${cliente}` : ""}`,
@@ -209,16 +365,28 @@ async function sincronizarClientes(ordenes: OrdenML[]): Promise<Map<number, stri
     canal: "mercado_libre",
   }));
 
-  const { error } = await admin.from("customers").upsert(filas, { onConflict: "mercadolibre_buyer_id" });
-  if (error) throw new Error(error.message);
+  /* En tandas, por el mismo motivo que en los otros dos canales: reimportar el
+     histórico son ~1000 compradores y el `.in()` completo revienta la URL (400). */
+  const LOTE = 200;
+  const ids = [...porBuyer.keys()];
+  const mapa = new Map<number, string>();
 
-  const { data, error: errSel } = await admin
-    .from("customers")
-    .select("id, mercadolibre_buyer_id")
-    .in("mercadolibre_buyer_id", [...porBuyer.keys()]);
-  if (errSel) throw new Error(errSel.message);
+  for (let i = 0; i < filas.length; i += LOTE) {
+    const { error } = await admin
+      .from("customers")
+      .upsert(filas.slice(i, i + LOTE), { onConflict: "mercadolibre_buyer_id" });
+    if (error) throw new Error(error.message);
+  }
 
-  return new Map((data ?? []).map((c) => [c.mercadolibre_buyer_id as number, c.id as string]));
+  for (let i = 0; i < ids.length; i += LOTE) {
+    const { data, error: errSel } = await admin
+      .from("customers")
+      .select("id, mercadolibre_buyer_id")
+      .in("mercadolibre_buyer_id", ids.slice(i, i + LOTE));
+    if (errSel) throw new Error(errSel.message);
+    for (const c of data ?? []) mapa.set(c.mercadolibre_buyer_id as number, c.id as string);
+  }
+  return mapa;
 }
 
 /* Inserta los renglones nuevos (ignora los ya importados) y retira los de
@@ -241,6 +409,7 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
   ]);
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes, infoEnvio));
   let insertadas = 0;
+  let actualizadas = 0;
   if (filas.length > 0) {
     const { data, error } = await admin
       .from("sales")
@@ -305,32 +474,43 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
         .in("referencia_externa", refs);
     }
 
-    /* Estado/guía de envío: Mercado Libre es la fuente de verdad del
-       fulfillment, así que se refresca SIEMPRE en cada sync (el upsert ignora
-       las filas ya existentes, por eso este UPDATE es lo que hace que un pedido
-       avance de nuevo→preparando→enviado→entregado). Agrupado por estado para
-       hacer pocos UPDATE; `origen=api` no toca ventas manuales/de mostrador. */
-    const porEstado = new Map<string, string[]>();
-    for (const f of filas) {
-      const lista = porEstado.get(f.estado) ?? [];
-      lista.push(f.referencia_externa);
-      porEstado.set(f.estado, lista);
-    }
-    // En tandas: un `.in()` con cientos de refs arma una URL que supera el
-    // límite del servidor y falla en silencio (el histórico entregado son
-    // ~700 renglones). 200 por lote mantiene la URL corta.
-    for (const [estado, refs] of porEstado) {
-      for (let i = 0; i < refs.length; i += 200) {
-        const { error } = await admin
-          .from("sales")
-          .update({ estado })
-          .eq("canal", "mercado_libre")
-          .eq("origen", "api")
-          .in("referencia_externa", refs.slice(i, i + 200));
-        if (error) console.error("[mercadolibre] refresco de estado:", error.message);
-      }
-    }
+    /* Refrescar los renglones que YA estaban importados. Mercado Libre es la
+       fuente de verdad del fulfillment, así que éste es el paso que hace avanzar
+       un pedido de nuevo→preparando→enviado→entregado (el upsert de arriba
+       ignora las filas existentes). Ahora además corrige la FECHA, que es como
+       se repara el histórico importado con el día sin convertir a México.
+       Va por RPC, en un solo viaje por tanda en vez de un UPDATE por estado. */
+    actualizadas = await refrescarRenglones(
+      "mercado_libre",
+      filas.map((f) => ({
+        referencia_externa: f.referencia_externa,
+        fecha: f.fecha,
+        monto: f.monto,
+        cantidad: f.cantidad,
+        estado: f.estado,
+        paqueteria: f.paqueteria,
+        num_guia: f.num_guia,
+        url_orden: f.url_orden,
+        envio_direccion: f.envio_direccion,
+        /* Sin esto, la hora real de salida —que aparece horas después de que la
+           venta se importó— nunca alcanzaría al renglón ya existente. */
+        envio_limite_despacho: f.envio_limite_despacho,
+        envio_despachado_en: f.envio_despachado_en,
+      })),
+    );
   }
+
+  /* Totales por orden: `sales.monto` solo suma producto y el panel de ML incluye
+     el envío. De aquí sale el KPI de ventas de Métricas. */
+  await guardarTotalesOrden(
+    vendibles.map((o) =>
+      totalDeOrden(
+        o,
+        o.buyer ? (clientes.get(o.buyer.id) ?? null) : null,
+        infoEnvio.get(o.id)?.costo_envio ?? null,
+      ),
+    ),
+  );
 
   // Órdenes canceladas/inválidas: retirar sus renglones si se importaron.
   const refsCanceladas = ordenes
@@ -386,6 +566,7 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
   return {
     ordenes: ordenes.length,
     insertadas,
+    actualizadas,
     existentes: filas.length - insertadas,
     retiradas,
     clientes: clientes.size,
@@ -397,7 +578,7 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
    rellenar datos nuevos (p. ej. ligar clientes a ventas ya importadas). */
 export async function importarVentasML(
   cxParam?: ConexionML,
-  opts?: { completo?: boolean },
+  opts?: OpcionesImportacion,
 ): Promise<ResumenVentasML> {
   const cx = cxParam ?? (await conexionMercadolibre());
   if (!cx) throw new Error("Mercado Libre no está conectado.");
@@ -406,8 +587,7 @@ export async function importarVentasML(
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
-  const desde = new Date(ultimaSync ?? Date.now());
-  desde.setDate(desde.getDate() - (ultimaSync ? DIAS_TRASLAPE : DIAS_PRIMERA_VEZ));
+  const desde = ventanaDesde(ultimaSync, opts, DIAS_PRIMERA_VEZ, DIAS_TRASLAPE);
 
   const ordenes = await listarOrdenesML(cx, desde.toISOString());
   const resumen = await aplicarOrdenes(cx, ordenes);

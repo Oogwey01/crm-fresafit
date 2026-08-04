@@ -243,6 +243,26 @@ const CODE_PRODUCTO_NO_EXISTE = 12052032;
 
 export type ShopTikTok = { id: string; name?: string; cipher: string; region?: string };
 
+/* Cuál de las tiendas autorizadas es la nuestra.
+
+   Una cuenta de TikTok Shop suele tener también una tienda SANDBOX de pruebas,
+   y la autorización devuelve las dos. Quedarse con la primera de la lista es
+   una lotería: si sale la sandbox, el CRM apunta a un catálogo vacío y la
+   integración de producción queda apagada sin que nadie lo note hasta que las
+   ventas dejen de entrar.
+
+   Manda la tienda que ya estaba conectada. Si no hay ninguna (primera
+   conexión), se descartan las de prueba y se toma la primera real. */
+export function elegirShopTikTok(shops: ShopTikTok[], shopIdActual?: string | null): ShopTikTok | null {
+  if (shops.length === 0) return null;
+
+  const yaConectada = shopIdActual && shops.find((s) => s.id === shopIdActual);
+  if (yaConectada) return yaConectada;
+
+  const esPrueba = (s: ShopTikTok) => /sandbox|test/i.test(`${s.name ?? ""}${s.id}`);
+  return shops.find((s) => !esPrueba(s)) ?? shops[0];
+}
+
 /* Tiendas autorizadas del vendedor. Da el `shop_cipher` que necesita todo lo
    demás. Se llama con una conexión sin cipher todavía (sinCipher: true). */
 export async function obtenerShopsTikTok(accessToken: string): Promise<ShopTikTok[]> {
@@ -404,9 +424,34 @@ export type OrdenTikTok = {
   status: string;
   create_time?: number; // unix segundos
   buyer_email?: string | null; // enmascarado (@scs.tiktok.com)
-  payment?: { total_amount?: string; sub_total?: string; currency?: string } | null;
+  /* Desglose de importes. `sales.monto` solo suma producto; el panel de TikTok
+     reporta `total_amount` (con envío e impuestos, menos descuentos). Se archiva
+     en `sale_orders`. */
+  payment?: {
+    total_amount?: string;
+    sub_total?: string;
+    shipping_fee?: string;
+    tax?: string;
+    seller_discount?: string;
+    platform_discount?: string;
+    currency?: string;
+  } | null;
   line_items?: LineItemTikTok[] | null;
   tracking_number?: string | null;
+  shipping_provider?: string | null; // paquetería; antes se guardaba siempre null
+  /* Dirección de entrega. TikTok la reparte entre `district_info` (la jerarquía
+     país → estado → municipio → colonia, cada nivel con su `address_level_name`)
+     y `detail_address` (la calle y el número en texto libre). */
+  recipient_address?: {
+    name?: string | null;
+    phone_number?: string | null;
+    full_address?: string | null;
+    address_detail?: string | null;
+    address_line1?: string | null;
+    postal_code?: string | null;
+    region_code?: string | null;
+    district_info?: { address_level_name?: string | null; address_name?: string | null }[] | null;
+  } | null;
 };
 
 /* Órdenes del vendedor desde una fecha (unix seg), paginadas por page_token.
@@ -440,4 +485,62 @@ export async function obtenerOrdenTikTok(cx: ConexionTikTok, orderId: string): P
     query: { ids: orderId },
   });
   return data.orders?.[0] ?? null;
+}
+
+/* ------------------------------ Finanzas --------------------------------- */
+
+/* Una liquidación de TikTok: lo que se vendió en ese corte y lo que de verdad
+   llegó a la cuenta después de su comisión.
+
+   Es el único lugar donde aparece lo que cobra la plataforma. Las ventas que el
+   CRM importa traen el precio que pagó el comprador; entre ese número y el
+   depósito hay ~22% que no estaba registrado en ninguna parte.
+
+   Los importes vienen como texto y `fee_amount` llega en NEGATIVO (es un cargo);
+   se conservan tal cual y quien los use decide el signo. */
+export type LiquidacionTikTok = {
+  id: string;
+  statement_time: number; // unix en segundos
+  payment_status?: string | null;
+  currency?: string | null;
+  revenue_amount?: string | null; // venta del corte
+  fee_amount?: string | null; // comisión de TikTok (negativa)
+  shipping_cost_amount?: string | null;
+  adjustment_amount?: string | null;
+  settlement_amount?: string | null; // lo que se deposita
+  net_sales_amount?: string | null;
+};
+
+/* Liquidaciones desde una fecha. Se ordenan de la más reciente hacia atrás y se
+   corta al llegar al límite, porque el histórico completo son años de cortes y
+   aquí siempre se mira una ventana. */
+export async function listarLiquidacionesTikTok(
+  cx: ConexionTikTok,
+  desdeUnix: number,
+): Promise<LiquidacionTikTok[]> {
+  const todas: LiquidacionTikTok[] = [];
+  let pageToken = "";
+  /* Tope de seguridad: 20 páginas de 50 son 1 000 cortes, mucho más de lo que
+     cabe en cualquier ventana que se mire en pantalla. */
+  for (let pagina = 0; pagina < 20; pagina++) {
+    const query: Record<string, string> = {
+      page_size: "50",
+      sort_field: "statement_time",
+      sort_order: "DESC",
+    };
+    if (pageToken) query.page_token = pageToken;
+    const data = await ttFetch<{
+      statements?: LiquidacionTikTok[];
+      next_page_token?: string;
+    }>(cx, "GET", "/finance/202309/statements", { query });
+
+    const lote = data.statements ?? [];
+    todas.push(...lote.filter((s) => s.statement_time >= desdeUnix));
+    /* Vienen de la más nueva a la más vieja: al cruzar el borde de la ventana,
+       lo que sigue es todavía más viejo. */
+    if (lote.some((s) => s.statement_time < desdeUnix)) break;
+    if (!data.next_page_token || lote.length === 0) break;
+    pageToken = data.next_page_token;
+  }
+  return todas;
 }

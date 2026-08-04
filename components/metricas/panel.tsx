@@ -1,19 +1,36 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { CANALES, TIPOS_PRODUCTO, esGestor, obtenerCanal, obtenerTipoProducto } from "@/lib/catalogos";
-import { diasDesdeHoy, formatearFecha, hoyISO, rangoPersonalizado, rangosDePeriodo } from "@/lib/fecha";
+import {
+  diasDesdeHoy,
+  formatearFecha,
+  hoyISO,
+  rangoPersonalizado,
+  rangosDePeriodo,
+  type Periodo,
+  type PresetRangoId,
+} from "@/lib/fecha";
+import { RangoFechas } from "@/components/compartido/rango-fechas";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { formatearMXN } from "@/lib/moneda";
 import { tallaDeVariante, compararTallas } from "@/lib/talla";
 import { ETIQUETA_DELTA as ETIQUETA_DELTA_BASE, enRango, deltaPct } from "@/lib/metricas";
 import { nombreVenta } from "@/lib/ventas";
 import { GraficaVentasDia } from "@/components/metricas/grafica-ventas-dia";
 import { importarVentasTiendanube } from "@/app/(app)/metricas/actions";
-import type { CanalId, Customer, Product, RolId, VentaMetricas, TipoProductoId } from "@/lib/types";
+import type {
+  CanalId,
+  Customer,
+  OrdenMetricas,
+  Product,
+  RolId,
+  VentaMetricas,
+  TipoProductoId,
+} from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { DatePicker } from "@/components/compartido/date-picker";
 import {
   Select,
   SelectContent,
@@ -25,23 +42,18 @@ import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { VentaDialog } from "@/components/ventas/venta-dialog";
+import { Plataformas } from "@/components/metricas/plataformas";
+import type { CarritosTN, SaludML, VisitasML } from "@/lib/canales/salud";
 import { cn } from "@/lib/utils";
 
-type PeriodoId = "hoy" | "semana" | "mes" | "mes_pasado" | "personalizado";
+/* "" = rango elegido a mano en el calendario (sin atajo activo). */
+type PeriodoId = PresetRangoId | "";
 
-const PERIODOS: [PeriodoId, string][] = [
-  ["hoy", "Hoy"],
-  ["semana", "Semana"],
-  ["mes", "Mes"],
-  ["mes_pasado", "Mes pasado"],
-  ["personalizado", "Fechas"],
-];
-
-/* Los cuatro periodos base salen del compartido; este panel añade el rango
-   libre, que Finanzas no tiene. */
+/* Las etiquetas de los atajos salen del compartido; el rango libre se compara
+   contra el bloque inmediatamente anterior del mismo largo. */
 const ETIQUETA_DELTA: Record<PeriodoId, string> = {
   ...ETIQUETA_DELTA_BASE,
-  personalizado: "vs. periodo anterior",
+  "": "vs. periodo anterior",
 };
 
 /* Ventas que se pintan de golpe en la tabla; el resto entra con «Ver más».
@@ -59,34 +71,48 @@ const CHIPS_SIN_MOVIMIENTO = 12;
 
 export function PanelMetricas({
   ventas,
+  ordenes,
+  truncado = false,
   productos,
   clientes,
   rol,
   tiendanube,
+  visitas,
+  salud,
+  carritos,
+  ventasMLVentana,
 }: {
   ventas: VentaMetricas[];
+  ordenes: OrdenMetricas[];
+  /* Se alcanzó el tope de renglones: faltan las ventas más viejas del año. */
+  truncado?: boolean;
   productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
   clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
   rol: RolId;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
+  /* Lo que se lee en vivo de los canales. Null = ese canal no contestó y su
+     bloque no se pinta. */
+  visitas: VisitasML | null;
+  salud: SaludML | null;
+  carritos: CarritosTN | null;
+  ventasMLVentana: number;
 }) {
   const gestor = esGestor(rol);
   const [periodo, setPeriodo] = useState<PeriodoId>("mes");
-  /* Rango a mano (solo con periodo = "personalizado"). Arranca en el mes en
-     curso para que al abrirlo ya muestre algo coherente. */
+  /* Rango a mano (cuando no hay atajo activo). Arranca en el mes en curso para
+     que el calendario abra ya sobre algo coherente. */
   const [desde, setDesde] = useState(() => hoyISO().slice(0, 8) + "01");
   const [hasta, setHasta] = useState(hoyISO);
   /* Plataforma: "todas" o un canal. Afecta TODO el panel, no solo la tabla. */
   const [canal, setCanal] = useState<CanalId | "todas">("todas");
   const [visibles, setVisibles] = useState(VENTAS_POR_PAGINA);
   const [ventaDialog, setVentaDialog] = useState<VentaMetricas | "nueva" | null>(null);
-  const [importando, startImportar] = useTransition();
+  const { pending: importando, ejecutar: ejecutarImportacion } = useAccionServidor();
   /* Desglose de «Productos estrella» por categoría y talla. */
   const [catEstrella, setCatEstrella] = useState<TipoProductoId | "todas">("todas");
   const [tallaEstrella, setTallaEstrella] = useState<string>("todas");
 
-  const rangos =
-    periodo === "personalizado" ? rangoPersonalizado(desde, hasta) : rangosDePeriodo(periodo);
+  const rangos = periodo ? rangosDePeriodo(periodo) : rangoPersonalizado(desde, hasta);
 
   /* El filtro de plataforma se aplica una sola vez, aquí: de estas dos listas
      salen los KPIs, las gráficas, el top de productos y la tabla. */
@@ -103,12 +129,66 @@ export function PanelMetricas({
     [delCanal, rangos.anterior],
   );
 
-  /* --- Números clave --- */
+  /* --- Números clave ---
+     `total` (suma de renglones) es lo que se vendió en PRODUCTO. Lo que reportan
+     los paneles de los canales es el bruto de la orden, que además lleva envío y
+     descuentos: por eso existe `sale_orders`. Aquí se combinan las dos fuentes —
+     órdenes para lo importado, renglones para lo capturado a mano, que no genera
+     orden— y así el KPI es comparable contra Tienda Nube y Mercado Libre. */
   const total = delPeriodo.reduce((a, v) => a + v.monto, 0);
-  const totalAnterior = delAnterior.reduce((a, v) => a + v.monto, 0);
   const piezas = delPeriodo.reduce((a, v) => a + v.cantidad, 0);
   const ticket = delPeriodo.length > 0 ? total / delPeriodo.length : 0;
   const piezasPorVenta = delPeriodo.length > 0 ? piezas / delPeriodo.length : 0;
+
+  const ordenesDelCanal = useMemo(
+    () => (canal === "todas" ? ordenes : ordenes.filter((o) => o.canal === canal)),
+    [ordenes, canal],
+  );
+  /* Las del periodo que se está mirando: de aquí salen el desglose de medios de
+     pago y el uso de cupones, que tienen que moverse con el selector de fechas
+     como todo lo demás del panel. */
+  const ordenesDelPeriodo = useMemo(
+    () => ordenesDelCanal.filter((o) => enRango(o.fecha, rangos.actual)),
+    [ordenesDelCanal, rangos.actual],
+  );
+  /* Bruto POR CANAL. Cuando hay órdenes importadas de un canal se usa su total
+     (que incluye envío y descuentos, como el panel de la plataforma); cuando no
+     las hay se cae a la suma de renglones, que es lo que el CRM sabía antes.
+
+     Ese respaldo no es teórico: `sale_orders` se llena con una migración que se
+     aplica a mano, así que hay una ventana en la que el código nuevo convive con
+     la tabla vacía. Sin él, el KPI marcaba $0. Las ventas capturadas a mano
+     (mostrador, CSV) nunca generan orden, así que siempre suman por renglón. */
+  function brutoPorCanal(rango: Periodo, renglones: VentaMetricas[]): Map<string, number> {
+    const sumas = new Map<string, number>();
+    const conOrden = new Set<string>();
+
+    for (const o of ordenesDelCanal) {
+      if (!enRango(o.fecha, rango)) continue;
+      conOrden.add(o.canal);
+      sumas.set(o.canal, (sumas.get(o.canal) ?? 0) + o.total);
+    }
+    for (const v of renglones) {
+      /* Un renglón se suma si es manual (nunca tiene orden) o si su canal no
+         aportó ninguna orden en este rango (respaldo). */
+      if (v.origen === "api" && conOrden.has(v.canal)) continue;
+      sumas.set(v.canal, (sumas.get(v.canal) ?? 0) + v.monto);
+    }
+    return sumas;
+  }
+  function sumar(m: Map<string, number>): number {
+    let t = 0;
+    for (const v of m.values()) t += v;
+    return t;
+  }
+
+  const brutoCanalActual = brutoPorCanal(rangos.actual, delPeriodo);
+  const bruto = sumar(brutoCanalActual);
+  const brutoAnterior = sumar(brutoPorCanal(rangos.anterior, delAnterior));
+  /* Cuánto del bruto NO es producto (envío menos descuentos). Se muestra para
+     que la diferencia contra la suma de renglones sea explicable de un vistazo
+     y no vuelva a parecer un error del CRM. */
+  const extras = bruto - total;
 
   /* --- Ventas por día (últimos 14 días, fijo; respeta la plataforma) --- */
   const dias = useMemo(() => {
@@ -131,18 +211,17 @@ export function PanelMetricas({
   /* --- Por canal: se listan todos los canales del catálogo, incluso en cero
      (atenuados), para que se vea de dónde NO está entrando dinero. "Otro" solo
      aparece si tuvo ventas. --- */
-  const porCanal = useMemo(() => {
-    const sumas = new Map<string, number>();
-    for (const v of delPeriodo) sumas.set(v.canal, (sumas.get(v.canal) ?? 0) + v.monto);
-    return CANALES.filter((c) => c.id !== "otro" || sumas.has(c.id))
-      .map((c) => ({
-        id: c.id,
-        nombre: c.nombre,
-        valor: sumas.get(c.id) ?? 0,
-        color: c.color,
-      }))
-      .sort((a, b) => b.valor - a.valor);
-  }, [delPeriodo]);
+  /* Exactamente el mismo desglose que alimenta la tarjeta «Ventas», para que las
+     partes sumen el total de arriba. Sin memo: recorrer unos pocos canales es
+     más barato que la comparación de dependencias. */
+  const porCanal = CANALES.filter((c) => c.id !== "otro" || brutoCanalActual.has(c.id))
+    .map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      valor: brutoCanalActual.get(c.id) ?? 0,
+      color: c.color,
+    }))
+    .sort((a, b) => b.valor - a.valor);
 
   /* --- Productos estrella, desglosables por categoría y talla --- */
   /* Ventas del periodo acotadas a la categoría elegida (sin aplicar aún la
@@ -259,11 +338,16 @@ export function PanelMetricas({
     },
   ];
 
+  /* Confirmación previa por el mismo motivo que en Inventario: relee las ventas
+     del canal, tarda, y estaba a un clic sin red de seguridad. */
   function importar() {
-    startImportar(async () => {
-      const r = await importarVentasTiendanube();
-      if ("error" in r) toast.error(r.error);
-      else toast.success(r.detalle);
+    ejecutarImportacion(importarVentasTiendanube, {
+      confirmar:
+        "Importar de Tienda Nube: se vuelven a leer las ventas del canal. Puede tardar unos minutos. ¿Seguir?",
+      error: "No se pudo importar. Revisa tu conexión.",
+      alExito: (r) => {
+        toast.success(r.detalle);
+      },
     });
   }
 
@@ -289,25 +373,21 @@ export function PanelMetricas({
               {importando ? "Importando…" : "Importar de Tienda Nube"}
             </Button>
           )}
-          <div className="flex w-full rounded-xl bg-muted p-[3px] md:inline-flex md:w-auto">
-            {PERIODOS.map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => {
-                  setPeriodo(id);
-                  setVisibles(VENTAS_POR_PAGINA);
-                }}
-                className={cn(
-                  "flex-1 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors md:flex-none",
-                  periodo === id
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* Un solo control para el periodo: atajos y rango a mano en el mismo
+              calendario (antes eran un segmentado + dos date-pickers sueltos). */}
+          <RangoFechas
+            desde={desde}
+            hasta={hasta}
+            preset={periodo}
+            onPreset={setPeriodo}
+            onChange={(d, h) => {
+              setDesde(d);
+              setHasta(h);
+              setPeriodo(""); // rango a mano: deja de haber preset activo
+              setVisibles(VENTAS_POR_PAGINA);
+            }}
+            className="w-full md:w-[240px]"
+          />
           <Select
             value={canal}
             onValueChange={(v) => {
@@ -340,51 +420,46 @@ export function PanelMetricas({
         </div>
       </div>
 
-      {/* Rango a mano: solo estorba cuando no se está usando */}
-      {periodo === "personalizado" && (
-        <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-xl border bg-card px-4 py-3">
-          <label className="text-[13px] font-semibold text-muted-foreground" htmlFor="ventas-desde">
-            Del
-          </label>
-          <div className="w-[150px]">
-            <DatePicker
-              id="ventas-desde"
-              value={desde}
-              max={hasta}
-              onChange={(v) => {
-                setDesde(v);
-                setVisibles(VENTAS_POR_PAGINA);
-              }}
-            />
-          </div>
-          <label className="text-[13px] font-semibold text-muted-foreground" htmlFor="ventas-hasta">
-            al
-          </label>
-          <div className="w-[150px]">
-            <DatePicker
-              id="ventas-hasta"
-              value={hasta}
-              min={desde}
-              onChange={(v) => {
-                setHasta(v);
-                setVisibles(VENTAS_POR_PAGINA);
-              }}
-            />
-          </div>
-          <span className="text-[12.5px] text-muted-foreground">
-            {delPeriodo.length} {delPeriodo.length === 1 ? "venta" : "ventas"} ·{" "}
-            {formatearMXN(totalListado)}
+      {/* Aviso de tope: mejor decirlo que dejar que los totales de un periodo
+          largo salgan cortos sin explicación. */}
+      {truncado && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[13px]">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" strokeWidth={2} />
+          <span>
+            Se alcanzó el tope de renglones cargados, así que las ventas más antiguas del año no
+            están contadas. Los periodos cortos (hasta el mes en curso) sí son exactos.
           </span>
         </div>
       )}
+
+      {/* Qué se está midiendo exactamente: con atajos como «Últimos 7 días» el
+          rango concreto no se ve, y es justo el dato que hace falta para cuadrar
+          contra el panel del canal. */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-[12.5px] text-muted-foreground">
+        <span className="font-semibold">
+          {formatearFecha(rangos.actual.desde)} – {formatearFecha(rangos.actual.hasta)}
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          {delPeriodo.length} {delPeriodo.length === 1 ? "venta" : "ventas"} ·{" "}
+          {formatearMXN(totalListado)} en producto
+        </span>
+      </div>
 
       {/* Números clave */}
       <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
         <StatCard
           etiqueta="Ventas"
-          valor={formatearMXN(total)}
-          delta={deltaPct(total, totalAnterior)}
+          valor={formatearMXN(bruto)}
+          delta={deltaPct(bruto, brutoAnterior)}
           deltaEtiqueta={ETIQUETA_DELTA[periodo]}
+          /* Solo se desglosa cuando hay algo que desglosar: con extras en cero
+             (o en negativo por devoluciones) la frase confundiría más que ayuda. */
+          nota={
+            extras >= 1
+              ? `${formatearMXN(total)} en producto + ${formatearMXN(extras)} de envío y ajustes`
+              : "producto, envío y ajustes"
+          }
         />
         <StatCard
           etiqueta="Nº de ventas"
@@ -571,12 +646,23 @@ export function PanelMetricas({
         </>
       )}
 
+      {/* Lo que las plataformas saben y no llega a las ventas. Va al final: es
+          contexto de lo de arriba, no el titular. */}
+      <Plataformas
+        visitas={visitas}
+        salud={salud}
+        carritos={carritos}
+        ordenes={ordenesDelPeriodo}
+        ventasML={ventasMLVentana}
+      />
+
       {ventaDialog && (
         <VentaDialog
           venta={ventaDialog === "nueva" ? null : ventaDialog}
           productos={productos}
           clientes={clientes}
           gestor={gestor}
+          direccion={rol === "direccion"}
           onClose={() => setVentaDialog(null)}
         />
       )}

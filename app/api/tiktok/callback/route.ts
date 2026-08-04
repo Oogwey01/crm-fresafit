@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import {
   conexionTiktok,
+  elegirShopTikTok,
   guardarConexionTikTok,
   guardarWarehouseTikTok,
   intercambiarCodigoTikTok,
@@ -24,8 +25,22 @@ export async function GET(request: Request) {
   try {
     const tokens = await intercambiarCodigoTikTok(code);
     const shops = await obtenerShopsTikTok(tokens.access_token);
-    const shop = shops[0];
+
+    /* La cuenta trae también una tienda SANDBOX, y quedarse con la primera de
+       la lista podía apuntar el CRM al catálogo de pruebas y apagar la
+       integración real sin aviso. Se conserva la tienda ya conectada. */
+    const yaConectada = await conexionTiktok().catch(() => null);
+    const shop = elegirShopTikTok(shops, yaConectada?.shopId);
     if (!shop?.cipher) throw new Error("TikTok Shop no devolvió ninguna tienda autorizada.");
+    if (yaConectada?.shopId && shop.id !== yaConectada.shopId) {
+      /* Cambiar de tienda borra el vínculo con todo el catálogo importado, así
+         que no se hace en silencio: se rechaza y se avisa. */
+      console.error(
+        `[tiktok] la autorización es de la tienda ${shop.id} (${shop.name ?? "sin nombre"}) ` +
+          `y el CRM está conectado a ${yaConectada.shopId}; no se cambia.`,
+      );
+      return NextResponse.redirect(`${origin}/inventario?tiktok=otra-tienda`);
+    }
     await guardarConexionTikTok(tokens, { cipher: shop.cipher, id: shop.id });
 
     // Almacén principal (para poder escribir stock después). No es fatal: el

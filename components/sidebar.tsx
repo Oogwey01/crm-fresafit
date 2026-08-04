@@ -3,18 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ClipboardCheck,
-  Package,
   BarChart3,
+  Building2,
+  ClipboardCheck,
   DollarSign,
-  Users,
-  Truck,
   LogOut,
+  Package,
+  Receipt,
+  Store,
+  TrendingUp,
+  Truck,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { LogoFresafit } from "@/components/logo-fresafit";
+import { AvisosPush } from "@/components/tareas/avisos-push";
 import { Notificaciones } from "@/components/tareas/notificaciones";
-import { MODULOS, ROLES } from "@/lib/catalogos";
+import { TemaToggle } from "@/components/tema-toggle";
+import { SelectorEspacio } from "@/components/selector-espacio";
+import { ESPACIOS, MODULOS, ROLES, espacioDeRuta, type EspacioId } from "@/lib/catalogos";
 import type { Profile, Notificacion } from "@/lib/types";
 import { cn, iniciales } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -24,9 +31,16 @@ const ICONOS: Record<string, LucideIcon> = {
   tareas: ClipboardCheck,
   inventario: Package,
   metricas: BarChart3,
+  canales: Store,
   finanzas: DollarSign,
   clientes: Users,
   pedidos: Truck,
+  nomina: Users,
+  reportes: TrendingUp,
+  "agencia-empresas": Building2,
+  "agencia-cobros": Receipt,
+  "agencia-nomina": Users,
+  "agencia-reportes": TrendingUp,
 };
 
 /* Envoltura de escritorio: el aside fijo lateral (oculto en móvil, donde la
@@ -38,7 +52,11 @@ export function Sidebar(props: {
   notificaciones: Notificacion[];
 }) {
   return (
-    <aside className="hidden w-[272px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
+    /* sticky + h-screen: el menú se queda pegado a la ventana en vez de crecer
+       con la página. Sin esto, en una pantalla con mucho contenido (inventario,
+       métricas) había que bajar hasta el final para llegar al pie —usuario,
+       tema, cerrar sesión—, que es justo lo que uno quiere tener siempre a mano. */
+    <aside className="sticky top-0 hidden h-screen w-[272px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar md:flex">
       <SidebarContent {...props} />
     </aside>
   );
@@ -64,12 +82,28 @@ export function SidebarContent({
     ROLES.find((r) => r.id === profile?.rol)?.nombre ?? "Miembro";
   const nombre = profile?.nombre || email;
 
-  /* Finanzas solo existe para Dirección: ni siquiera aparece en el menú del
-     resto (la BD lo refuerza con RLS; esto es para no tentar ni confundir). */
+  /* Finanzas y toda la Agencia solo existen para Dirección: ni siquiera aparecen
+     en el menú del resto (la BD lo refuerza con RLS; esto es para no tentar ni
+     confundir). */
   const visible = (m: (typeof MODULOS)[number]) =>
     !("soloDireccion" in m && m.soloDireccion) || profile?.rol === "direccion";
-  const activos = MODULOS.filter((m) => m.activo && visible(m));
-  const proximos = MODULOS.filter((m) => !m.activo && visible(m));
+
+  /* El menú muestra un solo negocio a la vez, el de la ruta en la que estás.
+     Fresafit y Agencia comparten equipo pero no comparten nada más: verlos
+     juntos era una lista de diez entradas sin relación entre sí. */
+  const espacio = espacioDeRuta(pathname);
+  const delEspacio = MODULOS.filter((m) => visible(m) && m.espacio === espacio);
+  const activos = delEspacio.filter((m) => m.activo);
+  const proximos = delEspacio.filter((m) => !m.activo);
+
+  /* A dónde lleva cada pestaña del selector: el primer módulo que esa persona
+     puede ver de ese negocio. Si no puede ver ninguno, el espacio no se ofrece. */
+  const destinos = Object.fromEntries(
+    ESPACIOS.map((e) => [
+      e.id,
+      MODULOS.find((m) => m.activo && visible(m) && m.espacio === e.id)?.href,
+    ]).filter(([, href]) => href),
+  ) as Partial<Record<EspacioId, string>>;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col p-4.5 pb-4">
@@ -79,10 +113,13 @@ export function SidebarContent({
         <div className="text-[11.5px] text-muted-foreground">Sistema interno</div>
       </div>
 
-      {/* Menú de módulos */}
-      <nav className="flex flex-1 flex-col gap-0.5">
-        <div className="px-2.5 pt-1.5 pb-2 text-[10.5px] font-semibold tracking-wide text-muted-foreground/80 uppercase">
-          Operación
+      {/* Menú de módulos. El scroll vive AQUÍ, no en el menú entero: así el pie
+          (usuario, tema, cerrar sesión) queda clavado abajo y siempre visible,
+          aunque algún día la lista de módulos no quepa. */}
+      <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+        <SelectorEspacio actual={espacio} destinos={destinos} onNavigate={onNavigate} />
+        <div className="px-2.5 pb-2 text-[10.5px] font-semibold tracking-wide text-muted-foreground/80 uppercase">
+          {espacio === "agencia" ? "Agencia Fresafit" : "Operación"}
         </div>
         {activos.map((m) => {
           const activo = pathname === m.href || pathname.startsWith(m.href + "/");
@@ -149,6 +186,10 @@ export function SidebarContent({
             </div>
           </div>
           <Notificaciones notificaciones={notificaciones} />
+        </div>
+        <AvisosPush />
+        <div className="mt-2">
+          <TemaToggle />
         </div>
         <form action="/auth/signout" method="post">
           <Button type="submit" variant="outline" size="sm" className="w-full gap-2">

@@ -44,16 +44,77 @@ export const ROLES = [
   { id: "externo", nombre: "Externo", desc: "Solo ve lo que se le comparte." },
 ] as const;
 
-/* --- Etiquetas sugeridas (varias por tarea; se guardan en tasks.etiquetas). --- */
+/* --- Etiquetas sugeridas (varias por tarea; se guardan en tasks.etiquetas).
+   `area` acota a qué tipo de trabajo pertenece cada una: al crear o editar una
+   tarea se muestran primero las de SU área y el resto queda bajo "otras". Las
+   que no llevan área son transversales (urgente, reunión…) y salen siempre.
+   Sin `area` la lista era una sola bolsa de 7 etiquetas genéricas, que es lo
+   que Armando señaló ("si la etiqueta está hecha para diseño, que tenga
+   etiquetas de diseño"). --- */
 export const ETIQUETAS = [
+  /* Transversales: valen para cualquier área. */
   { id: "urgente", nombre: "Urgente", color: "#d63031" },
-  { id: "video", nombre: "Video", color: "#e84393" },
-  { id: "grafico", nombre: "Gráfico", color: "#6c5ce7" },
-  { id: "tiktok", nombre: "TikTok Shop", color: "#2d3436" },
-  { id: "reunion", nombre: "Reunión", color: "#0984e3" },
   { id: "bloqueado", nombre: "Bloqueado", color: "#e17055" },
   { id: "idea", nombre: "Idea", color: "#00b894" },
+  { id: "reunion", nombre: "Reunión", color: "#0984e3" },
+  { id: "cliente", nombre: "Cliente", color: "#fdcb6e" },
+  { id: "recurrente", nombre: "Recurrente", color: "#b2bec3" },
+
+  /* Diseño */
+  { id: "grafico", nombre: "Gráfico", area: "diseno", color: "#6c5ce7" },
+  { id: "empaque", nombre: "Empaque", area: "diseno", color: "#a29bfe" },
+  { id: "fotografia", nombre: "Fotografía", area: "diseno", color: "#8e7cf0" },
+  { id: "fondo_blanco", nombre: "Fondo blanco", area: "diseno", color: "#7d6ce0" },
+  { id: "mockup", nombre: "Mockup", area: "diseno", color: "#9b8bf5" },
+
+  /* Contenido */
+  { id: "video", nombre: "Video", area: "contenido", color: "#e84393" },
+  { id: "tiktok", nombre: "TikTok Shop", area: "contenido", color: "#2d3436" },
+  { id: "live", nombre: "Live", area: "contenido", color: "#ff7675" },
+  { id: "guion", nombre: "Guion", area: "contenido", color: "#fd79a8" },
+  { id: "publicidad", nombre: "Publicidad", area: "contenido", color: "#e056a0" },
+
+  /* Tech */
+  { id: "bug", nombre: "Bug", area: "tech", color: "#d63031" },
+  { id: "mejora", nombre: "Mejora", area: "tech", color: "#636e72" },
+  { id: "integracion", nombre: "Integración", area: "tech", color: "#0984e3" },
+  { id: "rendimiento", nombre: "Rendimiento", area: "tech", color: "#00cec9" },
+
+  /* Logística */
+  { id: "envio", nombre: "Envío", area: "logistica", color: "#e17055" },
+  { id: "proveedor", nombre: "Proveedor", area: "logistica", color: "#d35400" },
+  { id: "aduana", nombre: "Aduana", area: "logistica", color: "#c0682f" },
+  { id: "inventario", nombre: "Inventario", area: "logistica", color: "#e8874f" },
+
+  /* Operaciones */
+  { id: "pedido", nombre: "Pedido", area: "operaciones", color: "#0984e3" },
+  { id: "devolucion", nombre: "Devolución", area: "operaciones", color: "#74b9ff" },
+  { id: "atencion", nombre: "Atención a cliente", area: "operaciones", color: "#4a9de0" },
+
+  /* Dirección */
+  { id: "finanzas", nombre: "Finanzas", area: "direccion", color: "#00b894" },
+  { id: "contratacion", nombre: "Contratación", area: "direccion", color: "#e84393" },
+  { id: "estrategia", nombre: "Estrategia", area: "direccion", color: "#6c5ce7" },
 ] as const;
+
+/* Etiquetas ordenadas para un área: primero las suyas, luego las transversales
+   y al final las del resto (que siguen disponibles, solo que no estorban). */
+export function etiquetasPorArea(area: string): {
+  propias: typeof ETIQUETAS[number][];
+  generales: typeof ETIQUETAS[number][];
+  otras: typeof ETIQUETAS[number][];
+} {
+  const propias: typeof ETIQUETAS[number][] = [];
+  const generales: typeof ETIQUETAS[number][] = [];
+  const otras: typeof ETIQUETAS[number][] = [];
+  for (const e of ETIQUETAS) {
+    const suArea = "area" in e ? e.area : null;
+    if (!suArea) generales.push(e);
+    else if (suArea === area) propias.push(e);
+    else otras.push(e);
+  }
+  return { propias, generales, otras };
+}
 
 /* --- Tipos de producto del catálogo (Fase 1: Inventario).
    Son las líneas que el negocio compra y repone POR SEPARADO, no categorías
@@ -105,6 +166,21 @@ export const CANALES = [
   { id: "otro", nombre: "Otro", color: "#94a3b8" },
 ] as const;
 
+/* --- Paneles por plataforma (módulo Canales).
+   Métricas contesta "cuánto se vendió" sumando los canales; esto contesta cómo
+   nos está yendo DENTRO de cada plataforma —su termómetro, sus plazos, sus
+   preguntas—, que es información que solo existe allá y que se mira una
+   plataforma a la vez. Por eso hay una página por canal y no una sola pantalla
+   con todo revuelto.
+
+   `activo: false` = la pestaña se ve pero no navega, para que el orden del plan
+   esté a la vista en lugar de aparecer de sorpresa. --- */
+export const PANELES_CANAL = [
+  { id: "mercadolibre", nombre: "Mercado Libre", href: "/canales/mercadolibre", canal: "mercado_libre", activo: true },
+  { id: "tiendanube", nombre: "Tienda Nube", href: "/canales/tiendanube", canal: "tienda_nube", activo: true },
+  { id: "tiktok", nombre: "TikTok Shop", href: "/canales/tiktok", canal: "tiktok_shop", activo: true },
+] as const;
+
 /* --- Categorías de gasto (Fase 3: Finanzas). --- */
 export const CATEGORIAS_GASTO = [
   { id: "marketing", nombre: "Marketing", color: "#e84393" },
@@ -117,14 +193,49 @@ export const CATEGORIAS_GASTO = [
 
 /* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.
    "activo: true" = construido. "soloDireccion" = oculto para los demás roles. --- */
-export const MODULOS = [
-  { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true },
-  { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: true },
-  { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: true },
-  { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: true, soloDireccion: true },
-  { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: true },
-  { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: true },
+/* Los módulos se agrupan en ESPACIOS: Fresafit es la marca (lo que se vende) y
+   Agencia es el otro negocio (lo que se le cobra a otros por atenderlos). Son
+   dos operaciones distintas que comparten equipo, y mezclarlas en un solo menú
+   obligaba a leer once entradas para encontrar la que toca.
+
+   El espacio se deduce de la ruta (todo lo de la agencia cuelga de /agencia),
+   así que el selector solo navega: no hay estado que sincronizar ni que se
+   quede pegado entre pestañas. */
+export const ESPACIOS = [
+  { id: "fresafit", nombre: "Fresafit", desc: "La marca: inventario, ventas y pedidos." },
+  { id: "agencia", nombre: "Agencia", desc: "Los negocios que atendemos y lo que nos pagan." },
 ] as const;
+
+export type EspacioId = (typeof ESPACIOS)[number]["id"];
+
+export const MODULOS = [
+  { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true, espacio: "fresafit" },
+  { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: true, espacio: "fresafit" },
+  { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: true, espacio: "fresafit" },
+  /* Va pegado a Métricas porque contesta la otra mitad de la misma pregunta: no
+     cuánto vendimos, sino cómo nos está tratando cada plataforma. */
+  { id: "canales", nombre: "Canales", icono: "🛒", href: "/canales", activo: true, espacio: "fresafit" },
+  { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: true, soloDireccion: true, espacio: "fresafit" },
+  { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: true, espacio: "fresafit" },
+  { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: true, espacio: "fresafit" },
+  /* Nómina y reportes existen en los dos negocios: son las mismas tablas
+     filtradas por empresa (null = Fresafit). Sueldos y cierres internos, así que
+     van restringidos a dirección igual que Finanzas. */
+  { id: "nomina", nombre: "Nómina", icono: "👥", href: "/nomina", activo: true, soloDireccion: true, espacio: "fresafit" },
+  { id: "reportes", nombre: "Reportes", icono: "📈", href: "/reportes", activo: true, soloDireccion: true, espacio: "fresafit" },
+  /* Agencia: información de contratos ajenos y de sueldos, así que va entera
+     restringida a dirección igual que Finanzas (la RLS lo refuerza). */
+  { id: "agencia-empresas", nombre: "Empresas", icono: "🏢", href: "/agencia/empresas", activo: true, soloDireccion: true, espacio: "agencia" },
+  { id: "agencia-cobros", nombre: "Cobros", icono: "🧾", href: "/agencia/cobros", activo: true, soloDireccion: true, espacio: "agencia" },
+  { id: "agencia-nomina", nombre: "Nómina", icono: "👥", href: "/agencia/nomina", activo: true, soloDireccion: true, espacio: "agencia" },
+  { id: "agencia-reportes", nombre: "Reportes", icono: "📈", href: "/agencia/reportes", activo: true, soloDireccion: true, espacio: "agencia" },
+] as const;
+
+/* A qué espacio pertenece una ruta. Todo lo que cuelga de /agencia es de la
+   agencia; el resto es Fresafit. */
+export function espacioDeRuta(pathname: string): EspacioId {
+  return pathname.startsWith("/agencia") ? "agencia" : "fresafit";
+}
 
 /* --- Referencia para sembrar los perfiles iniciales del equipo (scripts/seed.mjs).
    El equipo real de Fresafit con sus correos, roles y áreas. --- */

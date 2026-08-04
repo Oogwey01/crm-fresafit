@@ -210,7 +210,7 @@ export async function intercambiarCodigoML(code: string): Promise<TokensML> {
 
 /* Ante 401 renueva el token una vez y reintenta; ante 429 espera y reintenta
    hasta 3 veces. */
-async function mlFetch(cx: ConexionML, path: string, init?: RequestInit): Promise<Response> {
+export async function mlFetch(cx: ConexionML, path: string, init?: RequestInit): Promise<Response> {
   let token = cx.token;
   for (let intento = 0; ; intento++) {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -331,6 +331,11 @@ export type LineaOrdenML = {
   };
   quantity: number | string;
   unit_price: number | string;
+  /* Lo que cobra Mercado Libre por vender ESTA línea. Ronda el 17-19% del
+     precio y viene ya calculado dentro de la orden, así que archivarlo no
+     cuesta ninguna llamada extra. El mismo importe se repite en
+     `payments[].marketplace_fee` para la orden completa. */
+  sale_fee?: number | string | null;
 };
 
 /* ML restringe el PII del comprador: `email`/`phone` suelen venir ausentes o
@@ -349,13 +354,33 @@ export type OrdenML = {
   status: string;
   date_created: string;
   date_closed?: string | null;
+  /* Importes de la orden. `total_amount` es solo producto; `paid_amount` es lo
+     que realmente pagó el comprador (incluye envío y descuenta el cupón). El
+     CRM guardaba únicamente precio×cantidad, de ahí el descuadre contra el
+     panel. Se archivan en `sale_orders`. */
   total_amount?: number;
+  paid_amount?: number | null;
+  currency_id?: string | null;
+  coupon?: { amount?: number | null } | null;
+  taxes?: { amount?: number | null } | null;
+  payments?:
+    | {
+        shipping_cost?: number | null;
+        taxes_amount?: number | null;
+        /* Comisión de la orden completa; es la suma de los `sale_fee` de las
+           líneas y se usa como respaldo cuando éstas no la traen. */
+        marketplace_fee?: number | null;
+      }[]
+    | null;
   order_items: LineaOrdenML[];
   buyer?: CompradorML | null;
   // La orden trae el id del envío (el estado vive en /shipments/{id}) y tags de
   // alto nivel ("delivered" / "not_delivered") que evitan consultar los ya
   // entregados.
   shipping?: { id?: number | null } | null;
+  /* Carrito al que pertenece la orden. El panel de ventas abre el detalle por
+     ESTE id, no por el de la orden: pasarle el de la orden manda al listado. */
+  pack_id?: number | null;
   tags?: string[] | null;
 };
 
@@ -366,6 +391,44 @@ export type EnvioML = {
   substatus?: string | null;
   tracking_number?: string | null;
   tracking_method?: string | null; // nombre de la paquetería / servicio
+  /* Plazos del envío.
+
+     Ojo: `estimated_handling_limit` está documentado como la hora tope para
+     despachar, pero esta cuenta NO lo recibe (verificado contra la API con
+     scripts/probar-envios-ml.mjs: llega ausente en los dos formatos del
+     recurso). Lo que sí llega es `estimated_delivery_time.handling`, las HORAS
+     de manejo concedidas, que junto con `status_history.date_handling` permiten
+     reconstruir el plazo. Ver limiteDespacho() en lib/mercadolibre/ventas.ts. */
+  shipping_option?: {
+    estimated_handling_limit?: { date?: string | null } | null;
+    estimated_delivery_limit?: { date?: string | null } | null;
+    estimated_delivery_time?: {
+      /* Horas para entregarle el paquete al transportista. */
+      handling?: number | null;
+    } | null;
+  } | null;
+  /* Cuándo ocurrió cada etapa. `date_handling` es cuándo empezó a correr el
+     reloj del despacho y `date_shipped` la salida real. */
+  status_history?: {
+    date_handling?: string | null;
+    date_ready_to_ship?: string | null;
+    date_shipped?: string | null;
+    date_delivered?: string | null;
+  } | null;
+  /* Dirección de entrega. ML restringe el PII del comprador, pero la dirección
+     de envío sí llega al vendedor: es la que hace falta para empacar. */
+  receiver_address?: {
+    receiver_name?: string | null;
+    receiver_phone?: string | null;
+    street_name?: string | null;
+    street_number?: string | null;
+    neighborhood?: { name?: string | null } | null;
+    city?: { name?: string | null } | null;
+    state?: { name?: string | null } | null;
+    zip_code?: string | null;
+    country?: { name?: string | null } | null;
+    comment?: string | null;
+  } | null;
 };
 
 export async function obtenerOrdenML(cx: ConexionML, id: number | string): Promise<OrdenML | null> {
@@ -383,6 +446,34 @@ export async function obtenerEnvioML(cx: ConexionML, shipmentId: number | string
     const res = await mlFetch(cx, `/shipments/${shipmentId}`);
     if (!res.ok) return null;
     return (await res.json()) as EnvioML;
+  } catch {
+    return null;
+  }
+}
+
+/* Lo que le cuesta el envío AL VENDEDOR.
+
+   No se puede deducir de la orden: `payments[].shipping_cost` es lo que pagó el
+   comprador, y en Mercado Libre eso suele ser 0 (envío gratis) mientras el
+   vendedor sí paga su parte. El desglose vive en un recurso aparte, donde
+   `senders[].cost` es el cargo ya neto de lo que Mercado Libre bonifica —en las
+   órdenes revisadas, la mitad—. Ese es el número que sale de la cuenta.
+
+   Nunca lanza: el costo es un enriquecimiento y no debe tumbar la importación
+   de la venta. */
+export async function costoEnvioVendedorML(
+  cx: ConexionML,
+  shipmentId: number | string,
+): Promise<number | null> {
+  try {
+    const res = await mlFetch(cx, `/shipments/${shipmentId}/costs`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      senders?: { cost?: number | null }[] | null;
+    };
+    const senders = data.senders ?? [];
+    if (senders.length === 0) return null;
+    return senders.reduce((a, s) => a + (Number(s.cost) || 0), 0);
   } catch {
     return null;
   }

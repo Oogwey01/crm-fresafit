@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, respuestaError } from "@/lib/canales/http";
+import { autorizarCron, opcionesReimportacion, respuestaError } from "@/lib/canales/http";
 import { conexionMercadolibre } from "@/lib/mercadolibre/api";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
 import { importarVentasML } from "@/lib/mercadolibre/ventas";
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
     let ventas = null;
     try {
-      ventas = await importarVentasML(cx);
+      ventas = await importarVentasML(cx, opcionesReimportacion(request));
     } catch (e) {
       console.error("[mercadolibre] importación de ventas:", e);
     }
