@@ -17,6 +17,20 @@ export const ETIQUETA_DELTA: Record<PeriodoBaseId, string> = {
   mes_pasado: "vs. antepasado",
 };
 
+/* Renglones que se pintan de golpe en la tabla de ventas; el resto entra con
+   «Ver más», que ahora pide la página siguiente al servidor en vez de tenerlo
+   todo ya en memoria. */
+export const VENTAS_POR_PAGINA = 100;
+
+/* Lo que la tabla de ventas necesita de cada renglón (y el diálogo al editar).
+   Vive aquí porque lo comparten la carga inicial de la página y la acción que
+   trae las páginas siguientes: si las dos listas se separan, la tabla cambia de
+   forma a mitad del scroll. */
+export const COLUMNAS_VENTA_METRICAS =
+  "id, fecha, canal, cantidad, monto, descripcion, notas, origen," +
+  " producto_id, cliente_id, referencia_externa," +
+  " producto:products!producto_id(id, nombre, variante, tipo)";
+
 /* ¿La fecha ISO cae dentro del rango (inclusive)? */
 export function enRango(fecha: string, r: Periodo): boolean {
   return fecha >= r.desde && fecha <= r.hasta;

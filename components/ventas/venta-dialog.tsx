@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { aNumero } from "@/lib/validacion";
 import { CANALES, obtenerCanal } from "@/lib/catalogos";
@@ -30,6 +31,7 @@ import {
   registrarVenta,
   editarVenta,
   borrarVenta,
+  catalogoVenta,
   type VentaInput,
 } from "@/app/(app)/metricas/actions";
 import { crearClienteRapido } from "@/app/(app)/clientes/actions";
@@ -43,20 +45,26 @@ function etiquetaProducto(p: Pick<Product, "nombre" | "variante">): string {
    catálogo trae cientos de variantes; un Select plano no sirve). */
 export function VentaDialog({
   venta,
-  productos,
-  clientes,
   gestor,
   direccion = false,
   onClose,
 }: {
   venta: VentaMetricas | null; // null = alta
-  productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
-  clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
   gestor: boolean;
   direccion?: boolean; // solo Dirección puede corregir a mano una venta importada
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
+
+  /* El catálogo y la lista de clientes se piden AL ABRIR el diálogo. Antes
+     viajaban con la página de Métricas —miles de filas serializadas en cada
+     carga— para alimentar dos buscadores que ni siquiera responden hasta la
+     segunda letra que tecleas. */
+  const { datos: catalogo, cargando: cargandoCatalogo } = useDetalleRemoto(
+    () => catalogoVenta().then((r) => ("error" in r ? null : r)),
+    "catalogo-venta",
+  );
+  const productos = useMemo(() => catalogo?.productos ?? [], [catalogo]);
   const [fecha, setFecha] = useState(venta?.fecha ?? hoyISO());
   const [canal, setCanal] = useState<CanalId>(venta?.canal ?? "punto_fisico");
   const [productoId, setProductoId] = useState<string | null>(venta?.producto_id ?? null);
@@ -67,9 +75,15 @@ export function VentaDialog({
   const [notas, setNotas] = useState(venta?.notas ?? "");
   const [busqueda, setBusqueda] = useState("");
 
-  /* Cliente (opcional): buscador con alta rápida. `lista` permite mostrar al
-     recién creado sin recargar la página. */
-  const [lista, setLista] = useState(clientes);
+  /* Cliente (opcional): buscador con alta rápida. Los creados aquí se anteponen
+     a la lista traída para poder elegirlos sin recargar la página. */
+  const [reciencreados, setReciencreados] = useState<
+    Pick<Customer, "id" | "nombre" | "correo" | "telefono">[]
+  >([]);
+  const lista = useMemo(
+    () => [...reciencreados, ...(catalogo?.clientes ?? [])],
+    [reciencreados, catalogo],
+  );
   const [clienteId, setClienteId] = useState<string | null>(venta?.cliente_id ?? null);
   const [busquedaCliente, setBusquedaCliente] = useState("");
   const [creandoCliente, setCreandoCliente] = useState(false);
@@ -144,7 +158,7 @@ export function VentaDialog({
         toast.error(r.error);
         return;
       }
-      setLista((prev) => [...prev, r.cliente]);
+      setReciencreados((prev) => [...prev, r.cliente]);
       setClienteId(r.cliente.id);
       setBusquedaCliente("");
       toast.success("Cliente creado.");
@@ -224,7 +238,12 @@ export function VentaDialog({
           {/* Producto: chip seleccionado o buscador */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="venta-producto">Producto</Label>
-            {seleccionado ? (
+            {cargandoCatalogo && productoId ? (
+              /* La venta trae producto pero el catálogo aún viene en camino:
+                 decirlo en vez de enseñar el buscador vacío, que se lee como
+                 «esta venta no tiene producto». */
+              <p className="text-sm text-muted-foreground">Cargando el producto…</p>
+            ) : seleccionado ? (
               <div className="flex items-center gap-2">
                 <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
                   <span className="truncate">{etiquetaProducto(seleccionado)}</span>
@@ -248,7 +267,11 @@ export function VentaDialog({
                 <Input
                   id="venta-producto"
                   autoFocus={!venta}
-                  placeholder="Busca por nombre, variante o SKU…"
+                  placeholder={
+                    cargandoCatalogo
+                      ? "Cargando catálogo…"
+                      : "Busca por nombre, variante o SKU…"
+                  }
                   value={busqueda}
                   onChange={(e) => setBusqueda(e.target.value)}
                 />
@@ -342,7 +365,9 @@ export function VentaDialog({
           {/* Cliente (opcional): buscador + alta rápida con solo el nombre. */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="venta-cliente">Cliente (opcional)</Label>
-            {clienteSel ? (
+            {cargandoCatalogo && clienteId ? (
+              <p className="text-sm text-muted-foreground">Cargando el cliente…</p>
+            ) : clienteSel ? (
               <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
                 <span className="truncate">{clienteSel.nombre}</span>
                 <button
@@ -358,7 +383,9 @@ export function VentaDialog({
               <div className="relative">
                 <Input
                   id="venta-cliente"
-                  placeholder="Busca por nombre, correo o teléfono…"
+                  placeholder={
+                    cargandoCatalogo ? "Cargando clientes…" : "Busca por nombre, correo o teléfono…"
+                  }
                   value={busquedaCliente}
                   onChange={(e) => setBusquedaCliente(e.target.value)}
                 />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { AlertTriangle, Plus, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { CANALES, TIPOS_PRODUCTO, esGestor, obtenerCanal, obtenerTipoProducto } from "@/lib/catalogos";
@@ -10,21 +10,23 @@ import {
   hoyISO,
   rangoPersonalizado,
   rangosDePeriodo,
-  type Periodo,
   type PresetRangoId,
 } from "@/lib/fecha";
 import { RangoFechas } from "@/components/compartido/rango-fechas";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { formatearMXN } from "@/lib/moneda";
 import { tallaDeVariante, compararTallas } from "@/lib/talla";
-import { ETIQUETA_DELTA as ETIQUETA_DELTA_BASE, enRango, deltaPct } from "@/lib/metricas";
+import { ETIQUETA_DELTA as ETIQUETA_DELTA_BASE, deltaPct } from "@/lib/metricas";
 import { nombreVenta } from "@/lib/ventas";
 import { GraficaVentasDia } from "@/components/metricas/grafica-ventas-dia";
-import { importarVentasTiendanube } from "@/app/(app)/metricas/actions";
+import {
+  importarVentasTiendanube,
+  listarVentas,
+  obtenerMetricas,
+  type DatosMetricas,
+} from "@/app/(app)/metricas/actions";
 import type {
   CanalId,
-  Customer,
-  OrdenMetricas,
   Product,
   RolId,
   VentaMetricas,
@@ -43,7 +45,6 @@ import { ListaBarras } from "@/components/compartido/lista-barras";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { VentaDialog } from "@/components/ventas/venta-dialog";
 import { Plataformas } from "@/components/metricas/plataformas";
-import type { CarritosTN, SaludML, VisitasML } from "@/lib/canales/salud";
 import { cn } from "@/lib/utils";
 
 /* "" = rango elegido a mano en el calendario (sin atajo activo). */
@@ -56,11 +57,12 @@ const ETIQUETA_DELTA: Record<PeriodoId, string> = {
   "": "vs. periodo anterior",
 };
 
-/* Ventas que se pintan de golpe en la tabla; el resto entra con «Ver más».
-   Con el rango completo son miles de renglones y el navegador se arrastra. */
-const VENTAS_POR_PAGINA = 100;
-
 const COLS_VENTAS = "grid-cols-[90px_130px_minmax(220px,1fr)_70px_120px_110px]";
+
+/* Días de la gráfica de barras. Ventana fija: no sigue al periodo elegido (sí a
+   la plataforma). Tiene que coincidir con el de la página, que trae la primera
+   tanda ya calculada. */
+const DIAS_GRAFICA = 14;
 
 /* Rótulo de sección de las tarjetas. */
 const ROTULO = "text-[11px] font-semibold uppercase tracking-wider text-muted-foreground";
@@ -70,32 +72,34 @@ const TARJETA = "rounded-2xl border bg-card p-5 shadow-sm";
 const CHIPS_SIN_MOVIMIENTO = 12;
 
 export function PanelMetricas({
-  ventas,
-  ordenes,
-  truncado = false,
+  inicial,
+  ventasIniciales,
+  errorResumen,
+  hayVentas,
   productos,
-  clientes,
   rol,
   tiendanube,
-  visitas,
-  salud,
-  carritos,
-  ventasMLVentana,
+  bloquesCanales,
 }: {
-  ventas: VentaMetricas[];
-  ordenes: OrdenMetricas[];
-  /* Se alcanzó el tope de renglones: faltan las ventas más viejas del año. */
-  truncado?: boolean;
+  /* Cifras del periodo con el que abre la página, ya sumadas en la base. */
+  inicial: DatosMetricas;
+  /* Primera página de la tabla de renglones; las siguientes las pide «Ver más». */
+  ventasIniciales: VentaMetricas[];
+  /* La base no pudo dar el resumen (típicamente, migración sin aplicar). */
+  errorResumen: string | null;
+  /* ¿Existe alguna venta, en cualquier fecha? Distingue «no hay nada aún» de
+     «no hay nada con estos filtros», que piden mensajes distintos. */
+  hayVentas: boolean;
+  /* Catálogo activo, solo para la lista de «productos sin movimiento». Los
+     buscadores del diálogo de venta piden lo suyo por su cuenta al abrirse. */
   productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
-  clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
   rol: RolId;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
-  /* Lo que se lee en vivo de los canales. Null = ese canal no contestó y su
-     bloque no se pinta. */
-  visitas: VisitasML | null;
-  salud: SaludML | null;
-  carritos: CarritosTN | null;
-  ventasMLVentana: number;
+  /* Lo que se lee en vivo de los canales, ya renderizado en el servidor dentro
+     de un <Suspense>: son tres llamadas a APIs ajenas que tardan segundos, y
+     esperarlas retrasaba TODA la pantalla. Llega como nodo y no como datos
+     porque así el trozo lento viaja por su cuenta, cuando esté listo. */
+  bloquesCanales: React.ReactNode;
 }) {
   const gestor = esGestor(rol);
   const [periodo, setPeriodo] = useState<PeriodoId>("mes");
@@ -105,7 +109,6 @@ export function PanelMetricas({
   const [hasta, setHasta] = useState(hoyISO);
   /* Plataforma: "todas" o un canal. Afecta TODO el panel, no solo la tabla. */
   const [canal, setCanal] = useState<CanalId | "todas">("todas");
-  const [visibles, setVisibles] = useState(VENTAS_POR_PAGINA);
   const [ventaDialog, setVentaDialog] = useState<VentaMetricas | "nueva" | null>(null);
   const { pending: importando, ejecutar: ejecutarImportacion } = useAccionServidor();
   /* Desglose de «Productos estrella» por categoría y talla. */
@@ -114,99 +117,124 @@ export function PanelMetricas({
 
   const rangos = periodo ? rangosDePeriodo(periodo) : rangoPersonalizado(desde, hasta);
 
-  /* El filtro de plataforma se aplica una sola vez, aquí: de estas dos listas
-     salen los KPIs, las gráficas, el top de productos y la tabla. */
-  const delCanal = useMemo(
-    () => (canal === "todas" ? ventas : ventas.filter((v) => v.canal === canal)),
-    [ventas, canal],
-  );
-  const delPeriodo = useMemo(
-    () => delCanal.filter((v) => enRango(v.fecha, rangos.actual)),
-    [delCanal, rangos.actual],
-  );
-  const delAnterior = useMemo(
-    () => delCanal.filter((v) => enRango(v.fecha, rangos.anterior)),
-    [delCanal, rangos.anterior],
-  );
+  /* --- De dónde salen ahora las cifras ---
+     Hasta aquí el panel recibía las ventas del año entero y las sumaba en el
+     navegador cada vez que se tocaba un filtro. Eran unos 25.000 renglones, con
+     un tope que dejaba fuera lo más viejo sin poder evitarlo. Ahora las sumas
+     las hace la base y esto solo pide el resultado cuando cambia el periodo o
+     la plataforma; el desglose por categoría y talla se sigue resolviendo aquí,
+     pero sobre unos cientos de filas ya agregadas, así que sigue siendo
+     instantáneo. */
+  const [datos, setDatos] = useState<DatosMetricas>(inicial);
+  const [ventas, setVentas] = useState<VentaMetricas[]>(ventasIniciales);
+  const [cargando, iniciarCarga] = useTransition();
+  const [cargandoMas, setCargandoMas] = useState(false);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  /* La primera pintada ya viene servida por la página: no hay que volver a
+     pedir lo mismo al montar. */
+  const primeraCarga = useRef(true);
+  /* Número de la consulta en curso. Cambiar de periodo o de plataforma dos
+     veces seguidas lanza dos consultas, y no hay ninguna garantía de que
+     contesten en orden: si la primera llega tarde, pintaría sus cifras bajo los
+     filtros de la segunda —números de julio bajo el rótulo de agosto—, que es
+     de los errores más difíciles de notar. Cada consulta se queda con su número
+     y al volver comprueba que siga siendo la última; si no, se descarta. */
+  const peticion = useRef(0);
+
+  /* Incluye TAMBIÉN el periodo de comparación, y no por adorno: el comparativo
+     no se deduce del rango actual. «Mes actual» (1–4 de agosto) se compara
+     contra julio entero, pero ese mismo 1–4 marcado a mano en el calendario se
+     compara contra los cuatro días previos. Sin esta parte de la clave, elegir
+     el atajo —que aterriza en modo manual— dejaba el delta midiendo contra el
+     mes completo mientras el rótulo ya decía otra cosa. */
+  const claveConsulta =
+    `${rangos.actual.desde}|${rangos.actual.hasta}` +
+    `|${rangos.anterior.desde}|${rangos.anterior.hasta}|${canal}`;
+
+  const recargar = useCallback(() => {
+    const ventana = { desde: diasDesdeHoy(-(DIAS_GRAFICA - 1)), hasta: hoyISO() };
+    const rango = { desde: rangos.actual.desde, hasta: rangos.actual.hasta };
+    const anterior = { desde: rangos.anterior.desde, hasta: rangos.anterior.hasta };
+    const mia = ++peticion.current;
+
+    iniciarCarga(async () => {
+      const [resumen, pagina] = await Promise.all([
+        obtenerMetricas(rango, anterior, ventana, canal),
+        listarVentas(rango, canal, 0),
+      ]);
+      if (mia !== peticion.current) return; // llegó tarde: manda una posterior
+      if ("error" in resumen) {
+        setErrorCarga(resumen.error);
+        return;
+      }
+      setErrorCarga(null);
+      setDatos(resumen.datos);
+      setVentas("error" in pagina ? [] : pagina.ventas);
+    });
+    // El rango sale de `periodo`/`desde`/`hasta`, que ya están en las deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveConsulta]);
+
+  useEffect(() => {
+    if (primeraCarga.current) {
+      primeraCarga.current = false;
+      return;
+    }
+    recargar();
+  }, [recargar]);
+
+  /* Cerrar el diálogo de venta —tras registrar, editar o borrar— vuelve a pedir
+     las cifras. Hace falta decirlo explícitamente: las tarjetas ya no salen de
+     las props sino de este estado, así que el `revalidatePath` de las acciones
+     refresca el árbol del servidor pero no mueve nada de lo que se ve. Sin esto,
+     guardar una venta la dejaba invisible hasta recargar la página, y el equipo
+     acabaría capturándola dos veces creyendo que no se guardó. Se recarga
+     también al cancelar, que cuesta unos kilobytes y evita tener que adivinar
+     desde fuera si hubo cambios. */
+  function cerrarDialogoVenta() {
+    setVentaDialog(null);
+    recargar();
+  }
+
+  const actual = datos.actual;
+  const numVentas = actual.kpis.ventas;
 
   /* --- Números clave ---
      `total` (suma de renglones) es lo que se vendió en PRODUCTO. Lo que reportan
      los paneles de los canales es el bruto de la orden, que además lleva envío y
-     descuentos: por eso existe `sale_orders`. Aquí se combinan las dos fuentes —
+     descuentos: por eso existe `sale_orders`. La base combina las dos fuentes —
      órdenes para lo importado, renglones para lo capturado a mano, que no genera
      orden— y así el KPI es comparable contra Tienda Nube y Mercado Libre. */
-  const total = delPeriodo.reduce((a, v) => a + v.monto, 0);
-  const piezas = delPeriodo.reduce((a, v) => a + v.cantidad, 0);
-  const ticket = delPeriodo.length > 0 ? total / delPeriodo.length : 0;
-  const piezasPorVenta = delPeriodo.length > 0 ? piezas / delPeriodo.length : 0;
+  const total = actual.kpis.total;
+  const piezas = actual.kpis.piezas;
+  const ticket = actual.kpis.ticket;
+  const piezasPorVenta = numVentas > 0 ? piezas / numVentas : 0;
 
-  const ordenesDelCanal = useMemo(
-    () => (canal === "todas" ? ordenes : ordenes.filter((o) => o.canal === canal)),
-    [ordenes, canal],
-  );
-  /* Las del periodo que se está mirando: de aquí salen el desglose de medios de
-     pago y el uso de cupones, que tienen que moverse con el selector de fechas
-     como todo lo demás del panel. */
-  const ordenesDelPeriodo = useMemo(
-    () => ordenesDelCanal.filter((o) => enRango(o.fecha, rangos.actual)),
-    [ordenesDelCanal, rangos.actual],
-  );
-  /* Bruto POR CANAL. Cuando hay órdenes importadas de un canal se usa su total
-     (que incluye envío y descuentos, como el panel de la plataforma); cuando no
-     las hay se cae a la suma de renglones, que es lo que el CRM sabía antes.
-
-     Ese respaldo no es teórico: `sale_orders` se llena con una migración que se
-     aplica a mano, así que hay una ventana en la que el código nuevo convive con
-     la tabla vacía. Sin él, el KPI marcaba $0. Las ventas capturadas a mano
-     (mostrador, CSV) nunca generan orden, así que siempre suman por renglón. */
-  function brutoPorCanal(rango: Periodo, renglones: VentaMetricas[]): Map<string, number> {
-    const sumas = new Map<string, number>();
-    const conOrden = new Set<string>();
-
-    for (const o of ordenesDelCanal) {
-      if (!enRango(o.fecha, rango)) continue;
-      conOrden.add(o.canal);
-      sumas.set(o.canal, (sumas.get(o.canal) ?? 0) + o.total);
-    }
-    for (const v of renglones) {
-      /* Un renglón se suma si es manual (nunca tiene orden) o si su canal no
-         aportó ninguna orden en este rango (respaldo). */
-      if (v.origen === "api" && conOrden.has(v.canal)) continue;
-      sumas.set(v.canal, (sumas.get(v.canal) ?? 0) + v.monto);
-    }
-    return sumas;
+  function sumarBruto(lista: { bruto: number }[]): number {
+    return lista.reduce((a, c) => a + Number(c.bruto), 0);
   }
-  function sumar(m: Map<string, number>): number {
-    let t = 0;
-    for (const v of m.values()) t += v;
-    return t;
-  }
-
-  const brutoCanalActual = brutoPorCanal(rangos.actual, delPeriodo);
-  const bruto = sumar(brutoCanalActual);
-  const brutoAnterior = sumar(brutoPorCanal(rangos.anterior, delAnterior));
+  const brutoCanalActual = useMemo(
+    () => new Map(actual.bruto_por_canal.map((b) => [b.canal, Number(b.bruto)])),
+    [actual.bruto_por_canal],
+  );
+  const bruto = sumarBruto(actual.bruto_por_canal);
+  const brutoAnterior = sumarBruto(datos.anterior.bruto_por_canal);
   /* Cuánto del bruto NO es producto (envío menos descuentos). Se muestra para
      que la diferencia contra la suma de renglones sea explicable de un vistazo
      y no vuelva a parecer un error del CRM. */
   const extras = bruto - total;
 
-  /* --- Ventas por día (últimos 14 días, fijo; respeta la plataforma) --- */
+  /* --- Ventas por día (últimos 14 días, fijo; respeta la plataforma) ---
+     La base devuelve solo los días CON ventas; aquí se rellenan los huecos para
+     que la gráfica mantenga sus 14 barras aunque alguna quede en cero. */
   const dias = useMemo(() => {
-    const lista: { iso: string; total: number; ventas: number }[] = [];
-    for (let i = 13; i >= 0; i--) {
-      const iso = diasDesdeHoy(-i);
-      lista.push({ iso, total: 0, ventas: 0 });
-    }
-    const porDia = new Map(lista.map((d) => [d.iso, d]));
-    for (const v of delCanal) {
-      const d = porDia.get(v.fecha);
-      if (d) {
-        d.total += v.monto;
-        d.ventas += 1;
-      }
-    }
-    return lista;
-  }, [delCanal]);
+    const porDia = new Map(datos.dias.map((d) => [d.fecha, d]));
+    return Array.from({ length: DIAS_GRAFICA }, (_, i) => {
+      const iso = diasDesdeHoy(-(DIAS_GRAFICA - 1 - i));
+      const d = porDia.get(iso);
+      return { iso, total: Number(d?.total ?? 0), ventas: d?.ventas ?? 0 };
+    });
+  }, [datos.dias]);
 
   /* --- Por canal: se listan todos los canales del catálogo, incluso en cero
      (atenuados), para que se vea de dónde NO está entrando dinero. "Otro" solo
@@ -223,38 +251,43 @@ export function PanelMetricas({
     }))
     .sort((a, b) => b.valor - a.valor);
 
-  /* --- Productos estrella, desglosables por categoría y talla --- */
-  /* Ventas del periodo acotadas a la categoría elegida (sin aplicar aún la
-     talla): base para el ranking de tallas y para las tallas disponibles. */
+  /* --- Productos estrella, desglosables por categoría y talla ---
+     Todo esto trabaja sobre `por_producto`, que ya viene sumado por ficha: son
+     unos cientos de filas en vez de los miles de renglones de antes, así que
+     mover los dos selectores sigue respondiendo sin esperas. */
+  const vendido = actual.por_producto;
+
+  /* Lo vendido acotado a la categoría elegida (sin aplicar aún la talla): base
+     para el ranking de tallas y para las tallas disponibles. */
   const ventasCategoria = useMemo(
-    () => (catEstrella === "todas" ? delPeriodo : delPeriodo.filter((v) => v.producto?.tipo === catEstrella)),
-    [delPeriodo, catEstrella],
+    () => (catEstrella === "todas" ? vendido : vendido.filter((v) => v.tipo === catEstrella)),
+    [vendido, catEstrella],
   );
   /* Tallas presentes en la categoría (para poblar el filtro). */
   const tallasDisponibles = useMemo(() => {
     const s = new Set<string>();
     for (const v of ventasCategoria) {
-      const t = tallaDeVariante(v.producto?.variante);
+      const t = tallaDeVariante(v.variante);
       if (t) s.add(t);
     }
     return [...s].sort(compararTallas);
   }, [ventasCategoria]);
-  /* Ventas ya acotadas por categoría Y talla → top de productos. */
+  /* Ya acotado por categoría Y talla → top de productos. */
   const topProductos = useMemo(() => {
     const filtradas =
       tallaEstrella === "todas"
         ? ventasCategoria
-        : ventasCategoria.filter((v) => tallaDeVariante(v.producto?.variante) === tallaEstrella);
-    const grupos = new Map<string, { nombre: string; monto: number; piezas: number }>();
-    for (const v of filtradas) {
-      const clave = v.producto_id ?? `libre:${v.descripcion ?? "otro"}`;
-      const g = grupos.get(clave) ?? { nombre: nombreVenta(v), monto: 0, piezas: 0 };
-      g.monto += v.monto;
-      g.piezas += v.cantidad;
-      grupos.set(clave, g);
-    }
-    return [...grupos.entries()]
-      .map(([id, g]) => ({ id, nombre: g.nombre, valor: g.monto, detalle: `${g.piezas} pzas` }))
+        : ventasCategoria.filter((v) => tallaDeVariante(v.variante) === tallaEstrella);
+    return filtradas
+      .map((v) => ({
+        id: v.clave,
+        nombre: nombreVenta({
+          producto: v.nombre ? { nombre: v.nombre, variante: v.variante } : null,
+          descripcion: v.descripcion,
+        }),
+        valor: Number(v.monto),
+        detalle: `${v.piezas} pzas`,
+      }))
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 5);
   }, [ventasCategoria, tallaEstrella]);
@@ -262,8 +295,8 @@ export function PanelMetricas({
   const tallasMasVendidas = useMemo(() => {
     const m = new Map<string, number>();
     for (const v of ventasCategoria) {
-      const t = tallaDeVariante(v.producto?.variante) ?? "Sin talla";
-      m.set(t, (m.get(t) ?? 0) + v.cantidad);
+      const t = tallaDeVariante(v.variante) ?? "Sin talla";
+      m.set(t, (m.get(t) ?? 0) + v.piezas);
     }
     return [...m.entries()]
       .map(([nombre, piezas]) => ({ id: nombre, nombre, valor: piezas }))
@@ -271,14 +304,30 @@ export function PanelMetricas({
   }, [ventasCategoria]);
 
   const sinMovimiento = useMemo(() => {
-    const vendidos = new Set(delPeriodo.map((v) => v.producto_id).filter(Boolean));
+    const vendidos = new Set(vendido.map((v) => v.producto_id).filter(Boolean));
     return productos.filter((p) => p.activo && !vendidos.has(p.id));
-  }, [delPeriodo, productos]);
+  }, [vendido, productos]);
 
-  /* Todas las ventas del filtro (no las 20 últimas de siempre): es la lista que
-     se revisa para cuadrar contra la plataforma. Se pinta por páginas. */
-  const listadas = delPeriodo.slice(0, visibles);
-  const totalListado = delPeriodo.reduce((a, v) => a + v.monto, 0);
+  /* La tabla de renglones: la primera página llega con la carga de la página y
+     «Ver más» va pidiendo las siguientes. El total del encabezado sale del
+     resumen, no de lo que haya bajado hasta ahora. */
+  const listadas = ventas;
+  const totalListado = total;
+
+  function verMas() {
+    setCargandoMas(true);
+    const rango = { desde: rangos.actual.desde, hasta: rangos.actual.hasta };
+    /* Misma cautela que arriba: si mientras carga esta página se cambia el
+       periodo o la plataforma, sus filas pertenecen a otra consulta y no deben
+       apilarse sobre la lista nueva. */
+    const mia = peticion.current;
+    listarVentas(rango, canal, ventas.length)
+      .then((r) => {
+        if (mia !== peticion.current) return;
+        if (!("error" in r)) setVentas((prev) => [...prev, ...r.ventas]);
+      })
+      .finally(() => setCargandoMas(false));
+  }
 
   const columnasVenta: Columna<VentaMetricas>[] = [
     {
@@ -347,6 +396,9 @@ export function PanelMetricas({
       error: "No se pudo importar. Revisa tu conexión.",
       alExito: (r) => {
         toast.success(r.detalle);
+        /* Igual que al guardar una venta: el toast decía «37 ventas nuevas» y la
+           pantalla seguía igual, porque las cifras ya no vienen de las props. */
+        recargar();
       },
     });
   }
@@ -384,7 +436,6 @@ export function PanelMetricas({
               setDesde(d);
               setHasta(h);
               setPeriodo(""); // rango a mano: deja de haber preset activo
-              setVisibles(VENTAS_POR_PAGINA);
             }}
             className="w-full md:w-[240px]"
           />
@@ -392,7 +443,6 @@ export function PanelMetricas({
             value={canal}
             onValueChange={(v) => {
               setCanal((v ?? "todas") as CanalId | "todas");
-              setVisibles(VENTAS_POR_PAGINA);
             }}
           >
             <SelectTrigger className="w-full bg-card md:w-[185px]">
@@ -420,14 +470,15 @@ export function PanelMetricas({
         </div>
       </div>
 
-      {/* Aviso de tope: mejor decirlo que dejar que los totales de un periodo
-          largo salgan cortos sin explicación. */}
-      {truncado && (
+      {/* Antes aquí vivía el aviso de «se alcanzó el tope de renglones»: ya no
+          hace falta, porque las sumas las hace la base y no hay tope que
+          alcanzar. Lo que sí puede fallar es la consulta misma. */}
+      {(errorResumen || errorCarga) && (
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-[13px]">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" strokeWidth={2} />
           <span>
-            Se alcanzó el tope de renglones cargados, así que las ventas más antiguas del año no
-            están contadas. Los periodos cortos (hasta el mes en curso) sí son exactos.
+            No se pudieron calcular las cifras del periodo, así que lo de abajo está incompleto.
+            Si la migración de métricas aún no se ha aplicado en la base, es eso.
           </span>
         </div>
       )}
@@ -435,14 +486,25 @@ export function PanelMetricas({
       {/* Qué se está midiendo exactamente: con atajos como «Últimos 7 días» el
           rango concreto no se ve, y es justo el dato que hace falta para cuadrar
           contra el panel del canal. */}
-      <div className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-[12.5px] text-muted-foreground">
+      <div
+        className={cn(
+          "mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-[12.5px] text-muted-foreground transition-opacity",
+          cargando && "opacity-50",
+        )}
+      >
         <span className="font-semibold">
           {formatearFecha(rangos.actual.desde)} – {formatearFecha(rangos.actual.hasta)}
         </span>
         <span aria-hidden="true">·</span>
         <span>
-          {delPeriodo.length} {delPeriodo.length === 1 ? "venta" : "ventas"} ·{" "}
-          {formatearMXN(totalListado)} en producto
+          {cargando ? (
+            "actualizando…"
+          ) : (
+            <>
+              {numVentas} {numVentas === 1 ? "venta" : "ventas"} ·{" "}
+              {formatearMXN(totalListado)} en producto
+            </>
+          )}
         </span>
       </div>
 
@@ -463,8 +525,8 @@ export function PanelMetricas({
         />
         <StatCard
           etiqueta="Nº de ventas"
-          valor={String(delPeriodo.length)}
-          delta={deltaPct(delPeriodo.length, delAnterior.length)}
+          valor={String(numVentas)}
+          delta={deltaPct(numVentas, datos.anterior.kpis.ventas)}
           deltaEtiqueta={ETIQUETA_DELTA[periodo]}
         />
         <StatCard
@@ -607,13 +669,13 @@ export function PanelMetricas({
       </div>
 
       {/* Ventas del periodo (clic en el producto para corregir) */}
-      {delPeriodo.length === 0 ? (
+      {numVentas === 0 ? (
         <div className={cn(TARJETA, "px-6")}>
           <h2 className={cn(ROTULO, "mb-2")}>Ventas</h2>
           <p className="text-sm italic text-muted-foreground">
-            {ventas.length === 0
-              ? `Aún no hay ventas registradas. Usa «+ Registrar venta»${tiendanube.conectada ? " o «Importar de Tienda Nube»" : ""}.`
-              : "No hubo ventas con esos filtros. Prueba con otro periodo o plataforma."}
+            {hayVentas
+              ? "No hubo ventas con esos filtros. Prueba con otro periodo o plataforma."
+              : `Aún no hay ventas registradas. Usa «+ Registrar venta»${tiendanube.conectada ? " o «Importar de Tienda Nube»" : ""}.`}
           </p>
         </div>
       ) : (
@@ -622,8 +684,8 @@ export function PanelMetricas({
             cols={COLS_VENTAS}
             titulo={
               <>
-                Ventas del periodo · {delPeriodo.length}{" "}
-                {delPeriodo.length === 1 ? "venta" : "ventas"} ·{" "}
+                Ventas del periodo · {numVentas}{" "}
+                {numVentas === 1 ? "venta" : "ventas"} ·{" "}
                 <span className="text-foreground">{formatearMXN(totalListado)}</span>
               </>
             }
@@ -632,14 +694,17 @@ export function PanelMetricas({
             filaKey={(v) => v.id}
             onRowClick={(v) => setVentaDialog(v)}
           />
-          {listadas.length < delPeriodo.length && (
+          {listadas.length < numVentas && (
             <div className="mt-3 flex justify-center">
               <Button
                 variant="outline"
-                onClick={() => setVisibles((n) => n + VENTAS_POR_PAGINA)}
+                onClick={verMas}
+                disabled={cargandoMas}
                 className="h-10 rounded-xl text-[13.5px] font-semibold"
               >
-                Ver más ({delPeriodo.length - listadas.length} restantes)
+                {cargandoMas
+                  ? "Cargando…"
+                  : `Ver más (${numVentas - listadas.length} restantes)`}
               </Button>
             </div>
           )}
@@ -648,22 +713,14 @@ export function PanelMetricas({
 
       {/* Lo que las plataformas saben y no llega a las ventas. Va al final: es
           contexto de lo de arriba, no el titular. */}
-      <Plataformas
-        visitas={visitas}
-        salud={salud}
-        carritos={carritos}
-        ordenes={ordenesDelPeriodo}
-        ventasML={ventasMLVentana}
-      />
+      <Plataformas bloquesCanales={bloquesCanales} pagos={actual.pagos} />
 
       {ventaDialog && (
         <VentaDialog
           venta={ventaDialog === "nueva" ? null : ventaDialog}
-          productos={productos}
-          clientes={clientes}
           gestor={gestor}
           direccion={rol === "direccion"}
-          onClose={() => setVentaDialog(null)}
+          onClose={cerrarDialogoVenta}
         />
       )}
     </div>
