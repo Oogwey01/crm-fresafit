@@ -18,12 +18,19 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/compartido/date-picker";
+import { CampoSugerido } from "@/components/compartido/campo-sugerido";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { CATEGORIAS_GASTO } from "@/lib/catalogos";
+import {
+  CATEGORIAS_GASTO,
+  ESTADOS_COMPROBANTE,
+  obtenerCategoriaGasto,
+  obtenerEstadoComprobante,
+} from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
+import { SUGERENCIAS_VACIAS, type Sugerencia, type SugerenciasGasto } from "@/lib/finanzas/sugerencias";
 import {
   guardarGasto,
   borrarGasto,
@@ -32,15 +39,29 @@ import {
   urlComprobante,
   type GastoInput,
 } from "@/app/(app)/finanzas/actions";
-import type { CategoriaGastoId, ExpenseConComprobantes, ExpenseReceipt } from "@/lib/types";
+import type {
+  CategoriaGastoId,
+  EstadoComprobanteId,
+  ExpenseConComprobantes,
+  ExpenseReceipt,
+} from "@/lib/types";
+
+/* Frase del aviso cuando el concepto elegido arrastra sus datos de siempre. */
+function enumerar(partes: string[]): string {
+  if (partes.length === 1) return partes[0];
+  return `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`;
+}
 
 /* Alta y edición de un gasto. Los comprobantes (facturas, tickets) solo se
    pueden adjuntar en un gasto ya guardado: necesitan su id para la ruta. */
 export function GastoDialog({
   gasto,
+  sugerencias = SUGERENCIAS_VACIAS,
   onClose,
 }: {
   gasto: ExpenseConComprobantes | null; // null = alta
+  /* Lo ya capturado antes, agrupado por cuántas veces se usó (ver lib/finanzas). */
+  sugerencias?: SugerenciasGasto;
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -57,6 +78,36 @@ export function GastoDialog({
   const [categoria, setCategoria] = useState<CategoriaGastoId>(gasto?.categoria ?? "operacion");
   const [proveedor, setProveedor] = useState(gasto?.proveedor ?? "");
   const [notas, setNotas] = useState(gasto?.notas ?? "");
+  const [metodoPago, setMetodoPago] = useState(gasto?.metodo_pago ?? "");
+  const [factura, setFactura] = useState<EstadoComprobanteId>(gasto?.factura ?? "pendiente");
+  const [recibo, setRecibo] = useState<EstadoComprobanteId>(gasto?.recibo ?? "pendiente");
+
+  /* La categoría arranca en «operación» sin que nadie la haya elegido: hay que
+     saber si sigue intacta para poder rellenarla desde el concepto. */
+  const [categoriaTocada, setCategoriaTocada] = useState(false);
+  /* Qué se copió del último gasto igual, para decirlo en vez de hacerlo a escondidas. */
+  const [copiado, setCopiado] = useState<string | null>(null);
+
+  /* Al tomar un concepto de la lista se traen los datos con los que se capturó
+     la última vez. Solo en un alta y solo sobre campos que nadie ha tocado:
+     editando un gasto viejo, cambiar el concepto no debe mover nada más. */
+  function usarConcepto(s: Sugerencia) {
+    if (gasto) return;
+    const copiados: string[] = [];
+    if (s.categoria && !categoriaTocada && s.categoria !== categoria) {
+      setCategoria(s.categoria);
+      copiados.push(`la categoría «${obtenerCategoriaGasto(s.categoria)?.nombre ?? s.categoria}»`);
+    }
+    if (s.proveedor && !proveedor.trim()) {
+      setProveedor(s.proveedor);
+      copiados.push(`a quién se le paga (${s.proveedor})`);
+    }
+    if (s.metodoPago && !metodoPago.trim()) {
+      setMetodoPago(s.metodoPago);
+      copiados.push(`el método de pago (${s.metodoPago})`);
+    }
+    setCopiado(copiados.length ? enumerar(copiados) : null);
+  }
 
   function guardar() {
     const input: GastoInput = {
@@ -66,6 +117,9 @@ export function GastoDialog({
       categoria,
       proveedor,
       notas,
+      metodo_pago: metodoPago,
+      factura,
+      recibo,
     };
     ejecutar(() => guardarGasto(gasto?.id ?? null, input), {
       ok: gasto ? "Gasto actualizado." : "Gasto registrado.",
@@ -132,15 +186,34 @@ export function GastoDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
+          {/* Los gastos se repiten mes con mes: el campo propone los de siempre
+              ordenados por cuántas veces se han capturado y completa al teclear. */}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="gasto-concepto">Concepto</Label>
-            <Input
+            <CampoSugerido
               id="gasto-concepto"
               autoFocus
+              autocompletar
               placeholder="Publicidad en Meta, caja de envíos…"
               value={concepto}
-              onChange={(e) => setConcepto(e.target.value)}
+              onChange={(v) => {
+                setConcepto(v);
+                setCopiado(null);
+              }}
+              onElegir={usarConcepto}
+              sugerencias={sugerencias.conceptos}
+              siguiente="gasto-monto"
+              detalle={(s) =>
+                [obtenerCategoriaGasto(s.categoria ?? "")?.nombre, s.proveedor]
+                  .filter(Boolean)
+                  .join(" · ") || null
+              }
             />
+            {copiado && (
+              <p className="text-[11.5px] text-muted-foreground">
+                Se copió {copiado} del último gasto igual. Cámbialo si esta vez no aplica.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -162,7 +235,14 @@ export function GastoDialog({
             </div>
             <div className="col-span-2 flex flex-col gap-1.5">
               <Label>Categoría</Label>
-              <Select value={categoria} onValueChange={(v) => v && setCategoria(v as CategoriaGastoId)}>
+              <Select
+                value={categoria}
+                onValueChange={(v) => {
+                  if (!v) return;
+                  setCategoria(v as CategoriaGastoId);
+                  setCategoriaTocada(true);
+                }}
+              >
                 <SelectTrigger className="w-full">
                   <SelectValue>
                     {(v: string) => CATEGORIAS_GASTO.find((c) => c.id === v)?.nombre ?? "Categoría"}
@@ -179,14 +259,68 @@ export function GastoDialog({
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gasto-proveedor">Pagado a (opcional)</Label>
-            <Input
-              id="gasto-proveedor"
-              placeholder="Meta, Estafeta, Nancy…"
-              value={proveedor}
-              onChange={(e) => setProveedor(e.target.value)}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="gasto-proveedor">Pagado a (opcional)</Label>
+              <CampoSugerido
+                id="gasto-proveedor"
+                placeholder="Meta, Estafeta, Nancy…"
+                value={proveedor}
+                onChange={setProveedor}
+                sugerencias={sugerencias.proveedores}
+                siguiente="gasto-metodo"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="gasto-metodo">Método de pago</Label>
+              <CampoSugerido
+                id="gasto-metodo"
+                placeholder="Transferencia, TC Mercado Pago…"
+                value={metodoPago}
+                onChange={setMetodoPago}
+                sugerencias={sugerencias.metodosPago}
+                siguiente="gasto-notas"
+              />
+            </div>
+          </div>
+
+          {/* Lo que la hoja de facturas vigila: qué papel falta por cobrar al
+              proveedor. «Aún no» = se pagó, pero no ha llegado. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label>¿Ya hay factura?</Label>
+              <Select value={factura} onValueChange={(v) => v && setFactura(v as EstadoComprobanteId)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string) => obtenerEstadoComprobante(v)?.nombre ?? "Factura"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ESTADOS_COMPROBANTE.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>¿Ya hay recibo?</Label>
+              <Select value={recibo} onValueChange={(v) => v && setRecibo(v as EstadoComprobanteId)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string) => obtenerEstadoComprobante(v)?.nombre ?? "Recibo"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {ESTADOS_COMPROBANTE.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="flex flex-col gap-1.5">

@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { ArrowDownCircle, ArrowUpCircle, Paperclip, Plus, Wallet } from "lucide-react";
-import { CATEGORIAS_GASTO, obtenerCategoriaGasto } from "@/lib/catalogos";
+import { CATEGORIAS_GASTO, obtenerCategoriaGasto, obtenerEstadoComprobante } from "@/lib/catalogos";
 import {
   formatearFecha,
   hoyISO,
+  nombreMes,
   rangoPersonalizado,
   rangosDePeriodo,
   type PresetRangoId,
@@ -14,6 +15,7 @@ import { RangoFechas } from "@/components/compartido/rango-fechas";
 import { ETIQUETA_DELTA, deltaPct, enRango } from "@/lib/metricas";
 import { formatearMXN } from "@/lib/moneda";
 import type { ExpenseConComprobantes, Sale } from "@/lib/types";
+import type { SugerenciasGasto } from "@/lib/finanzas/sugerencias";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -27,6 +29,7 @@ import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { GastoDialog } from "@/components/finanzas/gasto-dialog";
+import { ImportarGastos } from "@/components/finanzas/importar-gastos";
 
 /* "" = rango elegido a mano en el calendario (sin atajo activo). */
 type PeriodoId = PresetRangoId | "";
@@ -36,14 +39,18 @@ const ETIQUETA_PERIODO: Record<PeriodoId, string> = {
   "": "vs. periodo anterior",
 };
 
-const COLS = "grid-cols-[95px_minmax(180px,1fr)_130px_140px_120px_40px]";
+const COLS = "grid-cols-[95px_minmax(180px,1fr)_130px_140px_120px_150px_40px]";
 
 export function PanelFinanzas({
   gastos,
   ventas,
+  sugerencias,
 }: {
   gastos: ExpenseConComprobantes[];
   ventas: Pick<Sale, "fecha" | "monto">[];
+  /* Conceptos, proveedores y métodos ya usados, con su número de usos: es lo
+     que el diálogo propone al capturar (ver lib/finanzas/sugerencias.ts). */
+  sugerencias: SugerenciasGasto;
 }) {
   const [periodo, setPeriodo] = useState<PeriodoId>("mes");
   /* Rango a mano (cuando no hay atajo activo). */
@@ -53,6 +60,23 @@ export function PanelFinanzas({
   const [dialog, setDialog] = useState<ExpenseConComprobantes | "nuevo" | null>(null);
 
   const rangos = periodo ? rangosDePeriodo(periodo) : rangoPersonalizado(desde, hasta);
+
+  /* El gasto más reciente que hay capturado, sin importar el periodo elegido:
+     es lo que permite explicar una pantalla vacía en vez de dejarla muda. */
+  const ultimoGasto = gastos.reduce<ExpenseConComprobantes | null>(
+    (mayor, g) => (!mayor || g.fecha > mayor.fecha ? g : mayor),
+    null,
+  );
+
+  /* Salta al mes de ese último gasto (rango a mano, sin atajo activo). */
+  function verMesDelUltimoGasto() {
+    if (!ultimoGasto) return;
+    const [anio, mes] = ultimoGasto.fecha.split("-");
+    const finDeMes = new Date(Number(anio), Number(mes), 0).getDate();
+    setDesde(`${anio}-${mes}-01`);
+    setHasta(`${anio}-${mes}-${String(finDeMes).padStart(2, "0")}`);
+    setPeriodo("");
+  }
 
   const gastosPeriodo = useMemo(
     () => gastos.filter((g) => enRango(g.fecha, rangos.actual)),
@@ -116,12 +140,37 @@ export function PanelFinanzas({
     {
       clave: "proveedor",
       label: "Pagado a",
-      celda: (g) => <div className="truncate text-muted-foreground">{g.proveedor ?? "—"}</div>,
+      celda: (g) => (
+        <div className="min-w-0">
+          <div className="truncate text-muted-foreground">{g.proveedor ?? "—"}</div>
+          {g.metodo_pago && (
+            <div className="truncate text-[11.5px] text-muted-foreground">{g.metodo_pago}</div>
+          )}
+        </div>
+      ),
     },
     {
       clave: "monto",
       label: "Monto",
       celda: (g) => <div className="font-semibold tabular-nums">{formatearMXN(g.monto)}</div>,
+    },
+    {
+      /* Lo que la hoja de facturas vigila: qué papel falta por recoger. Solo se
+         pintan los pendientes; cuando ya está todo, la columna calla. */
+      clave: "papeles",
+      label: "Factura · recibo",
+      celda: (g) => {
+        const faltan = [
+          g.factura !== "si" ? `factura ${obtenerEstadoComprobante(g.factura)?.nombre ?? ""}` : null,
+          g.recibo !== "si" ? `recibo ${obtenerEstadoComprobante(g.recibo)?.nombre ?? ""}` : null,
+        ].filter(Boolean);
+        if (!faltan.length) return <Pastilla nombre="Completo" color="#22c55e" />;
+        return (
+          <span className="text-[12px] text-amber-600">
+            {faltan.join(" · ").toLowerCase()}
+          </span>
+        );
+      },
     },
     {
       clave: "comprobantes",
@@ -165,6 +214,7 @@ export function PanelFinanzas({
             }}
             className="w-full md:w-[220px]"
           />
+          <ImportarGastos />
           <Button
             onClick={() => setDialog("nuevo")}
             className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
@@ -235,11 +285,26 @@ export function PanelFinanzas({
       </div>
 
       {visibles.length === 0 ? (
-        <p className="text-sm italic text-muted-foreground">
-          {gastosPeriodo.length === 0
-            ? "Aún no hay gastos en este periodo. Registra el primero con «Nuevo gasto»."
-            : "Ningún gasto en esa categoría."}
-        </p>
+        gastosPeriodo.length > 0 ? (
+          <p className="text-sm italic text-muted-foreground">Ningún gasto en esa categoría.</p>
+        ) : ultimoGasto ? (
+          /* Hay gastos capturados, pero no en la ventana elegida. Decir solo
+             «no hay gastos» hacía pensar que la importación no había entrado:
+             mejor apuntar a dónde sí están y llevar de un clic. */
+          <div className="flex flex-col items-start gap-2 rounded-2xl border bg-card px-5 py-6 shadow-sm">
+            <p className="text-sm text-muted-foreground">
+              No hay gastos en este periodo. El último capturado es del{" "}
+              <b className="text-foreground">{formatearFecha(ultimoGasto.fecha)}</b>.
+            </p>
+            <Button variant="outline" size="sm" onClick={verMesDelUltimoGasto}>
+              Ver {nombreMes(Number(ultimoGasto.fecha.slice(0, 4)), Number(ultimoGasto.fecha.slice(5, 7)) - 1)}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-sm italic text-muted-foreground">
+            Aún no hay gastos capturados. Registra el primero con «Nuevo gasto».
+          </p>
+        )
       ) : (
         <TablaSimple
           cols={COLS}
@@ -254,6 +319,7 @@ export function PanelFinanzas({
       {dialog && (
         <GastoDialog
           gasto={dialog === "nuevo" ? null : dialog}
+          sugerencias={sugerencias}
           onClose={() => setDialog(null)}
         />
       )}
