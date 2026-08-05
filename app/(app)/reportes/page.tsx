@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { armarReporte, type ReporteFresafit } from "@/lib/reportes/armar";
-import { obtenerCanal, obtenerCategoriaGasto } from "@/lib/catalogos";
+import { obtenerCanal, obtenerCategoriaGasto, puedeAdministrar } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
 import { PanelReporteFresafit } from "@/components/reportes/panel-fresafit";
 
@@ -22,7 +22,7 @@ export default async function ReportesFresafitPage({
   searchParams: Promise<{ desde?: string; hasta?: string }>;
 }) {
   const { supabase, rol } = await usuarioActual();
-  if (rol !== "direccion") redirect("/tareas");
+  if (!puedeAdministrar(rol)) redirect("/tareas");
 
   const params = await searchParams;
   const hoy = hoyISO();

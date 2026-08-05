@@ -194,6 +194,7 @@ export function PanelReporteFresafit({ reporte }: { reporte: ReporteFresafit }) 
           }}
           preset={preset}
           onPreset={elegirPreset}
+          className="w-full md:w-[240px]"
         />
         <p className="text-[13px] text-muted-foreground">
           Del {formatearFecha(reporte.rango.desde)} al {formatearFecha(reporte.rango.hasta)}, contra
@@ -341,18 +342,18 @@ export function PanelReporteFresafit({ reporte }: { reporte: ReporteFresafit }) 
 
         {/* --- Qué se vendió --- */}
         <Seccion titulo="Qué se vendió" icono={Package}>
-          <div className="mb-3.5 grid grid-cols-3 gap-3 border-b pb-3.5">
-            <div>
+          <div className="mb-3.5 grid grid-cols-2 gap-3 border-b pb-3.5 sm:grid-cols-3">
+            <div className="min-w-0">
               <div className="text-[11.5px] text-muted-foreground">Órdenes</div>
               <div className="text-[19px] font-bold tabular-nums">{reporte.ventas.ordenes}</div>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-[11.5px] text-muted-foreground">Piezas</div>
               <div className="text-[19px] font-bold tabular-nums">{reporte.ventas.piezas}</div>
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="text-[11.5px] text-muted-foreground">Ticket</div>
-              <div className="text-[19px] font-bold tabular-nums">
+              <div className="break-words text-[19px] font-bold tabular-nums">
                 {formatearMXN(reporte.ventas.ticket)}
               </div>
             </div>

@@ -22,7 +22,9 @@
    ============================================================================ */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { traerTodo } from "@/lib/canales/paginacion";
+import { DIAS_ATRASO_PEDIDO } from "@/lib/fecha";
+
+type Cliente = SupabaseClient;
 
 export type Rango = { desde: string; hasta: string };
 
@@ -92,77 +94,31 @@ export function periodoAnterior(r: Rango): Rango {
   return { desde: correr(r.desde, -n), hasta: correr(r.desde, -1) };
 }
 
-const redondear = (n: number) => Math.round(n * 100) / 100;
-
-function sumarPor<T>(
-  filas: T[],
-  clave: (f: T) => string,
-  monto: (f: T) => number,
-  nombre: (c: string) => string,
-): LineaCategoria[] {
-  const m = new Map<string, { monto: number; cantidad: number }>();
-  for (const f of filas) {
-    const k = clave(f);
-    const acc = m.get(k) ?? { monto: 0, cantidad: 0 };
-    acc.monto += monto(f);
-    acc.cantidad++;
-    m.set(k, acc);
-  }
-  return [...m.entries()]
-    .map(([clave, v]) => ({ clave, nombre: nombre(clave), monto: redondear(v.monto), cantidad: v.cantidad }))
-    .sort((a, b) => b.monto - a.monto);
-}
-
-type Cliente = SupabaseClient;
-
-/* Formas de las filas que se leen. Van aquí arriba porque las consultas
-   paginadas las necesitan al construirse. */
-type FilaVenta = {
-  canal: string;
-  monto: number;
-  cantidad: number;
-  origen: string;
-  cliente_id: string | null;
-  producto: { nombre: string; variante: string | null } | null;
+/* Lo que devuelve la función `reporte_fresafit` de la base: el reporte entero
+   menos las etiquetas legibles de canal y categoría, que se ponen aquí porque
+   son cosa del catálogo de la aplicación y no de los datos. */
+type ReporteCrudo = Omit<ReporteFresafit, "rango" | "comparado" | "ingresos" | "egresos"> & {
+  ingresos: Omit<ReporteFresafit["ingresos"], "porCanal"> & {
+    porCanal: Omit<LineaCategoria, "nombre">[];
+  };
+  egresos: Omit<ReporteFresafit["egresos"], "porCategoria"> & {
+    porCategoria: Omit<LineaCategoria, "nombre">[];
+  };
 };
 
-type IngresoAg = {
-  total: number;
-  fondo_delegado: number;
-  estado: string;
-  pagado_at: string | null;
-  periodo_hasta: string | null;
-  created_at: string;
-};
+/* El corte de «pedido atrasado»: más de tres días desde la venta sin entregar,
+   el mismo criterio que usa la pantalla de Pedidos.
 
-type Prod = {
-  stock: number;
-  stock_minimo: number;
-  costo: number | null;
-  activo: boolean;
-  bajo_pedido: boolean;
-  descontinuado: boolean;
-};
-
-/* Bruto de ventas de un rango, con la misma regla que Métricas: el total de la
-   orden cuando el canal lo reporta, y la suma de renglones cuando no. */
-function brutoDeVentas(
-  ordenes: { canal: string; total: number }[],
-  renglones: { canal: string; monto: number; origen: string }[],
-): { total: number; porCanal: Map<string, number> } {
-  const porCanal = new Map<string, number>();
-  const conOrden = new Set<string>();
-  for (const o of ordenes) {
-    conOrden.add(o.canal);
-    porCanal.set(o.canal, (porCanal.get(o.canal) ?? 0) + Number(o.total || 0));
-  }
-  for (const v of renglones) {
-    if (v.origen === "api" && conOrden.has(v.canal)) continue;
-    porCanal.set(v.canal, (porCanal.get(v.canal) ?? 0) + Number(v.monto || 0));
-  }
-  let total = 0;
-  for (const v of porCanal.values()) total += v;
-  return { total: redondear(total), porCanal };
+   Se calcula aquí, y no dentro de la función de la base, para que el día de
+   referencia sea uno solo y explícito en vez de quedar a merced de la zona
+   horaria del servidor. Dicho eso: esta cuenta parte del día UTC, igual que la
+   versión anterior de la que se copió, así que entre las 18:00 y la medianoche
+   de México el corte va un día adelantado. Se conserva tal cual a propósito
+   —cambiarlo movería la cifra de «atrasados» respecto a los reportes ya
+   emitidos—, pero conviene saberlo: el arreglo, cuando toque, es usar `hoyISO()`
+   de lib/fecha, que sí resuelve el día en hora de México. */
+function limiteDeAtraso(): string {
+  return correr(new Date().toISOString().slice(0, 10), -DIAS_ATRASO_PEDIDO);
 }
 
 export async function armarReporte(
@@ -173,239 +129,32 @@ export async function armarReporte(
 ): Promise<ReporteFresafit> {
   const previo = periodoAnterior(rango);
 
-  /* Todo en paralelo: son consultas independientes contra tablas distintas y en
-     serie la página tardaría la suma de todas. */
-  const [
-    ventasRes,
-    ventasPrevRes,
-    ordenesRes,
-    ordenesPrevRes,
-    gastosRes,
-    gastosPrevRes,
-    nominaRes,
-    ingresosAgRes,
-    pedidosRes,
-    clientesRes,
-    productosRes,
-  ] = await Promise.all([
-    /* Paginado: PostgREST corta en 1000 filas SIN avisar, y un mes bueno pasa de
-       mil renglones. Sin esto el reporte salía corto y nadie se enteraba. */
-    traerTodo<FilaVenta>((d, h) =>
-      supabase
-        .from("sales")
-        .select("canal, monto, cantidad, origen, cliente_id, producto:products!producto_id(nombre, variante)")
-        .gte("fecha", rango.desde)
-        .lte("fecha", rango.hasta)
-        .or("estado.is.null,estado.neq.cancelado")
-        .range(d, h) as unknown as PromiseLike<{ data: FilaVenta[] | null; error: { message: string } | null }>,
-    ),
-    traerTodo<{ canal: string; monto: number; origen: string }>((d, h) =>
-      supabase
-        .from("sales")
-        .select("canal, monto, origen")
-        .gte("fecha", previo.desde)
-        .lte("fecha", previo.hasta)
-        .or("estado.is.null,estado.neq.cancelado")
-        .range(d, h),
-    ),
-    traerTodo<{ canal: string; total: number }>((d, h) =>
-      supabase
-        .from("sale_orders")
-        .select("canal, total")
-        .gte("fecha", rango.desde)
-        .lte("fecha", rango.hasta)
-        .neq("estado", "cancelled")
-        .range(d, h),
-    ),
-    traerTodo<{ canal: string; total: number }>((d, h) =>
-      supabase
-        .from("sale_orders")
-        .select("canal, total")
-        .gte("fecha", previo.desde)
-        .lte("fecha", previo.hasta)
-        .neq("estado", "cancelled")
-        .range(d, h),
-    ),
-    traerTodo<{ categoria: string; monto: number }>((d, h) =>
-      supabase
-        .from("expenses")
-        .select("categoria, monto")
-        .gte("fecha", rango.desde)
-        .lte("fecha", rango.hasta)
-        .range(d, h),
-    ),
-    traerTodo<{ monto: number }>((d, h) =>
-      supabase
-        .from("expenses")
-        .select("monto")
-        .gte("fecha", previo.desde)
-        .lte("fecha", previo.hasta)
-        .range(d, h),
-    ),
-    /* Nómina PAGADA en el periodo: dinero que efectivamente salió. */
-    traerTodo<{ monto: number }>((d, h) =>
-      supabase
-        .from("nomina_pagos")
-        .select("monto")
-        .eq("estado", "pagado")
-        .gte("fecha_pago", rango.desde)
-        .lte("fecha_pago", rango.hasta)
-        .range(d, h),
-    ),
-    traerTodo<IngresoAg>((d, h) =>
-      supabase
-        .from("agencia_ingresos")
-        .select("total, fondo_delegado, estado, pagado_at, periodo_hasta, created_at")
-        .neq("estado", "cancelado")
-        .range(d, h),
-    ),
-    traerTodo<{ estado: string; fecha: string }>((d, h) =>
-      supabase
-        .from("sales")
-        .select("estado, fecha")
-        .not("estado", "is", null)
-        .gte("fecha", rango.desde)
-        .lte("fecha", rango.hasta)
-        .range(d, h),
-    ),
-    /* Solo hace falta CUÁNTOS son: pedir las filas devolvía 1000 como tope y el
-       reporte informaba "1000 clientes nuevos" cuando eran 2 447. */
-    supabase
-      .from("customers")
-      .select("id", { count: "exact", head: true })
-      .gte("created_at", rango.desde)
-      .lte("created_at", rango.hasta + "T23:59:59"),
-    traerTodo<Prod>((d, h) =>
-      supabase
-        .from("products")
-        .select("stock, stock_minimo, costo, activo, bajo_pedido, descontinuado")
-        .range(d, h),
-    ),
-  ]);
+  /* Una sola llamada. Antes eran diez lecturas paginadas contra seis tablas
+     —incluido el catálogo entero, solo para multiplicar stock por costo— y una
+     tanda de sumas en memoria. Los criterios no cambiaron: se mudaron a
+     `20260827000000_reporte_fresafit.sql`, que los documenta uno por uno. */
+  const { data, error } = await supabase.rpc("reporte_fresafit", {
+    desde: rango.desde,
+    hasta: rango.hasta,
+    desde_prev: previo.desde,
+    hasta_prev: previo.hasta,
+    limite_atraso: limiteDeAtraso(),
+  });
+  if (error) throw new Error(error.message);
 
-  const ventas = ventasRes;
-  const ventasPrev = ventasPrevRes;
-  const ordenes = ordenesRes;
-  const ordenesPrev = ordenesPrevRes;
-
-  const bruto = brutoDeVentas(ordenes, ventas);
-  const brutoPrev = brutoDeVentas(ordenesPrev, ventasPrev.map((v) => ({ ...v, cantidad: 0 })));
-
-  /* --- Gastos --- */
-  const gastos = gastosRes;
-  const totalGastos = redondear(gastos.reduce((a, g) => a + Number(g.monto || 0), 0));
-  const totalGastosPrev = redondear(gastosPrevRes.reduce((a, g) => a + Number(g.monto || 0), 0));
-
-  /* --- Nómina --- */
-  const nomina = redondear(nominaRes.reduce((a, p) => a + Number(p.monto || 0), 0));
-
-  /* --- Agencia --- */
-  const ingresosAg = ingresosAgRes;
-  const honorarios = (i: IngresoAg) => Math.max(0, Number(i.total || 0) - Number(i.fondo_delegado || 0));
-  /* Un cobro cuenta en el periodo en que ENTRÓ el dinero; los que aún no se
-     pagan se miran aparte, no se mezclan con lo cobrado. */
-  const enRangoFecha = (f: string | null) => !!f && f.slice(0, 10) >= rango.desde && f.slice(0, 10) <= rango.hasta;
-  const agenciaCobrado = redondear(
-    ingresosAg.filter((i) => i.estado === "pagado" && enRangoFecha(i.pagado_at)).reduce((a, i) => a + honorarios(i), 0),
-  );
-  const agenciaPorCobrar = redondear(
-    ingresosAg.filter((i) => i.estado === "cobrado").reduce((a, i) => a + honorarios(i), 0),
-  );
-  const agenciaSinFacturar = redondear(
-    ingresosAg.filter((i) => i.estado === "calculado").reduce((a, i) => a + honorarios(i), 0),
-  );
-
-  /* --- Ventas: piezas, ticket y productos --- */
-  const piezas = ventas.reduce((a, v) => a + (v.cantidad || 0), 0);
-  const ordenesCuenta = ordenes.length > 0 ? ordenes.length : ventas.length;
-  const productos = sumarPor(
-    ventas.filter((v) => v.producto),
-    (v) => `${v.producto!.nombre}${v.producto!.variante ? ` · ${v.producto!.variante}` : ""}`,
-    (v) => Number(v.monto || 0),
-    (c) => c,
-  ).slice(0, 8);
-  const piezasPorProducto = new Map<string, number>();
-  for (const v of ventas) {
-    if (!v.producto) continue;
-    const k = `${v.producto.nombre}${v.producto.variante ? ` · ${v.producto.variante}` : ""}`;
-    piezasPorProducto.set(k, (piezasPorProducto.get(k) ?? 0) + (v.cantidad || 0));
-  }
-
-  /* --- Pedidos --- */
-  const pedidosFilas = pedidosRes;
-  const cuenta = (e: string) => pedidosFilas.filter((p) => p.estado === e).length;
-  /* Atrasado = sigue sin entregarse y ya pasaron más de 3 días desde la venta,
-     el mismo criterio que usa la pantalla de Pedidos. */
-  const limiteAtraso = correr(new Date().toISOString().slice(0, 10), -3);
-  const atrasados = pedidosFilas.filter(
-    (p) => p.estado !== "entregado" && p.estado !== "cancelado" && p.fecha < limiteAtraso,
-  ).length;
-
-  /* --- Inventario (foto de HOY, no del periodo: el stock no tiene historia) --- */
-  const prods = productosRes.filter((p) => p.activo && !p.bajo_pedido && !p.descontinuado);
-  const valorStock = redondear(prods.reduce((a, p) => a + (p.stock || 0) * Number(p.costo || 0), 0));
-
-  const ingresosTotal = redondear(bruto.total + agenciaCobrado);
-  const egresosTotal = redondear(totalGastos + nomina);
-  const resultado = redondear(ingresosTotal - egresosTotal);
+  const r = data as ReporteCrudo;
 
   return {
+    ...r,
     rango,
     comparado: previo,
     ingresos: {
-      ventas: bruto.total,
-      ventasAnterior: brutoPrev.total,
-      porCanal: [...bruto.porCanal.entries()]
-        .map(([clave, monto]) => ({
-          clave,
-          nombre: nombreCanal(clave),
-          monto: redondear(monto),
-          cantidad: ventas.filter((v) => v.canal === clave).length,
-        }))
-        .sort((a, b) => b.monto - a.monto),
-      agencia: agenciaCobrado,
-      total: ingresosTotal,
+      ...r.ingresos,
+      porCanal: r.ingresos.porCanal.map((l) => ({ ...l, nombre: nombreCanal(l.clave) })),
     },
     egresos: {
-      gastos: totalGastos,
-      gastosAnterior: totalGastosPrev,
-      porCategoria: sumarPor(gastos, (g) => g.categoria, (g) => Number(g.monto || 0), nombreCategoria),
-      nomina,
-      total: egresosTotal,
-    },
-    resultado,
-    margen: ingresosTotal > 0 ? redondear((resultado / ingresosTotal) * 100) : null,
-    ventas: {
-      ordenes: ordenesCuenta,
-      piezas,
-      ticket: ordenesCuenta > 0 ? redondear(bruto.total / ordenesCuenta) : 0,
-      productos: productos.map((p) => ({
-        nombre: p.nombre,
-        piezas: piezasPorProducto.get(p.clave) ?? 0,
-        monto: p.monto,
-      })),
-    },
-    pedidos: {
-      nuevos: cuenta("nuevo"),
-      preparando: cuenta("preparando"),
-      enviados: cuenta("enviado"),
-      entregados: cuenta("entregado"),
-      atrasados,
-    },
-    clientes: {
-      nuevos: clientesRes.count ?? 0,
-      conCompra: new Set(ventas.map((v) => v.cliente_id).filter(Boolean)).size,
-    },
-    inventario: {
-      productos: prods.length,
-      bajoMinimo: prods.filter((p) => p.stock <= p.stock_minimo).length,
-      sinStock: prods.filter((p) => p.stock <= 0).length,
-      valorStock,
-    },
-    agencia: {
-      cobrado: agenciaCobrado,
-      porCobrar: agenciaPorCobrar,
-      sinFacturar: agenciaSinFacturar,
+      ...r.egresos,
+      porCategoria: r.egresos.porCategoria.map((l) => ({ ...l, nombre: nombreCategoria(l.clave) })),
     },
   };
 }

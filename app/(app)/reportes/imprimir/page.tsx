@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { armarReporte } from "@/lib/reportes/armar";
-import { obtenerCanal, obtenerCategoriaGasto } from "@/lib/catalogos";
+import { obtenerCanal, obtenerCategoriaGasto, puedeAdministrar } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
 import { ReporteImprimible } from "@/components/reportes/imprimible";
 
@@ -22,7 +22,7 @@ export default async function ImprimirReportePage({
   searchParams: Promise<{ desde?: string; hasta?: string }>;
 }) {
   const { supabase, rol, perfil } = await usuarioActual();
-  if (rol !== "direccion") redirect("/tareas");
+  if (!puedeAdministrar(rol)) redirect("/tareas");
 
   const params = await searchParams;
   const hoy = hoyISO();
