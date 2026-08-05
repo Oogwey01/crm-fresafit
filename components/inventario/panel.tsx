@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   AlertTriangle,
   Boxes,
   DollarSign,
+  Lock,
   PackageX,
   Plus,
   Search,
   ShoppingCart,
-  Truck,
+  SlidersHorizontal,
+  Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
 import { esGestor } from "@/lib/catalogos";
@@ -28,13 +32,13 @@ import { formatearMXN } from "@/lib/moneda";
 import type {
   ProductConProveedor,
   Supplier,
-  SupplierOrderConDetalle,
   StockLog,
   RolId,
   ConteoConProducto,
   Profile,
 } from "@/lib/types";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -48,48 +52,35 @@ import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { TIPOS_PRODUCTO, obtenerTipoProducto } from "@/lib/catalogos";
 import { TablaProductos } from "@/components/inventario/tabla-productos";
 import { TablaProductosAgrupada } from "@/components/inventario/tabla-productos-agrupada";
-import { variantesHermanas } from "@/lib/inventario/familia";
 import { ProductoDialog } from "@/components/inventario/producto-dialog";
-import { ProductoVista } from "@/components/inventario/producto-vista";
-import { TablaProveedores } from "@/components/inventario/tabla-proveedores";
-import { ProveedorDialog } from "@/components/inventario/proveedor-dialog";
-import { TablaPedidosProv } from "@/components/inventario/tabla-pedidos-prov";
-import { PedidoProvDialog } from "@/components/inventario/pedido-prov-dialog";
 import { TablaMovimientos } from "@/components/inventario/tabla-movimientos";
 import { BarraCanales } from "@/components/inventario/barra-canales";
 import { AvisosInventario } from "@/components/inventario/avisos-inventario";
 import { PanelReconciliacion } from "@/components/inventario/panel-reconciliacion";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import { TablaReabastecer } from "@/components/inventario/tabla-reabastecer";
-import type { ItemInicialPedido } from "@/components/inventario/pedido-prov-dialog";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 
 type Pestana =
   | "productos"
   | "reabastecer"
-  | "proveedores"
-  | "pedidos"
   | "movimientos"
   | "reconciliacion";
 
 const PESTANAS = [
   ["productos", "Productos"],
   ["reabastecer", "Qué pedir"],
-  ["proveedores", "Proveedores"],
-  ["pedidos", "Pedidos a proveedor"],
   ["movimientos", "Historial de stock"],
   ["reconciliacion", "Reconciliación"],
 ] as const;
 
 /* Ventana de ventas del reorden que se muestra al entrar (la tabla «Qué pedir»
-   la deja cambiar; la tarjeta KPI y el pop-up de producto usan ésta). */
+   la deja cambiar; la tarjeta KPI y la ficha del producto usan ésta). */
 const VENTANA_REORDEN = 30;
 
 /* Solo las pestañas que permiten dar de alta algo (movimientos es de lectura). */
 const ETIQUETA_NUEVO: Partial<Record<Pestana, string>> = {
   productos: "Nuevo producto",
-  proveedores: "Nuevo proveedor",
-  pedidos: "Nuevo pedido",
 };
 
 /* Filtro de dónde está guardado el stock: Mercado Full y el inventario delegado
@@ -221,7 +212,6 @@ function useFiltrosProductos(productos: ProductConProveedor[]) {
 export function PanelInventario({
   productos,
   proveedores,
-  pedidos,
   movimientos,
   ventas,
   enCamino,
@@ -239,7 +229,6 @@ export function PanelInventario({
 }: {
   productos: ProductConProveedor[];
   proveedores: Supplier[];
-  pedidos: SupplierOrderConDetalle[];
   movimientos: StockLog[];
   /* Ventas de los últimos 90 días: la velocidad de salida de cada producto. */
   ventas: VentaReorden[];
@@ -263,12 +252,14 @@ export function PanelInventario({
   /* Avisos al volver del OAuth, ya resueltos en el servidor por la page. */
   avisosConexion: AvisoConexion[];
 }) {
+  const router = useRouter();
   const gestor = esGestor(rol);
   /* Conectar/sincronizar canales queda solo para dirección: es una acción de
      mantenimiento y da miedo que alguien la pique por error. */
   const esDireccion = rol === "direccion";
   const [pestana, setPestana] = useState<Pestana>("productos");
   const [vistaCatalogo, setVistaCatalogo] = useState<VistaCatalogo>("desglosado");
+  const [masFiltros, setMasFiltros] = useState(false);
 
   /* Avisos al volver del OAuth: la page los arma en el servidor; aquí solo se
      emiten una vez y se limpia la URL para que un refresh no los repita. */
@@ -286,16 +277,6 @@ export function PanelInventario({
 
   /* null = cerrado; "nuevo" = alta; objeto = edición. */
   const [productoDialog, setProductoDialog] = useState<ProductConProveedor | "nuevo" | null>(null);
-  /* La vista rápida guarda el id, no el producto: así el pop-up abierto refleja
-     lo que se ajusta desde él (stock, fotos) cuando la página revalida. */
-  const [productoVistaId, setProductoVistaId] = useState<string | null>(null);
-  const productoVista = productoVistaId
-    ? (productos.find((p) => p.id === productoVistaId) ?? null)
-    : null;
-  const [proveedorDialog, setProveedorDialog] = useState<Supplier | "nuevo" | null>(null);
-  const [pedidoDialog, setPedidoDialog] = useState<SupplierOrderConDetalle | "nuevo" | null>(null);
-  /* Renglones con los que abre un pedido nuevo (viene de «Qué pedir»). */
-  const [itemsIniciales, setItemsIniciales] = useState<ItemInicialPedido[] | undefined>(undefined);
 
   const {
     busqueda,
@@ -322,11 +303,10 @@ export function PanelInventario({
      distintas; juntarlos ahogaba el aviso con cientos de variantes agotadas. */
   const agotados = productos.filter((p) => estadoStock(p) === "agotado");
   const porAcabarse = productos.filter((p) => estadoStock(p) === "por_acabarse");
-  const pedidosEnCamino = pedidos.filter((p) => p.estado !== "recibido" && p.estado !== "cancelado");
   const valorInventario = productos.reduce((acc, p) => acc + p.stock * (p.costo ?? 0), 0);
 
   /* Reorden con la ventana y la plataforma por defecto de «Qué pedir» (30 días,
-     todas), para que la tarjeta KPI, la tabla y el pop-up de un producto cuenten
+     todas), para que la tarjeta KPI, la tabla y la ficha de un producto cuenten
      lo mismo al entrar. */
   const reorden = useMemo(
     () =>
@@ -340,33 +320,85 @@ export function PanelInventario({
     [productos, ventas, enCamino, paramsReorden],
   );
   const porPedir = reorden.filter((g) => g.urgencia === "pedir_ya");
-  /* El reorden agrupa por SKU: la ficha abierta puede compartir grupo con sus
-     publicaciones gemelas. Los inactivos y los de bajo pedido no tienen grupo. */
-  const grupoVista = productoVista
-    ? (reorden.find((g) => g.productoIds.includes(productoVista.id)) ?? null)
-    : null;
 
   function abrirNuevo() {
     if (pestana === "productos") setProductoDialog("nuevo");
-    else if (pestana === "proveedores") setProveedorDialog("nuevo");
-    else if (pestana === "pedidos") {
-      setItemsIniciales(undefined);
-      setPedidoDialog("nuevo");
-    }
   }
 
-  /* Desde el aviso de stock bajo: llevar a Pedidos y abrir uno nuevo. */
-  function generarPedido() {
-    setItemsIniciales(undefined);
-    setPestana("pedidos");
-    setPedidoDialog("nuevo");
+  /* Los pedidos a proveedor viven en su propio módulo, que es solo de dirección.
+     Desde aquí se navega: con el renglón sugerido en la URL cuando sale de «Qué
+     pedir», y sin nada cuando sale del aviso de stock bajo. Para quien no es
+     dirección estos botones no se pintan (ver `esDireccion`). */
+  function irAPedidoNuevo(grupo?: GrupoReorden) {
+    const query = grupo ? `?producto=${grupo.productoId}&cantidad=${grupo.sugerido}` : "";
+    router.push(`/proveedores${query}`);
   }
 
-  /* Desde «Qué pedir»: pedido nuevo con el renglón y la cantidad sugerida. */
-  function pedirSugerido(grupo: GrupoReorden) {
-    setItemsIniciales([{ producto_id: grupo.productoId, cantidad: grupo.sugerido }]);
-    setPedidoDialog("nuevo");
-  }
+  /* Cuántos de los filtros plegados están puestos, para el contador del botón.
+     «Vigentes» es el valor por defecto y no cuenta como filtro activo aquí.
+     En el teléfono se pliegan también tipo y stock —la barra con cinco controles
+     tapaba el catálogo—, así que ahí el contador tiene que contarlos: un filtro
+     escondido y sin avisar es un filtro que se queda puesto para siempre. */
+  const filtrosPlegadosActivos =
+    (filtroLogistica !== "todos" ? 1 : 0) + (filtroVigencia !== "vigentes" ? 1 : 0);
+  const filtrosPlegadosMovil =
+    filtrosPlegadosActivos + (filtroTipo !== "todos" ? 1 : 0) + (filtroStock !== "todos" ? 1 : 0);
+
+  /* Estos dos se pintan en DOS sitios según el ancho —la barra en escritorio, el
+     panel plegable en el teléfono—, así que se declaran una vez aquí en lugar de
+     copiar treinta líneas de JSX que luego se separan. Cada sitio monta su
+     propia instancia; las dos leen y escriben el mismo estado. */
+  const selectTipo = (
+    <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v ?? "todos")}>
+      <SelectTrigger className="w-full bg-card md:w-[190px]">
+        <SelectValue>
+          {(v: string) =>
+            v === "todos" ? "Todos los tipos" : (obtenerTipoProducto(v)?.nombre ?? "Tipo")}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="todos">Todos los tipos</SelectItem>
+        {TIPOS_PRODUCTO.map((t) => (
+          <SelectItem key={t.id} value={t.id}>
+            {t.nombre}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const selectStock = (
+    <Select value={filtroStock} onValueChange={(v) => setFiltroStock(v ?? "todos")}>
+      <SelectTrigger className="w-full bg-card md:w-[165px]">
+        <SelectValue>
+          {(v: string) =>
+            v === "todos" ? "Todo el stock" : (obtenerEstadoStock(v)?.nombre ?? "Stock")}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="todos">Todo el stock</SelectItem>
+        {ESTADOS_STOCK.map((e) => (
+          <SelectItem key={e.id} value={e.id}>
+            {e.nombre}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  /* Los canales, para la pastilla de estado de la cabecera. Se ordenan por
+     sincronización más reciente: la que se enseña es la de arriba. */
+  const canales = [
+    { nombre: "Tienda Nube", ...tiendanube },
+    { nombre: "Mercado Libre", ...mercadolibre },
+    { nombre: "TikTok Shop", ...tiktok },
+  ];
+  const canalesConectados = canales.filter((c) => c.conectada).length;
+  const canalesSincronizados = canales
+    .filter((c): c is { nombre: string; conectada: boolean; ultimaSync: string } =>
+      Boolean(c.conectada && c.ultimaSync),
+    )
+    .sort((a, b) => b.ultimaSync.localeCompare(a.ultimaSync));
 
   /* Desde el aviso o las tarjetas: ver la lista filtrada por semáforo. */
   function verProductosPorStock(estado: string) {
@@ -379,32 +411,38 @@ export function PanelInventario({
       {/* Encabezado: título a la izquierda, acciones a la derecha */}
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
-          <h1 className="text-[26px] font-bold tracking-tight">Inventario y proveedores</h1>
+          <h1 className="text-[26px] font-bold tracking-tight">Inventario</h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
             Cuánto hay de cada producto, quién lo surte y qué viene en camino.
           </p>
-          {(tiendanube.conectada || mercadolibre.conectada || tiktok.conectada) && (
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              {tiendanube.conectada && tiendanube.ultimaSync && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                  <span className="size-1.5 rounded-full bg-green-500" />
-                  Tienda Nube sincronizada · {fechaCorta(tiendanube.ultimaSync)}
-                </span>
-              )}
-              {mercadolibre.conectada && mercadolibre.ultimaSync && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                  <span className="size-1.5 rounded-full bg-green-500" />
-                  Mercado Libre sincronizado · {fechaCorta(mercadolibre.ultimaSync)}
-                </span>
-              )}
-              {tiktok.conectada && tiktok.ultimaSync && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground">
-                  <span className="size-1.5 rounded-full bg-green-500" />
-                  TikTok Shop sincronizado · {fechaCorta(tiktok.ultimaSync)}
-                </span>
-              )}
-            </div>
-          )}
+          {/* Estado de los canales en UNA pastilla, no en tres: lo que se
+              consulta es «¿está al día?», y el detalle por canal cabe en el
+              tooltip. Junto a ella, el candado de solo lectura —una condición
+              permanente que antes ocupaba una tarjeta entera abajo—. */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            {canalesSincronizados.length > 0 && (
+              <span
+                title={canalesSincronizados.map((c) => `${c.nombre} · ${fechaCorta(c.ultimaSync)}`).join("\n")}
+                className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                <span className="size-1.5 rounded-full bg-green-500" />
+                {canalesSincronizados.length === 1
+                  ? `${canalesSincronizados[0].nombre} sincronizado`
+                  : `${canalesSincronizados.length} canales sincronizados`}
+                {" · "}
+                {fechaCorta(canalesSincronizados[0].ultimaSync)}
+              </span>
+            )}
+            {!escrituraCanales && canalesConectados > 0 && (
+              <span
+                title="El CRM importa el inventario de Tienda Nube, Mercado Libre y TikTok Shop, pero no modifica nada allá. Los ajustes de stock, precio y costo que hagas aquí se quedan en el CRM."
+                className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+              >
+                <Lock className="size-3" strokeWidth={2} />
+                Solo lectura
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
           {/* Conectar/sincronizar canales: solo dirección, para que nadie más lo
@@ -412,6 +450,18 @@ export function PanelInventario({
           {esDireccion && (
             <BarraCanales tiendanube={tiendanube} mercadolibre={mercadolibre} tiktok={tiktok} />
           )}
+          {/* Bodega vive aparte: se usa en el piso, desde el celular, y no
+              necesita el catálogo completo ni las ventas que carga esta página. */}
+          <Link
+            href="/inventario/bodega"
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              "h-auto w-full gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:w-auto",
+            )}
+          >
+            <Warehouse className="size-4" strokeWidth={2} />
+            Bodega
+          </Link>
           {ETIQUETA_NUEVO[pestana] && (
             <Button
               onClick={abrirNuevo}
@@ -424,15 +474,23 @@ export function PanelInventario({
         </div>
       </div>
 
-      {/* Tarjetas KPI */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3 lg:grid-cols-6">
-        <StatCard etiqueta="SKUs" valor={String(productos.length)} icono={Boxes} />
+      {/* Tarjetas KPI. En el teléfono se ven las TRES accionables en un renglón;
+          «SKUs» y «Valor inventario» son datos de contexto que ahí solo estiraban
+          la pantalla antes del catálogo. */}
+      <div className="mb-4 grid grid-cols-3 gap-2.5 md:grid-cols-3 md:gap-3.5 lg:grid-cols-6">
+        <StatCard
+          etiqueta="SKUs"
+          valor={String(productos.length)}
+          icono={Boxes}
+          className="hidden md:block"
+        />
         <button type="button" onClick={() => setPestana("reabastecer")} className="text-left">
           <StatCard
             etiqueta="Por pedir"
             valor={String(porPedir.length)}
             icono={ShoppingCart}
             nota="con la venta de 30 días"
+            notaClassName="hidden md:block"
             valorClassName={porPedir.length > 0 ? "text-red-600" : undefined}
             className="h-full transition-colors hover:bg-accent/40"
           />
@@ -449,7 +507,6 @@ export function PanelInventario({
           icono={PackageX}
           valorClassName={agotados.length > 0 ? "text-red-600" : undefined}
         />
-        <StatCard etiqueta="En camino" valor={String(pedidosEnCamino.length)} icono={Truck} />
         <StatCard
           etiqueta="Valor inventario"
           valor={valorCompacto(valorInventario)}
@@ -486,7 +543,7 @@ export function PanelInventario({
 
         {(pestana === "productos" || pestana === "reabastecer") && (
           <>
-            <div className="relative flex min-w-[260px] items-center">
+            <div className="relative flex w-full items-center md:w-auto md:min-w-[260px]">
               <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" strokeWidth={1.9} />
               <Input
                 placeholder="Buscar producto, SKU o proveedor…"
@@ -495,79 +552,52 @@ export function PanelInventario({
                 className="h-auto rounded-[10px] bg-card py-2 pl-9"
               />
             </div>
-            <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v ?? "todos")}>
-              <SelectTrigger className="w-[190px] bg-card">
-                <SelectValue>
-                  {(v: string) =>
-                    v === "todos" ? "Todos los tipos" : (obtenerTipoProducto(v)?.nombre ?? "Tipo")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos los tipos</SelectItem>
-                {TIPOS_PRODUCTO.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Tipo y stock viven en la barra en escritorio y plegados en el
+                teléfono (ver el bloque de «Más filtros»): son los MISMOS
+                controles, montados donde caben. */}
+            <div className="hidden md:contents">{selectTipo}</div>
           </>
         )}
 
         {pestana === "productos" && (
           <>
-            <Select value={filtroStock} onValueChange={(v) => setFiltroStock(v ?? "todos")}>
-              <SelectTrigger className="w-[165px] bg-card">
-                <SelectValue>
-                  {(v: string) =>
-                    v === "todos" ? "Todo el stock" : (obtenerEstadoStock(v)?.nombre ?? "Stock")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todo el stock</SelectItem>
-                {ESTADOS_STOCK.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {(mercadolibre.conectada || tiktok.conectada) && (
-              <Select value={filtroLogistica} onValueChange={(v) => setFiltroLogistica(v ?? "todos")}>
-                <SelectTrigger className="w-[185px] bg-card">
-                  <SelectValue>
-                    {(v: string) => LOGISTICAS.find(([id]) => id === v)?.[1] ?? "Almacén"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {LOGISTICAS.map(([id, label]) => (
-                    <SelectItem key={id} value={id}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={filtroVigencia} onValueChange={(v) => setFiltroVigencia(v ?? "vigentes")}>
-              <SelectTrigger className="w-[155px] bg-card">
-                <SelectValue>
-                  {(v: string) => VIGENCIAS.find(([id]) => id === v)?.[1] ?? "Vigencia"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {VIGENCIAS.map(([id, label]) => (
-                  <SelectItem key={id} value={id}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="hidden md:contents">{selectStock}</div>
+
+            {/* En escritorio se pliegan solo almacén y vigencia, que se usan
+                poco; en el teléfono también tipo y stock, porque cinco
+                controles en fila dejaban el catálogo fuera de la pantalla. El
+                contador avisa de los que quedaron puestos: un filtro escondido
+                y olvidado es lo que hace que «falte» un producto. */}
+            <Button
+              variant="outline"
+              onClick={() => setMasFiltros((v) => !v)}
+              className={cn(
+                "h-auto flex-1 gap-1.5 rounded-[10px] px-3 py-2 text-[13px] font-semibold md:flex-none",
+                filtrosPlegadosMovil > 0 && "border-primary/40 text-primary",
+              )}
+            >
+              <SlidersHorizontal className="size-4" strokeWidth={2} />
+              Filtros
+              {filtrosPlegadosMovil > 0 && (
+                <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:hidden">
+                  {filtrosPlegadosMovil}
+                </span>
+              )}
+              {filtrosPlegadosActivos > 0 && (
+                <span className="hidden rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:inline">
+                  {filtrosPlegadosActivos}
+                </span>
+              )}
+            </Button>
+
             {/* Desglosado = una fila por variante de canal (como siempre).
                 Agrupado = una fila por producto, con sus tallas plegadas. */}
             <ControlSegmentado
               opciones={VISTAS_CATALOGO}
               valor={vistaCatalogo}
               onCambio={setVistaCatalogo}
+              className="flex-1 md:flex-none"
+              botonClassName="flex-1 md:flex-none"
             />
           </>
         )}
@@ -590,17 +620,59 @@ export function PanelInventario({
         )}
       </div>
 
+      {pestana === "productos" && masFiltros && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2.5">
+          {/* Los dos que en escritorio están arriba, en la barra. */}
+          <div className="contents md:hidden">
+            {selectTipo}
+            {selectStock}
+          </div>
+          {(mercadolibre.conectada || tiktok.conectada) && (
+            <Select value={filtroLogistica} onValueChange={(v) => setFiltroLogistica(v ?? "todos")}>
+              <SelectTrigger className="w-[185px] bg-background">
+                <SelectValue>
+                  {(v: string) => LOGISTICAS.find(([id]) => id === v)?.[1] ?? "Almacén"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {LOGISTICAS.map(([id, label]) => (
+                  <SelectItem key={id} value={id}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={filtroVigencia} onValueChange={(v) => setFiltroVigencia(v ?? "vigentes")}>
+            <SelectTrigger className="w-[155px] bg-background">
+              <SelectValue>
+                {(v: string) => VIGENCIAS.find(([id]) => id === v)?.[1] ?? "Vigencia"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {VIGENCIAS.map(([id, label]) => (
+                <SelectItem key={id} value={id}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="text-[12.5px]">
+            Limpiar filtros
+          </Button>
+        </div>
+      )}
+
       <AvisosInventario
         porPedir={porPedir}
         porAcabarse={porAcabarse}
         agotados={agotados}
-        escrituraCanales={escrituraCanales}
         gestor={gestor}
         pestana={pestana}
-        algunCanalConectado={tiendanube.conectada || mercadolibre.conectada || tiktok.conectada}
         onVerQuePedir={() => setPestana("reabastecer")}
         onVerPorStock={verProductosPorStock}
-        onGenerarPedido={generarPedido}
+        onGenerarPedido={esDireccion ? () => irAPedidoNuevo() : undefined}
       />
 
       {pestana === "productos" &&
@@ -614,7 +686,7 @@ export function PanelInventario({
             filtrosActivos={filtrosActivos}
             onLimpiarFiltros={limpiarFiltros}
             escrituraCanales={escrituraCanales}
-            onAbrir={(p) => setProductoVistaId(p.id)}
+            onAbrir={(p) => router.push(`/inventario/producto/${p.id}`)}
           />
         ) : (
           <TablaProductos
@@ -626,7 +698,7 @@ export function PanelInventario({
             filtrosActivos={filtrosActivos}
             onLimpiarFiltros={limpiarFiltros}
             escrituraCanales={escrituraCanales}
-            onAbrir={(p) => setProductoVistaId(p.id)}
+            onAbrir={(p) => router.push(`/inventario/producto/${p.id}`)}
           />
         ))}
       {pestana === "reabastecer" && (
@@ -637,19 +709,8 @@ export function PanelInventario({
           params={paramsReorden}
           busqueda={busqueda}
           filtroTipo={filtroTipo}
-          onPedir={pedirSugerido}
+          onPedir={esDireccion ? irAPedidoNuevo : undefined}
         />
-      )}
-      {pestana === "proveedores" && (
-        <TablaProveedores
-          proveedores={proveedores}
-          productos={productos}
-          diasEntregaDefault={paramsReorden.diasEntregaDefault}
-          onEditar={setProveedorDialog}
-        />
-      )}
-      {pestana === "pedidos" && (
-        <TablaPedidosProv pedidos={pedidos} onEditar={setPedidoDialog} />
       )}
       {pestana === "movimientos" && <TablaMovimientos movimientos={movimientosFiltrados} />}
 
@@ -663,26 +724,9 @@ export function PanelInventario({
         />
       )}
 
-      {productoVista && (
-        <ProductoVista
-          producto={productoVista}
-          hermanas={variantesHermanas(productoVista, productos)}
-          grupo={grupoVista}
-          ventanaDias={VENTANA_REORDEN}
-          escrituraCanales={escrituraCanales}
-          onVerHermana={(id) => setProductoVistaId(id)}
-          onEditar={() => {
-            setProductoVistaId(null);
-            setProductoDialog(productoVista);
-          }}
-          onGenerarPedido={() => {
-            setProductoVistaId(null);
-            setItemsIniciales([{ producto_id: productoVista.id, cantidad: 1 }]);
-            setPedidoDialog("nuevo");
-          }}
-          onClose={() => setProductoVistaId(null)}
-        />
-      )}
+      {/* La ficha del producto ya no vive aquí: abrir un renglón NAVEGA a
+          /inventario/producto/[id], que es una pantalla completa y no un pop-up
+          apretado dentro del catálogo. */}
       {productoDialog && (
         <ProductoDialog
           producto={productoDialog === "nuevo" ? null : productoDialog}
@@ -690,28 +734,6 @@ export function PanelInventario({
           gestor={gestor}
           escrituraCanales={escrituraCanales}
           onClose={() => setProductoDialog(null)}
-        />
-      )}
-      {proveedorDialog && (
-        <ProveedorDialog
-          proveedor={proveedorDialog === "nuevo" ? null : proveedorDialog}
-          diasEntregaDefault={paramsReorden.diasEntregaDefault}
-          gestor={gestor}
-          onClose={() => setProveedorDialog(null)}
-        />
-      )}
-      {pedidoDialog && (
-        <PedidoProvDialog
-          pedido={pedidoDialog === "nuevo" ? null : pedidoDialog}
-          proveedores={proveedores}
-          productos={productos}
-          gestor={gestor}
-          diasEntregaDefault={paramsReorden.diasEntregaDefault}
-          itemsIniciales={pedidoDialog === "nuevo" ? itemsIniciales : undefined}
-          onClose={() => {
-            setPedidoDialog(null);
-            setItemsIniciales(undefined);
-          }}
         />
       )}
     </div>

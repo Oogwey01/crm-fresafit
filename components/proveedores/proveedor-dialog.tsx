@@ -17,7 +17,7 @@ import {
   guardarProveedor,
   borrarProveedor,
   type ProveedorInput,
-} from "@/app/(app)/inventario/actions";
+} from "@/app/(app)/proveedores/actions";
 import type { Supplier } from "@/lib/types";
 
 /* Alta y edición de un proveedor. */

@@ -39,15 +39,15 @@ import {
   resolverIncidenciaPedido,
   borrarIncidenciaPedido,
   type PedidoProvInput,
-} from "@/app/(app)/inventario/actions";
+} from "@/app/(app)/proveedores/actions";
 import type {
   EstadoPedidoProvId,
   PedidoProvDetalle,
-  ProductConProveedor,
   Supplier,
   SupplierOrderConDetalle,
 } from "@/lib/types";
 import { DatePicker } from "@/components/compartido/date-picker";
+import type { ProductoProveedor } from "@/components/proveedores/tipos";
 
 const PRODUCTO_LIBRE = "libre";
 
@@ -63,8 +63,15 @@ function renglonVacio(): Renglon {
   return { producto_id: null, descripcion: "", cantidad: "1", costo_unitario: "" };
 }
 
-/* Renglones con los que arranca un pedido nuevo (los manda «Qué pedir»). */
-export type ItemInicialPedido = { producto_id: string; cantidad: number };
+/* Renglones con los que arranca un pedido nuevo. Los manda «Qué pedir» (solo
+   producto y cantidad) o el pegado desde Excel, que además trae el costo de la
+   hoja y puede no reconocer el SKU (producto_id null → descripción libre). */
+export type ItemInicialPedido = {
+  producto_id: string | null;
+  descripcion?: string;
+  cantidad: number;
+  costo_unitario?: number | null;
+};
 
 /* Alta y edición de un pedido a proveedor, con sus renglones. */
 export function PedidoProvDialog({
@@ -74,16 +81,20 @@ export function PedidoProvDialog({
   gestor,
   diasEntregaDefault,
   itemsIniciales,
+  notasIniciales,
   onClose,
 }: {
   pedido: SupplierOrderConDetalle | null; // null = alta
   proveedores: Supplier[];
-  productos: ProductConProveedor[];
+  productos: ProductoProveedor[];
   gestor: boolean;
   /* Días de entrega global (para autocalcular la ETA si el proveedor no tiene el suyo). */
   diasEntregaDefault: number;
   /* Solo en el alta: precarga renglones (sugerencia de reabastecimiento). */
   itemsIniciales?: ItemInicialPedido[];
+  /* Notas con las que abre un pedido nuevo (p. ej. el folio y la moneda de la
+     factura que se leyó). */
+  notasIniciales?: string;
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -102,7 +113,7 @@ export function PedidoProvDialog({
     : "";
   const fechaEstimada = etaOverride ?? etaAuto;
   const [estado, setEstado] = useState<EstadoPedidoProvId>(pedido?.estado ?? "pedido");
-  const [notas, setNotas] = useState(pedido?.notas ?? "");
+  const [notas, setNotas] = useState(pedido?.notas ?? notasIniciales ?? "");
   const [renglones, setRenglones] = useState<Renglon[]>(() => {
     if (pedido && pedido.items.length > 0) {
       return pedido.items.map((i) => ({
@@ -115,9 +126,13 @@ export function PedidoProvDialog({
     if (itemsIniciales?.length) {
       return itemsIniciales.map((i) => ({
         producto_id: i.producto_id,
-        descripcion: "",
+        descripcion: i.descripcion ?? "",
         cantidad: String(i.cantidad),
-        costo_unitario: productos.find((p) => p.id === i.producto_id)?.costo?.toString() ?? "",
+        /* El costo de la hoja manda; si no viene, el del catálogo. */
+        costo_unitario:
+          i.costo_unitario != null
+            ? String(i.costo_unitario)
+            : (productos.find((p) => p.id === i.producto_id)?.costo?.toString() ?? ""),
       }));
     }
     return [renglonVacio()];

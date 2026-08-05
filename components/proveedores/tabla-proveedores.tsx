@@ -1,7 +1,8 @@
 "use client";
 
-import type { ProductConProveedor, Supplier } from "@/lib/types";
+import type { Supplier } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import type { ProductoProveedor } from "@/components/proveedores/tipos";
 
 const COLS = "grid-cols-[minmax(160px,1fr)_100px_130px_180px_90px_100px_minmax(110px,1fr)]";
 
@@ -12,7 +13,7 @@ export function TablaProveedores({
   onEditar,
 }: {
   proveedores: Supplier[];
-  productos: ProductConProveedor[];
+  productos: ProductoProveedor[];
   /* El que se usa cuando el proveedor no tiene el suyo capturado. */
   diasEntregaDefault: number;
   onEditar: (p: Supplier) => void;

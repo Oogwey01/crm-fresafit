@@ -23,7 +23,7 @@ import { formatearMXN } from "@/lib/moneda";
 import {
   cambiarEstadoPedidoProv,
   recibirPedidoProv,
-} from "@/app/(app)/inventario/actions";
+} from "@/app/(app)/proveedores/actions";
 import type { EstadoPedidoProvId, SupplierOrderConDetalle } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { cn } from "@/lib/utils";
