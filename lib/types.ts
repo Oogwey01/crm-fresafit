@@ -13,6 +13,18 @@ import type {
   ESTADOS_PEDIDO,
   CANALES,
   CATEGORIAS_GASTO,
+  TIERS_INFLUENCER,
+  ETAPAS_INFLUENCER,
+  ESTADOS_RECEPCION,
+  ESTADOS_PERSONALIZADO,
+  TIPOS_PERSONALIZADO,
+  MODELOS_PERSONALIZADO,
+  DESTINOS_FULL,
+  ESTADOS_ENVIO_FULL,
+  ROLES_COMPONENTE,
+  CATEGORIAS_INSUMO,
+  ESTADOS_COMPROBANTE,
+  EspacioId,
 } from "@/lib/catalogos";
 import type { DireccionEnvio } from "@/lib/canales/direccion";
 import type {
@@ -26,7 +38,7 @@ import type {
   TipoIngresoId,
 } from "@/lib/agencia";
 
-export type { DireccionEnvio };
+export type { DireccionEnvio, EspacioId };
 /* Los ids de los catálogos de la Agencia se re-exportan aquí para que el resto
    del código pida todos los tipos del dominio a un solo sitio, como ya pasa con
    los de tareas o inventario. */
@@ -52,6 +64,10 @@ export type EstadoPedidoProvId = (typeof ESTADOS_PEDIDO_PROVEEDOR)[number]["id"]
 export type CanalId = (typeof CANALES)[number]["id"];
 export type CategoriaGastoId = (typeof CATEGORIAS_GASTO)[number]["id"];
 export type EstadoPedidoId = (typeof ESTADOS_PEDIDO)[number]["id"];
+export type TierInfluencerId = (typeof TIERS_INFLUENCER)[number]["id"];
+export type EtapaInfluencerId = (typeof ETAPAS_INFLUENCER)[number]["id"];
+export type CategoriaInsumoId = (typeof CATEGORIAS_INSUMO)[number]["id"];
+export type EstadoComprobanteId = (typeof ESTADOS_COMPROBANTE)[number]["id"];
 
 /* Perfil de usuario (tabla `profiles`, 1:1 con auth.users). */
 export type Profile = {
@@ -67,6 +83,12 @@ export type Task = {
   titulo: string;
   descripcion: string | null;
   responsable_id: string | null;
+  /* De qué negocio es la tarea. Cada tablero carga solo el suyo: /tareas las de
+     Fresafit y /agencia/tareas las de la agencia. */
+  espacio: EspacioId;
+  /* Cliente de la agencia dueño de la tarea. Null en Fresafit siempre, y en la
+     agencia cuando es trabajo interno (juntas, prospección). */
+  empresa_id: string | null;
   area: AreaId;
   prioridad: PrioridadId;
   estado: EstadoId;
@@ -101,6 +123,9 @@ export type TaskConResponsable = Task & {
   responsable: Pick<Profile, "id" | "nombre" | "color"> | null;
   coasignados: Pick<Profile, "id" | "nombre" | "color">[];
   leido_at?: string | null;
+  /* Cliente de la agencia ya resuelto (nombre + color), para pintarlo en la
+     tarjeta sin otra consulta. Null en las tareas de Fresafit. */
+  empresa?: Pick<AgenciaEmpresa, "id" | "nombre" | "color"> | null;
 };
 
 /* Todas las personas que trabajan una tarea: la principal primero y luego los
@@ -544,6 +569,37 @@ export type VentaMetricas = Pick<
   producto: Pick<Product, "id" | "nombre" | "variante" | "tipo"> | null;
 };
 
+/* Lo que devuelve la función `metricas_resumen` de la base: las mismas cifras
+   que el panel calculaba en el navegador, pero ya sumadas. Antes de esto había
+   que bajar 25.000 renglones para obtenerlas, con un tope que dejaba fuera las
+   ventas más viejas del año sin remedio. */
+export type ResumenMetricas = {
+  kpis: { total: number; piezas: number; ventas: number; ticket: number };
+  /* Bruto por canal: órdenes cuando el canal las tiene, renglones como respaldo
+     (ver la cabecera de la migración 20260826000000). */
+  bruto_por_canal: { canal: string; bruto: number }[];
+  /* Un renglón por ficha vendida. Trae `variante` y `tipo` en crudo para que el
+     desglose por categoría y talla siga resolviéndose al instante en pantalla. */
+  por_producto: {
+    clave: string;
+    producto_id: string | null;
+    descripcion: string | null;
+    nombre: string | null;
+    variante: string | null;
+    tipo: TipoProductoId | null;
+    monto: number;
+    piezas: number;
+  }[];
+  por_dia: { fecha: string; total: number; ventas: number }[];
+  pagos: {
+    pagos: { metodo: string; cantidad: number; monto: number }[];
+    cupones: { codigo: string; usos: number; descuento: number }[];
+    aMeses: number;
+    conDatoDePago: number;
+  };
+  ordenes_periodo: number;
+};
+
 /* --- Módulo Clientes (Fase 4) --- */
 
 /* Cliente (tabla `customers`). Los de Tienda Nube se crean y actualizan solos
@@ -588,6 +644,11 @@ export type Expense = {
   categoria: CategoriaGastoId;
   proveedor: string | null;
   notas: string | null;
+  /* De la hoja «Facturas FRESA FIT»: con qué se pagó y qué papel falta. */
+  metodo_pago: string | null;
+  factura: EstadoComprobanteId;
+  recibo: EstadoComprobanteId;
+  clave: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -764,4 +825,263 @@ export type NominaPago = {
 
 export type NominaPagoConEmpleado = NominaPago & {
   empleado: Pick<NominaEmpleado, "id" | "nombre" | "puesto"> | null;
+};
+
+/* ============================================================================
+   Programa de influencers (tablas `influencers`, `influencer_entregas`,
+   `influencer_evaluaciones`). Solo lo ven los gestores.
+   ============================================================================ */
+
+export type Influencer = {
+  id: string;
+  nombre: string;
+  correo: string | null;
+  celular: string | null;
+  ig_usuario: string | null;
+  ig_seguidores: number | null;
+  tiktok_usuario: string | null;
+  tiktok_seguidores: number | null;
+  tipo_contenido: string | null;
+  etapa: EtapaInfluencerId;
+  tier: TierInfluencerId | null;
+  /* Su cupón (MARIOFF10). Se crea en Tienda Nube / Mercado Libre; aquí solo se
+     registra para poder atribuirle ventas. */
+  codigo: string | null;
+  /* En null rigen los valores del tier (TIERS_INFLUENCER). */
+  descuento_pct: number | null;
+  comision_pct: number | null;
+  credito_mensual: number | null;
+  inicio_prueba: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* Material que se le mandó (cuadra contra su crédito mensual). */
+export type InfluencerEntrega = {
+  id: string;
+  influencer_id: string;
+  fecha: string;
+  producto_id: string | null;
+  descripcion: string | null;
+  talla: string | null;
+  cantidad: number;
+  valor: number | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* Cómo le fue en un mes. `periodo` siempre es el día 1 del mes. */
+export type InfluencerEvaluacion = {
+  id: string;
+  influencer_id: string;
+  periodo: string;
+  usos_codigo: number | null;
+  ventas_monto: number | null;
+  videos: number | null;
+  stories: number | null;
+  participaciones: number | null;
+  contenido_organico: boolean;
+  observaciones: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* ============================================================================
+   Bodega (digitalización del Sheet «FRESA FIT - Bodega»).
+   Recepción de mercancía, conjuntos, personalizados, envíos full e insumos.
+   ============================================================================ */
+
+export type EstadoRecepcionId = (typeof ESTADOS_RECEPCION)[number]["id"];
+export type EstadoPersonalizadoId = (typeof ESTADOS_PERSONALIZADO)[number]["id"];
+export type TipoPersonalizadoId = (typeof TIPOS_PERSONALIZADO)[number]["id"];
+export type ModeloPersonalizadoId = (typeof MODELOS_PERSONALIZADO)[number]["id"];
+export type DestinoFullId = (typeof DESTINOS_FULL)[number]["id"];
+export type EstadoEnvioFullId = (typeof ESTADOS_ENVIO_FULL)[number]["id"];
+export type RolComponenteId = (typeof ROLES_COMPONENTE)[number]["id"];
+
+/* Una carga de mercancía que llegó a bodega. */
+export type RecepcionBodega = {
+  id: string;
+  titulo: string;
+  canal: "tienda_nube" | "mercado_libre";
+  estado: "abierta" | "cerrada";
+  /* Pedido a proveedor que llegó en esta carga, si se ligó. Sirve para avisar
+     del riesgo de contar dos veces el mismo stock. */
+  pedido_proveedor_id: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  cerrada_en: string | null;
+};
+
+/* Un renglón de la carga. La cantidad consolidada NO se guarda: se deriva
+   sumando por `sku_consolidado` al pintar. */
+export type RecepcionItem = {
+  id: string;
+  recepcion_id: string;
+  sku: string;
+  producto_id: string | null;
+  unidades_no_procesadas: number;
+  sku_consolidado: string | null;
+  categoria: string | null;
+  producto_nombre: string | null;
+  talla: string | null;
+  estado: EstadoRecepcionId;
+  descontado_en: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type RecepcionConItems = RecepcionBodega & { items: RecepcionItem[] };
+
+/* Bundle: un SKU que se arma con otros (cinturón + muñequeras + straps). */
+export type Conjunto = {
+  id: string;
+  sku: string;
+  titulo: string;
+  categoria: string | null;
+  talla: string | null;
+  activo: boolean;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type ConjuntoComponente = {
+  id: string;
+  conjunto_id: string;
+  producto_id: string | null;
+  sku_componente: string;
+  rol: RolComponenteId | null;
+  cantidad: number;
+};
+
+export type ConjuntoConComponentes = Conjunto & { componentes: ConjuntoComponente[] };
+
+/* Cinturón personalizado en proceso. Todo es captura manual, incluida la foto
+   del diseño que el cliente aprobó. */
+export type Personalizado = {
+  id: string;
+  cliente: string;
+  tipo: TipoPersonalizadoId | null;
+  modelo: ModeloPersonalizadoId | null;
+  talla: string | null;
+  no_venta: string | null;
+  canal: "tienda_nube" | "mercado_libre" | "tiktok_shop" | "otro" | null;
+  fecha_compra: string | null;
+  /* Cuándo se mandó a producción (= diseño aprobado por el cliente). */
+  fecha_produccion: string | null;
+  /* Para cuándo se prometió: la columna roja de la hoja. */
+  fecha_limite: string | null;
+  url: string | null;
+  foto_path: string | null;
+  estado: EstadoPersonalizadoId;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* Envío "full" a Amazon o Mercado Libre, con sus cajas. */
+export type EnvioFull = {
+  id: string;
+  destino: DestinoFullId;
+  nombre: string;
+  estado: EstadoEnvioFullId;
+  fecha_envio: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type EnvioFullCaja = {
+  id: string;
+  envio_id: string;
+  numero: number;
+  dimensiones: string | null;
+  peso_kg: number | null;
+};
+
+export type EnvioFullItem = {
+  id: string;
+  caja_id: string;
+  producto_id: string | null;
+  sku: string;
+  /* Identificador de Amazon. Solo texto: el CRM no habla con Amazon. */
+  asin: string | null;
+  cantidad: number;
+  empaquetado: boolean;
+  cancelado: boolean;
+  descontado: boolean;
+};
+
+export type EnvioFullConCajas = EnvioFull & {
+  cajas: (EnvioFullCaja & { items: EnvioFullItem[] })[];
+};
+
+/* Insumo de bodega (cajas, bolsas, etiquetas…). El stock solo se mueve por la
+   función mover_insumo(), que valida el permiso. */
+export type Insumo = {
+  id: string;
+  nombre: string;
+  unidad: string;
+  stock: number;
+  minimo: number;
+  notas: string | null;
+  activo: boolean;
+  /* De la hoja «Recursos FRESA FIT»: en qué bloque va, a quién se le compra y
+     cuánto hay apartado o en camino. */
+  categoria: CategoriaInsumoId | null;
+  empresa: string | null;
+  dimensiones: string | null;
+  reserva: number;
+  pedido: number;
+  maximo: number | null;
+  link: string | null;
+  clave: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* Cómo se compra un insumo: la misma etiqueta viene en paquetes de 300, 1000,
+   1800 o 3600 y cada medida tiene su precio. El precio por unidad se calcula
+   (precio / unidades); guardarlo era invitar a que las dos cifras se separaran. */
+export type InsumoPresentacion = {
+  id: string;
+  insumo_id: string;
+  descripcion: string | null;
+  unidades: number;
+  precio: number | null;
+  reserva: number;
+  pedido: number;
+  link: string | null;
+  clave: string | null;
+  created_at: string;
+};
+
+export type InsumoConPresentaciones = Insumo & { presentaciones: InsumoPresentacion[] };
+
+export type InsumoMovimiento = {
+  id: string;
+  insumo_id: string;
+  tipo: "entrada" | "salida" | "ajuste";
+  cantidad: number;
+  stock_resultante: number | null;
+  motivo: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* Quién puede descontar insumos además de dirección y administración. */
+export type InsumoPermiso = {
+  profile_id: string;
+  puede_descontar: boolean;
+  otorgado_por: string | null;
+  created_at: string;
 };

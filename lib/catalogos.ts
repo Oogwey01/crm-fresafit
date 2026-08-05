@@ -29,6 +29,7 @@ export const PRIORIDADES = [
 /* --- Áreas del negocio (para agrupar y filtrar tareas). --- */
 export const AREAS = [
   { id: "direccion", nombre: "Dirección", color: "#e84393" },
+  { id: "administracion", nombre: "Administración", color: "#00cec9" },
   { id: "operaciones", nombre: "Operaciones", color: "#0984e3" },
   { id: "diseno", nombre: "Diseño", color: "#6c5ce7" },
   { id: "contenido", nombre: "Contenido", color: "#00b894" },
@@ -38,7 +39,12 @@ export const AREAS = [
 
 /* --- Roles de usuario (definen qué ve y hace cada quien; se refuerza con RLS). --- */
 export const ROLES = [
-  { id: "direccion", nombre: "Dirección", desc: "Ve y edita todo." },
+  { id: "direccion", nombre: "Dirección", desc: "Ve y edita todo, incluidos los roles del equipo." },
+  /* Lleva el dinero y los papeles: gastos, nómina, reportes y los cobros de la
+     agencia, más el tablero completo de tareas. Lo único que NO puede es lo que
+     define quién es quién —cambiarle el rol a alguien— ni corregir a mano las
+     ventas que bajan por API, que son la fuente contra la que se cuadra todo. */
+  { id: "administracion", nombre: "Administración", desc: "Gastos, nómina, reportes y cobros de la agencia; ve y asigna todas las tareas. No cambia roles del equipo." },
   { id: "coordinador", nombre: "Coordinador", desc: "Ve todas las tareas del equipo; crea, asigna y edita." },
   { id: "miembro", nombre: "Miembro", desc: "Ve solo sus tareas (asignadas o creadas); mueve el estado de las suyas, comenta y adjunta." },
   { id: "externo", nombre: "Externo", desc: "Solo ve lo que se le comparte." },
@@ -88,6 +94,10 @@ export const ETIQUETAS = [
   { id: "proveedor", nombre: "Proveedor", area: "logistica", color: "#d35400" },
   { id: "aduana", nombre: "Aduana", area: "logistica", color: "#c0682f" },
   { id: "inventario", nombre: "Inventario", area: "logistica", color: "#e8874f" },
+  /* Las tareas del Sheet de bodega («Devolución de ML», «Revisar poco stock»…)
+     entran al tablero de siempre con esta etiqueta, en vez de mantener un
+     segundo sistema de pendientes dentro de Bodega. */
+  { id: "bodega", nombre: "Bodega", area: "logistica", color: "#d9822b" },
 
   /* Operaciones */
   { id: "pedido", nombre: "Pedido", area: "operaciones", color: "#0984e3" },
@@ -98,6 +108,12 @@ export const ETIQUETAS = [
   { id: "finanzas", nombre: "Finanzas", area: "direccion", color: "#00b894" },
   { id: "contratacion", nombre: "Contratación", area: "direccion", color: "#e84393" },
   { id: "estrategia", nombre: "Estrategia", area: "direccion", color: "#6c5ce7" },
+
+  /* Administración */
+  { id: "facturacion", nombre: "Facturación", area: "administracion", color: "#00cec9" },
+  { id: "cobranza", nombre: "Cobranza", area: "administracion", color: "#0abde3" },
+  { id: "pago", nombre: "Pago pendiente", area: "administracion", color: "#22a6b3" },
+  { id: "tramite", nombre: "Trámite", area: "administracion", color: "#7ed6df" },
 ] as const;
 
 /* Etiquetas ordenadas para un área: primero las suyas, luego las transversales
@@ -184,6 +200,168 @@ export const PANELES_CANAL = [
   { id: "tiktok", nombre: "TikTok Shop", href: "/canales/tiktok", canal: "tiktok_shop", activo: true },
 ] as const;
 
+/* --- Bodega ---------------------------------------------------------------
+   Estados por los que pasa cada renglón de una carga de mercancía. En el Sheet
+   eran los números de la leyenda «VALORES EN CHEQUEO: TRAER, CARGADO=1,
+   CHECADO=2, DESCONTADO=3»; aquí son botones con nombre. --- */
+export const ESTADOS_RECEPCION = [
+  { id: "traer", nombre: "Traer", color: "#94a3b8" },
+  { id: "cargado", nombre: "Cargado", color: "#f59e0b" },
+  { id: "checado", nombre: "Checado", color: "#0984e3" },
+  { id: "descontado", nombre: "Descontado", color: "#22c55e" },
+] as const;
+
+/* Cómo va un cinturón personalizado: el recorrido tal cual lo pinta la hoja
+   «Personalizados FRESA FIT» con sus colores. `produccion` arranca cuando el
+   cliente aprobó el diseño y se mandó al proveedor: es la fecha que hoy nadie
+   encuentra. `eduardo` es el paso de bordado, que lleva él. */
+export const ESTADOS_PERSONALIZADO = [
+  { id: "recibido", nombre: "Recibido", color: "#94a3b8" },
+  { id: "diseno", nombre: "En diseño", color: "#f6c445" },
+  { id: "eduardo", nombre: "Con Eduardo", color: "#e8730c" },
+  { id: "produccion", nombre: "En producción", color: "#6c5ce7" },
+  { id: "listo", nombre: "Listo", color: "#16a34a" },
+  { id: "enviado", nombre: "Enviado", color: "#22c55e" },
+] as const;
+
+/* Los estados en los que el pedido sigue en manos del equipo (los que se
+   cuentan como "en proceso" y los que vigilan la fecha límite). */
+export const ESTADOS_PERSONALIZADO_ABIERTOS = [
+  "recibido",
+  "diseno",
+  "eduardo",
+  "produccion",
+] as const;
+
+export const TIPOS_PERSONALIZADO = [
+  { id: "bordado", nombre: "Bordado" },
+  { id: "sublimado", nombre: "Sublimado" },
+  { id: "otro", nombre: "Otro" },
+] as const;
+
+/* «TIPO DE CINTO» en la hoja: Powerlift o de Hebilla. */
+export const MODELOS_PERSONALIZADO = [
+  { id: "powerlift", nombre: "Powerlift" },
+  { id: "hebilla", nombre: "Hebilla" },
+  { id: "sevilla", nombre: "Sevilla" },
+  { id: "otro", nombre: "Otro" },
+] as const;
+
+/* --- Insumos ---------------------------------------------------------------
+   Las secciones de la hoja «Recursos FRESA FIT», con el color con el que están
+   pintadas ahí: el equipo ya reconoce cada bloque por su color y perderlo al
+   pasar al CRM habría sido perder la mitad de la lectura. --- */
+export const CATEGORIAS_INSUMO = [
+  { id: "bolsas", nombre: "Bolsas para paquetería", color: "#6c5ce7" },
+  { id: "etiquetas", nombre: "Etiquetas", color: "#a78bfa" },
+  { id: "sobres", nombre: "Sobres", color: "#34a853" },
+  { id: "cintas", nombre: "Cintas", color: "#ec4899" },
+  { id: "cajas", nombre: "Cajas", color: "#f87171" },
+  { id: "otro", nombre: "Otro", color: "#94a3b8" },
+] as const;
+
+/* Si ya llegó el papel de un gasto. «Aun no» de la hoja de facturas = pendiente:
+   se pagó, pero el comprobante no ha llegado. */
+export const ESTADOS_COMPROBANTE = [
+  { id: "si", nombre: "Sí", color: "#22c55e" },
+  { id: "pendiente", nombre: "Aún no", color: "#f59e0b" },
+  { id: "no", nombre: "No", color: "#d63031" },
+] as const;
+
+/* Envíos "full": el stock se manda al centro de la plataforma. Amazon todavía
+   no es un canal de venta del CRM, pero las cajas ya se arman con su ASIN. */
+export const DESTINOS_FULL = [
+  { id: "amazon", nombre: "Amazon", color: "#f39c12" },
+  { id: "mercado_libre", nombre: "Mercado Libre", color: "#f39c12" },
+] as const;
+
+export const ESTADOS_ENVIO_FULL = [
+  { id: "preparando", nombre: "Preparando", color: "#f59e0b" },
+  { id: "enviado", nombre: "Enviado", color: "#22c55e" },
+  { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
+] as const;
+
+/* Qué papel juega cada componente dentro de un conjunto. */
+export const ROLES_COMPONENTE = [
+  { id: "cinturon", nombre: "Cinturón" },
+  { id: "munequeras", nombre: "Muñequeras" },
+  { id: "straps", nombre: "Straps" },
+  { id: "otro", nombre: "Otro" },
+] as const;
+
+/* --- Programa de influencers -----------------------------------------------
+   Los cinco niveles del documento de specs del programa. Cada tier trae lo que
+   se le ofrece: crédito mensual en producto, el descuento de su código, la
+   comisión sobre lo que venda y los entregables que se le piden. Son los
+   valores POR DEFECTO: la ficha de cada persona puede sobreescribirlos porque
+   en la práctica se negocian caso por caso. --- */
+export const TIERS_INFLUENCER = [
+  {
+    id: "nano",
+    nombre: "Nano creador",
+    seguidores: "3k – 10k",
+    creditoMensual: 3000,
+    descuentoPct: 10,
+    comisionPct: 0,
+    entregables: "4 videos al mes en colaboración + 2 stories por semana",
+    color: "#94a3b8",
+  },
+  {
+    id: "micro",
+    nombre: "Micro creador",
+    seguidores: "10k – 50k",
+    creditoMensual: 4000,
+    descuentoPct: 10,
+    comisionPct: 5,
+    entregables: "4–6 videos al mes + 2–3 stories por semana",
+    color: "#0984e3",
+  },
+  {
+    id: "mid",
+    nombre: "Mid creador",
+    seguidores: "50k – 100k",
+    creditoMensual: 5000,
+    descuentoPct: 10,
+    comisionPct: 10,
+    entregables: "4–6 videos al mes + co-creación de producto",
+    color: "#6c5ce7",
+  },
+  {
+    id: "macro",
+    nombre: "Macro creador",
+    seguidores: "100k – 500k",
+    creditoMensual: 5000,
+    descuentoPct: 15,
+    comisionPct: 10,
+    entregables: "Contrato anual; campañas y presencia en lanzamientos",
+    color: "#e84393",
+  },
+  {
+    id: "celebrity",
+    nombre: "Celebrity",
+    seguidores: "500k+",
+    creditoMensual: null,
+    descuentoPct: 15,
+    comisionPct: 10,
+    entregables: "Catálogo completo; rostro oficial de la marca",
+    color: "#fdcb6e",
+  },
+] as const;
+
+/* Etapas por las que pasa alguien en el programa. El orden es el avance real:
+   llega por el formulario, se evalúa, entra activo, y puede pausarse o salir. */
+export const ETAPAS_INFLUENCER = [
+  { id: "prospecto", nombre: "Prospecto", color: "#94a3b8" },
+  { id: "evaluacion", nombre: "En evaluación", color: "#f59e0b" },
+  { id: "activo", nombre: "Activo", color: "#22c55e" },
+  { id: "pausado", nombre: "Pausado", color: "#e17055" },
+  { id: "rechazado", nombre: "Rechazado", color: "#d63031" },
+  { id: "baja", nombre: "Baja", color: "#636e72" },
+] as const;
+
+/* Los dos meses de prueba del programa: cuándo termina el periodo. */
+export const MESES_PRUEBA_INFLUENCER = 2;
+
 /* --- Categorías de gasto (Fase 3: Finanzas). --- */
 export const CATEGORIAS_GASTO = [
   { id: "marketing", nombre: "Marketing", color: "#e84393" },
@@ -195,7 +373,8 @@ export const CATEGORIAS_GASTO = [
 ] as const;
 
 /* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.
-   "activo: true" = construido. "soloDireccion" = oculto para los demás roles. --- */
+   "activo: true" = construido. "soloAdmin" = solo para quien lleva la
+   administración (dirección y administración); oculto para los demás roles. --- */
 /* Los módulos se agrupan en ESPACIOS: Fresafit es la marca (lo que se vende) y
    Agencia es el otro negocio (lo que se le cobra a otros por atenderlos). Son
    dos operaciones distintas que comparten equipo, y mezclarlas en un solo menú
@@ -214,24 +393,39 @@ export type EspacioId = (typeof ESPACIOS)[number]["id"];
 export const MODULOS = [
   { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true, espacio: "fresafit" },
   { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: true, espacio: "fresafit" },
+  /* A quién se le compra y qué se le pidió. Salió de Inventario porque son dos
+     preguntas distintas —cuánto tengo / a quién le compro— y juntas hacían una
+     pantalla de seis pestañas. `soloDireccion` porque lleva costos de compra y
+     condiciones de proveedor: es el escalón de arriba, ni siquiera
+     administración entra. */
+  { id: "proveedores", nombre: "Proveedores", icono: "🏭", href: "/proveedores", activo: true, soloDireccion: true, espacio: "fresafit" },
   { id: "metricas", nombre: "Métricas", icono: "📊", href: "/metricas", activo: true, espacio: "fresafit" },
   /* Va pegado a Métricas porque contesta la otra mitad de la misma pregunta: no
      cuánto vendimos, sino cómo nos está tratando cada plataforma. */
   { id: "canales", nombre: "Canales", icono: "🛒", href: "/canales", activo: true, espacio: "fresafit" },
-  { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: true, soloDireccion: true, espacio: "fresafit" },
+  { id: "finanzas", nombre: "Finanzas y gastos", icono: "💰", href: "/finanzas", activo: true, soloAdmin: true, espacio: "fresafit" },
+  /* Influencers no es una entrada del menú: vive como pestaña dentro de este
+     módulo (solo la ven gestores). Son gente que trae ventas, igual que los
+     clientes, y separarlos en un módulo aparte los dejaba en el olvido. */
   { id: "clientes", nombre: "Clientes y ventas", icono: "🧑", href: "/clientes", activo: true, espacio: "fresafit" },
+  /* Los cinturones personalizados son su propio negocio dentro del negocio: los
+     capturan y los mueven los diseñadores, que no entran a bodega. */
+  { id: "personalizados", nombre: "Personalizados", icono: "🎨", href: "/personalizados", activo: true, espacio: "fresafit" },
   { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: true, espacio: "fresafit" },
   /* Nómina y reportes existen en los dos negocios: son las mismas tablas
      filtradas por empresa (null = Fresafit). Sueldos y cierres internos, así que
-     van restringidos a dirección igual que Finanzas. */
-  { id: "nomina", nombre: "Nómina", icono: "👥", href: "/nomina", activo: true, soloDireccion: true, espacio: "fresafit" },
-  { id: "reportes", nombre: "Reportes", icono: "📈", href: "/reportes", activo: true, soloDireccion: true, espacio: "fresafit" },
-  /* Agencia: información de contratos ajenos y de sueldos, así que va entera
-     restringida a dirección igual que Finanzas (la RLS lo refuerza). */
-  { id: "agencia-empresas", nombre: "Empresas", icono: "🏢", href: "/agencia/empresas", activo: true, soloDireccion: true, espacio: "agencia" },
-  { id: "agencia-cobros", nombre: "Cobros", icono: "🧾", href: "/agencia/cobros", activo: true, soloDireccion: true, espacio: "agencia" },
-  { id: "agencia-nomina", nombre: "Nómina", icono: "👥", href: "/agencia/nomina", activo: true, soloDireccion: true, espacio: "agencia" },
-  { id: "agencia-reportes", nombre: "Reportes", icono: "📈", href: "/agencia/reportes", activo: true, soloDireccion: true, espacio: "agencia" },
+     van restringidos a administración igual que Finanzas. */
+  { id: "nomina", nombre: "Nómina", icono: "👥", href: "/nomina", activo: true, soloAdmin: true, espacio: "fresafit" },
+  { id: "reportes", nombre: "Reportes", icono: "📈", href: "/reportes", activo: true, soloAdmin: true, espacio: "fresafit" },
+  /* Agencia. Las TAREAS son la excepción del espacio: las trabaja el equipo que
+     atiende a cada cliente, no quien cobra, así que no llevan candado —cada
+     quien ve las suyas, como en el tablero de Fresafit—. Lo demás son contratos
+     ajenos y sueldos: administrativo, y la RLS lo refuerza. */
+  { id: "agencia-tareas", nombre: "Tareas", icono: "✅", href: "/agencia/tareas", activo: true, espacio: "agencia" },
+  { id: "agencia-empresas", nombre: "Empresas", icono: "🏢", href: "/agencia/empresas", activo: true, soloAdmin: true, espacio: "agencia" },
+  { id: "agencia-cobros", nombre: "Cobros", icono: "🧾", href: "/agencia/cobros", activo: true, soloAdmin: true, espacio: "agencia" },
+  { id: "agencia-nomina", nombre: "Nómina", icono: "👥", href: "/agencia/nomina", activo: true, soloAdmin: true, espacio: "agencia" },
+  { id: "agencia-reportes", nombre: "Reportes", icono: "📈", href: "/agencia/reportes", activo: true, soloAdmin: true, espacio: "agencia" },
 ] as const;
 
 /* A qué espacio pertenece una ruta. Todo lo que cuelga de /agencia es de la
@@ -246,6 +440,8 @@ export const EQUIPO_SEED = [
   // Dirección (ve y edita todo)
   { slug: "armando", email: "armando@fresafit.com.mx", nombre: "Diego Armando Duarte Palacios", rol: "direccion", area: "direccion", color: "#e84393" },
   { slug: "rene", email: "rene@fresafit.com.mx", nombre: "René Duarte Palacios", rol: "direccion", area: "operaciones", color: "#0984e3" },
+  // Administración (gastos, nómina, reportes y cobros de la agencia)
+  { slug: "diana", email: "diana@fresafit.com.mx", nombre: "Diana", rol: "administracion", area: "administracion", color: "#00cec9" },
   // Coordinadores (ven todo el equipo; crean, asignan y editan)
   { slug: "manuel", email: "manuel@fresafit.com.mx", nombre: "Manuel Enrique Barrera Rodríguez", rol: "coordinador", area: "diseno", color: "#8e44ad" },
   { slug: "julio", email: "juliozea10@gmail.com", nombre: "Julio Enrique Zea Silva", rol: "coordinador", area: "contenido", color: "#16a085" },
@@ -291,8 +487,48 @@ export function obtenerCategoriaGasto(id: string) {
 export function obtenerEstadoPedido(id: string) {
   return ESTADOS_PEDIDO.find((e) => e.id === id) ?? null;
 }
+export function obtenerEstadoRecepcion(id: string) {
+  return ESTADOS_RECEPCION.find((e) => e.id === id) ?? null;
+}
+export function obtenerEstadoPersonalizado(id: string) {
+  return ESTADOS_PERSONALIZADO.find((e) => e.id === id) ?? null;
+}
+export function obtenerCategoriaInsumo(id: string | null | undefined) {
+  return CATEGORIAS_INSUMO.find((c) => c.id === id) ?? null;
+}
+export function obtenerEstadoComprobante(id: string | null | undefined) {
+  return ESTADOS_COMPROBANTE.find((e) => e.id === id) ?? null;
+}
+export function obtenerEstadoEnvioFull(id: string) {
+  return ESTADOS_ENVIO_FULL.find((e) => e.id === id) ?? null;
+}
+export function obtenerTierInfluencer(id: string | null | undefined) {
+  return TIERS_INFLUENCER.find((t) => t.id === id) ?? null;
+}
+export function obtenerEtapaInfluencer(id: string | null | undefined) {
+  return ETAPAS_INFLUENCER.find((e) => e.id === id) ?? null;
+}
 
-/* --- Ayudantes de rol --- */
+/* --- Ayudantes de rol ---
+   Tres niveles, de mayor a menor alcance, espejo de los helpers de la BD:
+
+     rol === "direccion"      → es_admin(uid): manda. Cambia roles del equipo y
+                                corrige ventas importadas por API.
+     puedeAdministrar(rol)    → es_administrativo(): lleva la administración
+                                (gastos, nómina, reportes, agencia).
+     esGestor(rol)            → es_gestor(): manda en el tablero de tareas. */
+
 export function esGestor(rol: string | null | undefined) {
-  return rol === "direccion" || rol === "coordinador";
+  return rol === "direccion" || rol === "administracion" || rol === "coordinador";
+}
+
+/* ¿Puede entrar a los módulos administrativos (dinero y papeles)? */
+export function puedeAdministrar(rol: string | null | undefined) {
+  return rol === "direccion" || rol === "administracion";
+}
+
+/* El escalón de arriba. Existe como función —y no como `rol === "direccion"`
+   suelto por ahí— porque ya son varios sitios los que lo preguntan. */
+export function esDireccion(rol: string | null | undefined) {
+  return rol === "direccion";
 }
