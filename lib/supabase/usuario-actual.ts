@@ -33,5 +33,10 @@ export const usuarioActual = cache(async () => {
 /* ¿El rol pertenece al equipo interno? (todo menos `externo`). Espejo de
    public.es_interno() en la base de datos. */
 export function esInterno(rol: string | null | undefined) {
-  return rol === "direccion" || rol === "coordinador" || rol === "miembro";
+  return (
+    rol === "direccion" ||
+    rol === "administracion" ||
+    rol === "coordinador" ||
+    rol === "miembro"
+  );
 }
