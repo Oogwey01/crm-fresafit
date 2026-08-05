@@ -10,7 +10,6 @@ import type {
   ProductConProveedor,
   ProductPhoto,
   Supplier,
-  SupplierOrderConDetalle,
   RolId,
   StockLog,
   ConteoConProducto,
@@ -23,10 +22,6 @@ export const metadata = { title: "Inventario · Fresafit" };
 /* Ventana máxima de ventas que se manda al panel; ahí se recorta a 30/60/90
    días según lo que elija el usuario, sin volver al servidor. */
 const DIAS_VENTAS = 90;
-
-/* Un pedido a proveedor en estos estados todavía no llegó: sus unidades cuentan
-   como "en camino" y bajan lo que hay que volver a pedir. */
-const ESTADOS_EN_CAMINO = ["pedido", "en_transito", "en_aduana"];
 
 type Params = { [key: string]: string | string[] | undefined };
 
@@ -109,7 +104,6 @@ export default async function InventarioPage({
     productosRes,
     fotosRes,
     proveedoresRes,
-    pedidosRes,
     movimientosRes,
     ventasRes,
     enCaminoRes,
@@ -154,12 +148,6 @@ export default async function InventarioPage({
       supabase.from("product_photos").select("*").order("orden").range(desde, hasta),
     ),
     supabase.from("suppliers").select("*").order("nombre"),
-    supabase
-      .from("supplier_orders")
-      .select(
-        "*, proveedor:suppliers!proveedor_id(id, nombre), items:supplier_order_items(*, producto:products!producto_id(id, nombre, variante))",
-      )
-      .order("fecha_pedido", { ascending: false }),
     // Historial de movimientos de stock (los 300 más recientes).
     supabase
       .from("stock_log")
@@ -172,11 +160,11 @@ export default async function InventarioPage({
     // que bajar cada venta. Los cancelados no cuentan (mismo criterio que
     // Métricas, dentro de la RPC).
     supabase.rpc("ventas_reorden", { desde: diasDesdeHoy(-DIAS_VENTAS) }),
-    // Renglones de pedidos a proveedor que aún no llegan.
-    supabase
-      .from("supplier_order_items")
-      .select("producto_id, cantidad, pedido:supplier_orders!pedido_id(estado)")
-      .not("producto_id", "is", null),
+    /* Unidades pedidas a proveedor que aún no llegan. Va por RPC y no leyendo
+       supplier_order_items porque esa tabla ahora es solo de dirección: la
+       función devuelve producto y cantidad, sin costo ni proveedor, para que
+       «Qué pedir» siga descontando lo que ya viene en camino. */
+    supabase.rpc("unidades_en_camino"),
     // Equipo (para los selectores de "quién contó/corroboró" en el conteo físico).
     supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
     // Última reconciliación guardada: se muestra al instante (la lectura en vivo
@@ -204,7 +192,6 @@ export default async function InventarioPage({
     fotos_propias: fotosPorProducto[p.id] ?? [],
   }));
   const proveedores = (proveedoresRes.data ?? []) as Supplier[];
-  const pedidos = (pedidosRes.data ?? []) as unknown as SupplierOrderConDetalle[];
   const movimientos = (movimientosRes.data ?? []) as unknown as StockLog[];
   const ventas = (ventasRes.data ?? []) as unknown as VentaReorden[];
   const conteos = (conteosRes.data ?? []) as unknown as ConteoConProducto[];
@@ -214,25 +201,16 @@ export default async function InventarioPage({
     ? { resumen: snap.resumen, creadoEn: snap.creado_en }
     : null;
 
-  /* Unidades pedidas que siguen sin llegar, por producto. El filtro de estado se
-     hace aquí (PostgREST no filtra por columnas de la tabla embebida sin cambiar
-     la forma del resultado). */
-  const filasCamino = (enCaminoRes.data ?? []) as unknown as {
-    producto_id: string;
-    cantidad: number;
-    pedido: { estado: string } | null;
-  }[];
+  /* La RPC ya viene agrupada por producto y filtrada por estado. */
   const enCamino: EnCamino = {};
-  for (const f of filasCamino) {
-    if (!f.pedido || !ESTADOS_EN_CAMINO.includes(f.pedido.estado)) continue;
-    enCamino[f.producto_id] = (enCamino[f.producto_id] ?? 0) + f.cantidad;
+  for (const f of (enCaminoRes.data ?? []) as { producto_id: string; unidades: number }[]) {
+    enCamino[f.producto_id] = Number(f.unidades);
   }
 
   return (
     <PanelInventario
       productos={productos}
       proveedores={proveedores}
-      pedidos={pedidos}
       movimientos={movimientos}
       ventas={ventas}
       enCamino={enCamino}

@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import {
+  ArrowLeft,
   ArrowRight,
   ExternalLink,
   Image as ImageIcon,
@@ -12,7 +13,6 @@ import {
   Truck,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { BadgeStock } from "@/components/inventario/badge-stock";
 import { Seccion } from "@/components/compartido/seccion";
@@ -104,10 +104,16 @@ function Chip({ children, title }: { children: React.ReactNode; title?: string }
   );
 }
 
-/* Vista rápida de un producto: toda su información de un vistazo, más las dos
-   acciones del día a día (reponer stock, pedir al proveedor). Es de solo
-   lectura salvo el stock y las fotos; el formulario completo vive en
-   ProductoDialog, al que se llega con «Editar». */
+/* Ficha de un producto: toda su información de un vistazo, más las dos acciones
+   del día a día (reponer stock, pedir al proveedor). Es de solo lectura salvo el
+   stock y las fotos; el formulario completo vive en ProductoDialog, al que se
+   llega con «Editar».
+
+   Vive en su PROPIA PÁGINA (/inventario/producto/[id]) y no en un pop-up, como
+   pidió Armando: son fotos, tallas, ventas, canales, movimientos y proveedor —
+   más de lo que cabe en un diálogo del teléfono, donde encima se perdía el
+   scroll de la página de abajo. De paso cada producto gana una URL que se puede
+   compartir y a la que se puede volver con el botón atrás. */
 export function ProductoVista({
   producto,
   hermanas = [],
@@ -117,7 +123,7 @@ export function ProductoVista({
   onVerHermana,
   onEditar,
   onGenerarPedido,
-  onClose,
+  onVolver,
 }: {
   producto: ProductConProveedor;
   /* Todas las variantes del mismo producto (incluida ésta), ordenadas por talla.
@@ -133,8 +139,10 @@ export function ProductoVista({
   /* false (el default del sistema) = el ajuste es local, no viaja a los canales. */
   escrituraCanales: boolean;
   onEditar: () => void;
-  onGenerarPedido: () => void;
-  onClose: () => void;
+  /* Solo dirección: el pedido a proveedor vive en su propio módulo. */
+  onGenerarPedido?: () => void;
+  /* Volver al catálogo (la flecha de la barra superior). */
+  onVolver: () => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [subiendo, setSubiendo] = useState(false);
@@ -222,13 +230,30 @@ export function ProductoVista({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader className="pr-8">
-          <DialogTitle className="text-lg leading-snug">
+    <div className="mx-auto flex max-w-2xl flex-col gap-4">
+      {/* Barra de vuelta al catálogo. Va pegada arriba en el teléfono, debajo
+          del header de navegación (sticky, z-40, 3.5rem de alto): de ahí el
+          top-14 y el z-30. El -mx-4 cancela el padding del <main>. */}
+      <div className="sticky top-14 z-30 -mx-4 -mb-2 flex h-14 items-center gap-1 border-b bg-lienzo/95 px-1.5 backdrop-blur md:static md:mx-0 md:mb-0 md:h-auto md:border-0 md:bg-transparent md:px-0 md:backdrop-blur-none">
+        <button
+          type="button"
+          onClick={onVolver}
+          className="flex size-11 shrink-0 items-center justify-center rounded-lg text-foreground/80 transition-colors hover:bg-muted md:size-9"
+          aria-label="Volver al inventario"
+        >
+          <ArrowLeft className="size-5" strokeWidth={2} aria-hidden="true" />
+        </button>
+        {/* Dice a dónde vuelves, no dónde estás: el nombre del producto está a
+            dos centímetros, en el título, y repetirlo aquí solo quitaba sitio. */}
+        <span className="truncate text-[15px] font-bold tracking-tight md:hidden">Inventario</span>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-[19px] font-bold leading-snug tracking-tight md:text-[22px]">
             {producto.nombre}
             {producto.variante && <span className="text-muted-foreground"> · {producto.variante}</span>}
-          </DialogTitle>
+          </h1>
           <div className="flex flex-wrap items-center gap-2">
             {tipo && (
               <span
@@ -255,7 +280,7 @@ export function ProductoVista({
               </span>
             )}
           </div>
-        </DialogHeader>
+        </div>
 
         {/* Fotos: las propias (subidas aquí) van primero; las del canal se
             importan y no se borran desde el CRM. */}
@@ -615,17 +640,35 @@ export function ProductoVista({
           <span>Proveedor {producto.proveedor?.nombre ?? "—"}</span>
         </div>
 
-        <DialogFooter>
-          <Button size="lg" className="flex-1" onClick={onGenerarPedido} disabled={pending}>
-            <Truck />
-            Generar pedido
-          </Button>
-          <Button size="lg" variant="outline" onClick={onEditar} disabled={pending}>
+        {/* Las dos acciones, del mismo tamaño y una al lado de la otra.
+            «Generar pedido» iba con flex-1 dentro de un pie que en el teléfono
+            apila en columna: ahí flex-1 vale por la ALTURA, así que el botón se
+            aplastaba y quedaba más chico que «Editar», justo al revés de lo que
+            se quería. */}
+        <div className="sticky bottom-0 -mx-4 flex gap-2.5 border-t bg-lienzo/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none">
+          {onGenerarPedido && (
+            <Button
+              size="lg"
+              className="h-12 flex-1 text-[15px]"
+              onClick={onGenerarPedido}
+              disabled={pending}
+            >
+              <Truck />
+              Generar pedido
+            </Button>
+          )}
+          <Button
+            size="lg"
+            variant="outline"
+            className="h-12 flex-1 text-[15px]"
+            onClick={onEditar}
+            disabled={pending}
+          >
             <Pencil />
             Editar
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }
