@@ -81,3 +81,62 @@ export async function urlFirmada(
   if (error || !data) return { error: error?.message ?? "No se pudo generar el enlace." };
   return { url: data.signedUrl };
 }
+
+/* Lo mismo para una lista. Devuelve un mapa ruta → URL; las rutas que fallen
+   simplemente no aparecen (la vista pinta un hueco en vez de romperse).
+
+   Con `ancho`/`alto` pide además la MINIATURA: Supabase redimensiona y, si el
+   navegador lo acepta, entrega webp. No es un lujo — los diseños de los
+   cinturones pesan ~830 KB cada uno, y una tabla de 160 sin esto son 130 MB.
+
+   `resize: "contain"` NO es opcional: el modo por defecto de Supabase es
+   "cover", que rellena la caja RECORTANDO lo que sobra. Con un diseño de
+   2048×203 pedido a 420 de ancho, "cover" devolvía 420×203 —el 80% del
+   cinturón cortado— mientras que "contain" devuelve 420×42, el cinturón
+   entero. Hay que dar las dos medidas: la caja es un máximo, y la imagen entra
+   dentro conservando su proporción, sin rellenar los lados.
+
+   La transformación va firmada DENTRO del token, así que con miniatura hay que
+   firmar de una en una (la llamada en lote no la admite). Se hace en paralelo,
+   por lotes, que es la diferencia entre 3 segundos y 1. */
+export async function urlesFirmadas(
+  supabase: SupabaseClient,
+  bucket: string,
+  paths: string[],
+  opciones?: { ancho?: number; alto?: number; calidad?: number },
+): Promise<Record<string, string>> {
+  const unicas = [...new Set(paths.filter(Boolean))];
+  if (!unicas.length) return {};
+
+  const mapa: Record<string, string> = {};
+
+  if (!opciones?.ancho) {
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(unicas, 60 * 60);
+    if (error || !data) return {};
+    for (const fila of data) {
+      if (fila.path && fila.signedUrl && !fila.error) mapa[fila.path] = fila.signedUrl;
+    }
+    return mapa;
+  }
+
+  const LOTE = 40;
+  const transform = {
+    width: opciones.ancho,
+    height: opciones.alto ?? opciones.ancho,
+    resize: "contain" as const,
+    quality: opciones.calidad ?? 60,
+  };
+  for (let i = 0; i < unicas.length; i += LOTE) {
+    const lote = unicas.slice(i, i + LOTE);
+    const firmadas = await Promise.all(
+      lote.map((path) =>
+        supabase.storage
+          .from(bucket)
+          .createSignedUrl(path, 60 * 60, { transform })
+          .then((r) => [path, r.data?.signedUrl ?? null] as const),
+      ),
+    );
+    for (const [path, url] of firmadas) if (url) mapa[path] = url;
+  }
+  return mapa;
+}
