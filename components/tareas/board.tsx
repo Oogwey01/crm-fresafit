@@ -16,14 +16,21 @@ import { AlertTriangle, ChevronDown, Clock, Info, List, LayoutGrid, Calendar as 
 import { toast } from "sonner";
 import { ESTADOS, AREAS, ROLES, esGestor } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
-import { moverTarea, cambiarPrioridad, reasignarTarea } from "@/app/(app)/tareas/actions";
+import {
+  moverTarea,
+  cambiarPrioridad,
+  reasignarTarea,
+  reasignarEmpresa,
+} from "@/app/(app)/tareas/actions";
 import {
   trabajaLaTarea,
   type TaskConResponsable,
   type Profile,
   type EstadoId,
+  type EspacioId,
   type PrioridadId,
   type RolId,
+  type AgenciaEmpresa,
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,13 +55,18 @@ import { ImportarTareas } from "@/components/tareas/importar";
 import { Papelera } from "@/components/tareas/papelera";
 import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
 
-/* Carril del tablero cuando se agrupa (por área o por persona). */
+/* Carril del tablero cuando se agrupa (por área, por persona o por cliente). */
 type Grupo = { id: string; nombre: string; color: string; tareas: TaskConResponsable[] };
 
 /* Alcance global: "mis" = lo asignado a mí; "delegadas" = lo que yo delegué a
    otros; "todas" = todo. Aplica en las TRES vistas. */
 type Alcance = "mis" | "delegadas" | "todas";
 type VistaTop = "tabla" | "tablero" | "calendario";
+/* En la agencia el trabajo se piensa por cliente, así que el tablero gana un
+   tercer eje que en Fresafit no tendría sentido (no hay clientes que agrupar). */
+type Eje = "area" | "persona" | "empresa";
+
+const SIN_EMPRESA = "sin-empresa";
 
 const VISTAS_TOP = [
   ["tabla", "Tabla", List],
@@ -69,6 +81,8 @@ export function Board({
   currentUserId,
   rol,
   checklistPorTarea = {},
+  espacio = "fresafit",
+  empresas = [],
 }: {
   tareas: TaskConResponsable[];
   borradas?: TaskConResponsable[];
@@ -77,8 +91,14 @@ export function Board({
   rol: RolId;
   /* {task_id: {total, hechos}} para el chip de subtareas en las tarjetas. */
   checklistPorTarea?: Record<string, { total: number; hechos: number }>;
+  /* De qué negocio es este tablero. El mismo componente sirve a los dos: lo
+     único que cambia es que la agencia trabaja por cliente. */
+  espacio?: EspacioId;
+  /* Clientes de la agencia (vacío en Fresafit). */
+  empresas?: Pick<AgenciaEmpresa, "id" | "nombre" | "color">[];
 }) {
   const gestor = esGestor(rol);
+  const esAgencia = espacio === "agencia";
 
   /* "Delegadas por mí" solo tiene sentido para quien delega (gestor). */
   const opcionesAlcance: [Alcance, string][] = gestor
@@ -92,6 +112,19 @@ export function Board({
         ["todas", "Todas"],
       ];
 
+  /* El eje "Cliente" solo existe en la agencia; en Fresafit no hay clientes que
+     agrupar y sería una pestaña muerta. */
+  const ejesAgrupacion: [Eje, string][] = esAgencia
+    ? [
+        ["empresa", "Cliente"],
+        ["area", "Área"],
+        ["persona", "Persona"],
+      ]
+    : [
+        ["area", "Área"],
+        ["persona", "Persona"],
+      ];
+
   /* Parche optimista genérico: mover de estado y/o reasignar responsable. */
   const [tareas, aplicarMovimiento] = useOptimistic(
     inicial,
@@ -100,10 +133,13 @@ export function Board({
   );
 
   const [vistaTop, setVistaTop] = useState<VistaTop>("tabla");
-  const [ejeAgrupacion, setEjeAgrupacion] = useState<"area" | "persona">("area");
+  /* En la agencia el eje natural es el cliente, no el área: la pregunta de todos
+     los días es «¿qué traemos de Nutravia?». */
+  const [ejeAgrupacion, setEjeAgrupacion] = useState<Eje>(esAgencia ? "empresa" : "area");
   const [alcance, setAlcance] = useState<Alcance>("todas");
   const [filtroResponsable, setFiltroResponsable] = useState("todos");
   const [filtroArea, setFiltroArea] = useState("todas");
+  const [filtroEmpresa, setFiltroEmpresa] = useState("todas");
   /* "Quién te puso la tarea" (created_by). Aplica en cualquier alcance. */
   const [filtroAsignador, setFiltroAsignador] = useState("todos");
   const [soloVencidas, setSoloVencidas] = useState(false);
@@ -193,6 +229,26 @@ export function Board({
     });
   }
 
+  /* Mover una tarea de cliente arrastrándola entre carriles (solo gestor). */
+  function cambiarEmpresa(id: string, empresaId: string | null) {
+    const actual = tareas.find((t) => t.id === id);
+    if (!actual || (actual.empresa_id ?? null) === empresaId) return;
+    if (!gestor) {
+      toast.error("Solo dirección, administración o coordinación puede cambiar de cliente una tarea.");
+      return;
+    }
+    const empresa = empresaId ? (empresas.find((e) => e.id === empresaId) ?? null) : null;
+    startTransition(async () => {
+      aplicarMovimiento({ id, patch: { empresa_id: empresaId, empresa } });
+      try {
+        const r = await reasignarEmpresa(id, empresaId);
+        if ("error" in r) toast.error(r.error);
+      } catch {
+        toast.error("No se pudo cambiar de cliente. Revisa tu conexión.");
+      }
+    });
+  }
+
   /* Cambio rápido de prioridad desde una celda (solo gestor; sin optimismo, se
      refresca al revalidar). */
   function cambiarPrio(id: string, prioridad: PrioridadId) {
@@ -224,6 +280,11 @@ export function Board({
     if (ejeAgrupacion === "persona" && prefijo !== null) {
       reasignar(id, prefijo === "sin" ? null : prefijo);
     }
+    // Y en carriles por cliente, el prefijo es la empresa destino: arrastrar una
+    // tarjeta de un cliente a otro la cambia de cuenta.
+    if (ejeAgrupacion === "empresa" && prefijo !== null) {
+      cambiarEmpresa(id, prefijo === SIN_EMPRESA ? null : prefijo);
+    }
   }
 
   const activa = activeId ? tareas.find((t) => t.id === activeId) : null;
@@ -248,10 +309,20 @@ export function Board({
   /* Quién te puso la tarea. A diferencia de los de persona/área, éste aplica en
      TODOS los alcances: el caso que lo motivó es «en mis tareas, enséñame solo
      las que me puso René». "Delegadas por mí" es el caso inverso y ya existía. */
-  const base =
+  const porAsignador =
     filtroAsignador === "todos"
       ? porAlcance
       : porAlcance.filter((t) => t.created_by === filtroAsignador);
+
+  /* El cliente filtra en CUALQUIER alcance, igual que el asignador: «de mis
+     tareas, enséñame solo las de Bart Jerseys» es la consulta más común de quien
+     atiende a dos cuentas a la vez. */
+  const base =
+    filtroEmpresa === "todas"
+      ? porAsignador
+      : porAsignador.filter((t) =>
+          filtroEmpresa === SIN_EMPRESA ? !t.empresa_id : t.empresa_id === filtroEmpresa,
+        );
 
   /* Contador de vencidas sobre lo mostrado (antes del filtro "solo vencidas"). */
   const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
@@ -279,7 +350,27 @@ export function Board({
      ve en los avatares de la tarjeta, y el filtro de persona sí toma en cuenta a
      los acompañantes. */
   const grupos: Grupo[] =
-    ejeAgrupacion === "area"
+    ejeAgrupacion === "empresa"
+      ? (() => {
+          const conCliente: Grupo[] = empresas
+            .map((e) => ({
+              id: e.id,
+              nombre: e.nombre,
+              color: e.color,
+              tareas: filtradas.filter((t) => t.empresa_id === e.id),
+            }))
+            .filter((g) => g.tareas.length > 0);
+          /* Lo que no es de ningún cliente es trabajo de la casa: juntas,
+             prospección, cobranza. Va al final y solo si existe. */
+          const internas = filtradas.filter((t) => !t.empresa_id);
+          return internas.length
+            ? [
+                ...conCliente,
+                { id: SIN_EMPRESA, nombre: "De la agencia", color: "#94a3b8", tareas: internas },
+              ]
+            : conCliente;
+        })()
+      : ejeAgrupacion === "area"
       ? AREAS.filter(
           (a) => (filtroArea === "todas" || a.id === filtroArea) && filtradas.some((t) => t.area === a.id),
         ).map((a) => ({
@@ -321,6 +412,8 @@ export function Board({
           onAbrir={abrirTarea}
           onNueva={() => setNuevaAbierta(true)}
           checklistPorTarea={checklistPorTarea}
+          titulo={esAgencia ? "Tareas de la Agencia" : undefined}
+          empresas={esAgencia ? empresas : undefined}
         />
       </div>
 
@@ -329,14 +422,28 @@ export function Board({
       {/* Encabezado: título a la izquierda, acciones principales a la derecha */}
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
-          <h1 className="text-[26px] font-bold tracking-tight">Tareas del equipo</h1>
+          <h1 className="text-[26px] font-bold tracking-tight">
+            {esAgencia ? "Tareas de la Agencia" : "Tareas del equipo"}
+          </h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
-            Quién hace qué y en qué va cada cosa — sin perseguir a nadie.
+            {esAgencia
+              ? "Lo que traemos de cada cliente — separado de lo de Fresafit."
+              : "Quién hace qué y en qué va cada cosa — sin perseguir a nadie."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ExportButton tareas={filtradas} gestor={gestor} />
-          {gestor && <ImportarTareas equipo={equipo} />}
+          {gestor && (
+            <ImportarTareas
+              equipo={equipo}
+              espacio={espacio}
+              empresaId={
+                esAgencia && filtroEmpresa !== "todas" && filtroEmpresa !== SIN_EMPRESA
+                  ? filtroEmpresa
+                  : null
+              }
+            />
+          )}
           {gestor && <Papelera borradas={borradas} />}
           {gestor && (
             <Button
@@ -398,12 +505,7 @@ export function Board({
         {vistaTop === "tablero" && alcance === "todas" && (
           <div className="inline-flex items-center gap-1.5 rounded-lg bg-muted p-0.5 pl-2.5">
             <span className="text-xs font-medium text-muted-foreground">Agrupar:</span>
-            {(
-              [
-                ["area", "Área"],
-                ["persona", "Persona"],
-              ] as const
-            ).map(([id, label]) => (
+            {ejesAgrupacion.map(([id, label]) => (
               <button
                 key={id}
                 onClick={() => setEjeAgrupacion(id)}
@@ -419,6 +521,31 @@ export function Board({
         )}
 
         <div className="flex-1" />
+
+        {/* Filtro de CLIENTE (solo agencia): sirve en cualquier alcance. */}
+        {esAgencia && empresas.length > 0 && (
+          <Select value={filtroEmpresa} onValueChange={(v) => setFiltroEmpresa(v ?? "todas")}>
+            <SelectTrigger className="w-full bg-card sm:w-[180px]">
+              <SelectValue>
+                {(value: string) =>
+                  value === "todas"
+                    ? "Todos los clientes"
+                    : value === SIN_EMPRESA
+                      ? "De la agencia"
+                      : (empresas.find((e) => e.id === value)?.nombre ?? "Cliente")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todos los clientes</SelectItem>
+              {empresas.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.nombre}
+                </SelectItem>
+              ))}
+              <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
 
         {/* Filtros de PERSONA y ÁREA — solo con alcance "Todas" ("mis" ya es lo mío). */}
         {alcance === "todas" && (
@@ -530,7 +657,7 @@ export function Board({
       {vistaTop === "tablero" && (
       /* id fijo: evita el aviso de hidratación de dnd-kit (aria-describedby
           DndDescribedBy-0 vs -1) al hacer estable el id entre servidor y navegador. */
-      <DndContext id="tablero-fresafit" sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <DndContext id={`tablero-${espacio}`} sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         {alcance === "mis" ? (
           <>
             {filtradas.length === 0 && (
@@ -644,6 +771,15 @@ export function Board({
         <TaskDialog
           equipo={equipo}
           currentUserId={currentUserId}
+          espacio={espacio}
+          empresas={empresas}
+          /* Con un cliente ya filtrado, la tarea nueva nace en ese cliente: es lo
+             que uno espera al estar mirando solo Nutravia. */
+          empresaInicial={
+            esAgencia && filtroEmpresa !== "todas" && filtroEmpresa !== SIN_EMPRESA
+              ? filtroEmpresa
+              : null
+          }
           onClose={() => setNuevaAbierta(false)}
         />
       )}

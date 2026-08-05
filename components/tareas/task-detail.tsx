@@ -64,6 +64,8 @@ import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
 import { DatePicker } from "@/components/compartido/date-picker";
 
 const SIN_ASIGNAR = "none";
+/* "Sin cliente" en el Select de la agencia: es trabajo de la casa, no un hueco. */
+const SIN_EMPRESA = "sin-empresa";
 
 /* En el teléfono los campos de meta se leen como una lista de propiedades (tipo
    ajustes del sistema): la etiqueta a la izquierda y el valor a la derecha, sin
@@ -75,7 +77,13 @@ const SIN_ASIGNAR = "none";
    su disparador, y con un disparador angosto los nombres largos del equipo se
    salían de la pantalla. De paso, se puede picar toda la mitad derecha. */
 const CTRL_MOVIL =
-  "h-11 min-w-0 flex-1 justify-end border-0 bg-transparent px-0 text-right font-medium " +
+  "h-10 min-w-0 flex-1 justify-end border-0 bg-transparent px-0 text-right font-medium " +
+  /* Select, Input y DatePicker traen un `dark:bg-input/30` propio que en el
+     teléfono pintaba una caja gris del alto de la fila y de toda su mitad
+     derecha: el valor —«Baja», «Hecho», «3 de agosto»— quedaba nadando dentro
+     de un recuadro que aquí no debería existir, porque la fila ya es la caja.
+     En escritorio el control sí lleva su caja y el fondo vuelve. */
+  "dark:bg-transparent dark:hover:bg-transparent md:dark:bg-input/30 " +
   /* El valor del Select es a su vez un flex que estira a la izquierda, y el
      DatePicker abre con un icono de calendario que sin caja queda suelto a
      media fila: ambos sobran cuando el dato va pegado a la derecha. */
@@ -147,11 +155,15 @@ export function TaskDetail({
   comoPagina = false,
   enfocarComentario = false,
   onClose,
+  empresas = [],
 }: {
   tarea: TaskConResponsable;
   equipo: Profile[];
   rol: RolId;
   currentUserId: string;
+  /* Clientes de la agencia, para poder cambiar de cuenta una tarea suya. Vacío
+     en Fresafit, donde el campo no se pinta. */
+  empresas?: { id: string; nombre: string; color: string }[];
   /* true = se pinta como página (/tareas/[id]); false = pop-up del tablero. */
   comoPagina?: boolean;
   /* Se llega desde un aviso de comentario: hay que dejar el cursor en el hilo.
@@ -197,6 +209,8 @@ export function TaskDetail({
   const [coasignados, setCoasignados] = useState<string[]>(
     (tarea.coasignados ?? []).map((p) => p.id),
   );
+  const esAgencia = tarea.espacio === "agencia";
+  const [empresa, setEmpresa] = useState(tarea.empresa_id ?? SIN_EMPRESA);
 
   /* Al cambiar el responsable, el área se autollena con la de su perfil. Si esa
      persona acompañaba la tarea, deja de hacerlo: ahora es la principal. */
@@ -245,6 +259,10 @@ export function TaskDetail({
       titulo,
       descripcion,
       responsable_id: responsable === SIN_ASIGNAR ? null : responsable,
+      espacio: tarea.espacio,
+      /* Solo se manda en la agencia: si fuera undefined en Fresafit el action ni
+         lo mira, y así una tarea propia nunca puede acabar con cliente. */
+      empresa_id: esAgencia ? (empresa === SIN_EMPRESA ? null : empresa) : undefined,
       coasignados,
       area,
       prioridad,
@@ -379,6 +397,19 @@ export function TaskDetail({
             {/* En el teléfono, tarjeta con filas separadas (etiqueta ↔ valor);
                 en escritorio, la rejilla de dos columnas de siempre. */}
             <div className="grid grid-cols-1 divide-y rounded-2xl border bg-card md:grid-cols-2 md:gap-3 md:divide-y-0 md:rounded-none md:border-0 md:bg-transparent">
+              {/* De quién es el trabajo. Solo en la agencia: en Fresafit el
+                  cliente es la propia marca y el campo sobraría. */}
+              {esAgencia && (
+                <Meta label="Cliente">
+                  <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
+                    <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_EMPRESA ? "De la agencia" : (empresas.find((e) => e.id === v)?.nombre ?? tarea.empresa?.nombre ?? "Cliente")}</SelectValue></SelectTrigger>
+                    <SelectContent>
+                      {empresas.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
+                      <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Meta>
+              )}
               <Meta label="Responsable">
                 <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
                   <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
@@ -489,6 +520,11 @@ export function TaskDetail({
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">{tarea.descripcion}</p>
             )}
             <div className="flex flex-wrap items-center gap-3 text-sm">
+              {tarea.empresa && (
+                <span className="text-muted-foreground">
+                  Cliente: <b className="text-foreground">{tarea.empresa.nombre}</b>
+                </span>
+              )}
               <span className="text-muted-foreground">
                 Responsable: <b className="text-foreground">{nombrePorId(tarea.responsable_id)}</b>
               </span>
@@ -744,7 +780,7 @@ export function TaskDetail({
    escritorio. Ver CTRL_MOVIL, que es la otra mitad del truco. */
 function Meta({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-12 items-center justify-between gap-3 px-3.5 md:min-h-0 md:flex-col md:items-stretch md:gap-1.5 md:px-0">
+    <div className="flex min-h-11 items-center justify-between gap-3 px-3.5 md:min-h-0 md:flex-col md:items-stretch md:gap-1.5 md:px-0">
       <span className="shrink-0 text-[13.5px] font-medium text-muted-foreground md:text-xs md:font-semibold md:uppercase md:tracking-wide">
         {label}
       </span>

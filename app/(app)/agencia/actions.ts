@@ -28,12 +28,16 @@ const RUTAS = [
   "/agencia/cobros",
   "/agencia/nomina",
   "/agencia/reportes",
+  /* El tablero pinta el nombre y el color de cada cliente en las tarjetas:
+     renombrar una empresa tiene que verse también ahí. */
+  "/agencia/tareas",
   "/nomina",
   "/reportes",
 ];
 const revalidar = () => RUTAS.forEach((r) => revalidatePath(r));
 
-const SOLO_DIRECCION = "Solo dirección puede ver y mover la información de la Agencia.";
+const SOLO_ADMINISTRACION =
+  "Solo dirección o administración puede ver y mover la información de la Agencia.";
 
 /* =============================== Empresas ================================= */
 
@@ -77,7 +81,7 @@ function filaEmpresa(input: EmpresaInput) {
 }
 
 export async function crearEmpresa(input: EmpresaInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const nombre = input.nombre.trim();
   if (!nombre) return { error: "La empresa necesita un nombre." };
@@ -97,7 +101,7 @@ export async function crearEmpresa(input: EmpresaInput): Promise<Resultado> {
 }
 
 export async function editarEmpresa(id: string, input: EmpresaInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!input.nombre.trim()) return { error: "La empresa necesita un nombre." };
 
@@ -108,7 +112,7 @@ export async function editarEmpresa(id: string, input: EmpresaInput): Promise<Re
 }
 
 export async function borrarEmpresa(id: string): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("agencia_empresas").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -122,7 +126,7 @@ export async function guardarEquipo(
   empresaId: string,
   asignaciones: { profile_id: string; papel: string }[],
 ): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
 
   const { error: errBorrar } = await cx.supabase
@@ -198,7 +202,7 @@ function filaContrato(input: ContratoInput) {
 }
 
 export async function crearContrato(input: ContratoInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const invalido = validarContrato(input);
   if (invalido) return { error: invalido };
@@ -210,7 +214,7 @@ export async function crearContrato(input: ContratoInput): Promise<Resultado> {
 }
 
 export async function editarContrato(id: string, input: ContratoInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const invalido = validarContrato(input);
   if (invalido) return { error: invalido };
@@ -222,7 +226,7 @@ export async function editarContrato(id: string, input: ContratoInput): Promise<
 }
 
 export async function borrarContrato(id: string): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("agencia_contratos").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -243,7 +247,7 @@ export async function calcularCorteContrato(input: {
   ventas_base: number;
   ventas_nota: string;
 }): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
 
   if (!input.periodo_desde || !input.periodo_hasta) return { error: "Falta el periodo a cobrar." };
@@ -309,7 +313,7 @@ export type IngresoSueltoInput = {
 /* Ingresos que no salen de un contrato: migraciones de plataforma y comisiones
    por referidos (contador, Tienda Nube, Kubo, Revie). */
 export async function registrarIngreso(input: IngresoSueltoInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!input.concepto.trim()) return { error: "Falta decir de qué es el cobro." };
   if (!(input.total > 0)) return { error: "El monto tiene que ser mayor que cero." };
@@ -335,7 +339,7 @@ export async function cambiarEstadoIngreso(
   id: string,
   estado: EstadoIngresoId,
 ): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
 
   const ahora = new Date().toISOString();
@@ -362,7 +366,7 @@ export async function editarIngreso(
   id: string,
   patch: { concepto?: string; total?: number; factura?: string; notas?: string },
 ): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
 
   const fila: Record<string, unknown> = {};
@@ -384,7 +388,7 @@ export async function editarIngreso(
 }
 
 export async function borrarIngreso(id: string): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("agencia_ingresos").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -427,7 +431,7 @@ function filaEmpleado(input: EmpleadoInput) {
 }
 
 export async function crearEmpleado(input: EmpleadoInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!input.nombre.trim()) return { error: "Falta el nombre de la persona." };
   if (!(input.monto >= 0)) return { error: "El monto no es válido." };
@@ -439,7 +443,7 @@ export async function crearEmpleado(input: EmpleadoInput): Promise<Resultado> {
 }
 
 export async function editarEmpleado(id: string, input: EmpleadoInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!input.nombre.trim()) return { error: "Falta el nombre de la persona." };
   if (!(input.monto >= 0)) return { error: "El monto no es válido." };
@@ -451,7 +455,7 @@ export async function editarEmpleado(id: string, input: EmpleadoInput): Promise<
 }
 
 export async function borrarEmpleado(id: string): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("nomina_empleados").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -470,7 +474,7 @@ export async function registrarPago(input: {
   comprobante: string;
   notas: string;
 }): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!(input.monto > 0)) return { error: "El monto del pago tiene que ser mayor que cero." };
 
@@ -501,7 +505,7 @@ export async function registrarPago(input: {
 }
 
 export async function marcarPagoPagado(id: string, pagado: boolean): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase
     .from("nomina_pagos")
@@ -516,7 +520,7 @@ export async function marcarPagoPagado(id: string, pagado: boolean): Promise<Res
 }
 
 export async function borrarPago(id: string): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("nomina_pagos").delete().eq("id", id);
   if (error) return { error: error.message };
@@ -552,7 +556,7 @@ function filaReporte(input: ReporteInput, entregadoPrevio: string | null) {
 }
 
 export async function crearReporte(input: ReporteInput): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!input.titulo.trim()) return { error: "El reporte necesita un título." };
 
@@ -569,7 +573,7 @@ export async function editarReporte(
   input: ReporteInput,
   entregadoPrevio: string | null,
 ): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   if (!input.titulo.trim()) return { error: "El reporte necesita un título." };
 
@@ -583,7 +587,7 @@ export async function editarReporte(
 }
 
 export async function borrarReporte(id: string): Promise<Resultado> {
-  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("reportes").delete().eq("id", id);
   if (error) return { error: error.message };

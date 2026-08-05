@@ -44,8 +44,12 @@ export function ExportButton({
   const fecha = new Date().toISOString().slice(0, 10);
 
   function exportarCSV() {
+    /* La columna de cliente solo se agrega si hay tareas de la agencia en lo
+       exportado: en Fresafit sería una columna vacía en todos los renglones. */
+    const conCliente = tareas.some((t) => t.espacio === "agencia");
     const filas = tareas.map((t) => [
       t.titulo,
+      ...(conCliente ? [t.empresa?.nombre ?? ""] : []),
       t.responsable?.nombre ?? "",
       obtenerArea(t.area)?.nombre ?? t.area,
       obtenerPrioridad(t.prioridad)?.nombre ?? t.prioridad,
@@ -57,7 +61,19 @@ export function ExportButton({
       t.created_at.slice(0, 10),
     ]);
     const csv = aCSV(
-      ["Título", "Responsable", "Área", "Prioridad", "Estado", "Fecha límite", "Vencida", "Etiquetas", "Descripción", "Creada"],
+      [
+        "Título",
+        ...(conCliente ? ["Cliente"] : []),
+        "Responsable",
+        "Área",
+        "Prioridad",
+        "Estado",
+        "Fecha límite",
+        "Vencida",
+        "Etiquetas",
+        "Descripción",
+        "Creada",
+      ],
       filas,
     );
     descargar(`tareas-fresafit-${fecha}.csv`, csv, "text/csv;charset=utf-8");

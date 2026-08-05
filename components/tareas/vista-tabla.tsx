@@ -118,6 +118,27 @@ export function VistaTabla({
         );
       },
     },
+    /* Cliente: solo cuando lo que se lista trae tareas de la agencia. En el
+       tablero de Fresafit sería una columna vacía en todos los renglones. */
+    ...(tareas.some((t) => t.espacio === "agencia")
+      ? [
+          {
+            clave: "cliente",
+            label: "Cliente",
+            celda: (t: TaskConResponsable) =>
+              t.empresa ? (
+                <span
+                  className="inline-flex items-center rounded-full px-2 py-0.5 text-[11.5px] font-semibold"
+                  style={{ backgroundColor: `${t.empresa.color}1f`, color: t.empresa.color }}
+                >
+                  {t.empresa.nombre}
+                </span>
+              ) : (
+                <span className="text-[12px] text-muted-foreground">De la agencia</span>
+              ),
+          },
+        ]
+      : []),
     {
       clave: "responsable",
       label: "Responsable",

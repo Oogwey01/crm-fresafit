@@ -2,7 +2,7 @@
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { AlertTriangle, CheckSquare, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, Building2, CheckSquare, ChevronLeft, ChevronRight } from "lucide-react";
 import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
 import { tieneNovedades, type TaskConResponsable, type EstadoId } from "@/lib/types";
@@ -63,8 +63,19 @@ export function TaskCard({
         <div className="text-[13.5px] font-semibold leading-snug">{tarea.titulo}</div>
       </div>
 
-      {/* Meta: prioridad · área · subtareas */}
+      {/* Meta: cliente · prioridad · área · subtareas.
+          El cliente va primero y con su color: en la agencia es lo que uno busca
+          en la tarjeta antes que nada. Solo lo traen las tareas de la agencia. */}
       <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+        {tarea.empresa && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold"
+            style={{ backgroundColor: `${tarea.empresa.color}1f`, color: tarea.empresa.color }}
+          >
+            <Building2 className="size-3" strokeWidth={2.2} aria-hidden="true" />
+            {tarea.empresa.nombre}
+          </span>
+        )}
         {prioridad && (
           <span
             className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold"

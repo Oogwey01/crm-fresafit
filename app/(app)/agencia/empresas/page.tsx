@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelEmpresas } from "@/components/agencia/panel-empresas";
 import type {
   AgenciaAsignacionConPersona,
@@ -16,7 +17,7 @@ export const metadata = { title: "Empresas · Agencia Fresafit" };
    pantalla vacía sin entender por qué. */
 export default async function EmpresasPage() {
   const { supabase, rol } = await usuarioActual();
-  if (rol !== "direccion") redirect("/tareas");
+  if (!puedeAdministrar(rol)) redirect("/tareas");
 
   const [empresasRes, contratosRes, asignacionesRes, equipoRes, ingresosRes] = await Promise.all([
     supabase.from("agencia_empresas").select("*").order("activa", { ascending: false }).order("nombre"),

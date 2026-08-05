@@ -21,12 +21,19 @@ export default async function AppLayout({
      señal, las dos guardias se rebotaban entre sí hasta el ERR_TOO_MANY_REDIRECTS. */
   if (!user) redirect("/login?sesion=expirada");
 
-  const [{ count: tareasActivas }, notisRes] = await Promise.all([
+  /* Un contador por negocio: el menú muestra un espacio a la vez, y una sola
+     cifra global marcaba «12 tareas» en Fresafit contando las de la agencia. */
+  const contarPendientes = (espacio: string) =>
     supabase
       .from("tasks")
       .select("id", { count: "exact", head: true })
+      .eq("espacio", espacio)
       .neq("estado", "hecho")
-      .is("deleted_at", null),
+      .is("deleted_at", null);
+
+  const [{ count: pendientesFresafit }, { count: pendientesAgencia }, notisRes] = await Promise.all([
+    contarPendientes("fresafit"),
+    contarPendientes("agencia"),
     // Notificaciones del usuario (RLS ya limita a las suyas): las recientes.
     supabase
       .from("notifications")
@@ -40,7 +47,10 @@ export default async function AppLayout({
   const navProps = {
     profile: perfil,
     email: user.email ?? "",
-    tareasActivas: tareasActivas ?? 0,
+    tareasActivas: {
+      fresafit: pendientesFresafit ?? 0,
+      agencia: pendientesAgencia ?? 0,
+    },
     notificaciones,
   };
 

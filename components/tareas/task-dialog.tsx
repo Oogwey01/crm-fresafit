@@ -27,9 +27,12 @@ import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { localInputAIso, hoyISO } from "@/lib/fecha";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
 import { DatePicker } from "@/components/compartido/date-picker";
-import type { Profile, AreaId, EstadoId, PrioridadId } from "@/lib/types";
+import type { Profile, AreaId, EspacioId, EstadoId, PrioridadId } from "@/lib/types";
 
 const SIN_ASIGNAR = "none";
+/* "Sin cliente" en el Select: es trabajo de la propia agencia (juntas,
+   prospección, cobranza), no una tarea sin dueño. */
+const SIN_EMPRESA = "sin-empresa";
 
 /* Diálogo para CREAR una tarea (solo dirección/coordinación). La edición y el
    detalle rico viven en task-detail.tsx. */
@@ -37,11 +40,20 @@ export function TaskDialog({
   equipo,
   currentUserId,
   onClose,
+  espacio = "fresafit",
+  empresas = [],
+  empresaInicial = null,
 }: {
   equipo: Profile[];
   currentUserId: string;
   onClose: () => void;
+  /* El tablero desde el que se abrió: la tarea nace en ese negocio. */
+  espacio?: EspacioId;
+  empresas?: { id: string; nombre: string; color: string }[];
+  /* Cliente preseleccionado (viene del filtro activo del tablero). */
+  empresaInicial?: string | null;
 }) {
+  const esAgencia = espacio === "agencia";
   const { pending, ejecutar } = useAccionServidor();
   const [titulo, setTitulo] = useState("");
   const [descripcion, setDescripcion] = useState("");
@@ -59,6 +71,7 @@ export function TaskDialog({
   const [motivoAtorado, setMotivoAtorado] = useState("");
   const [etiquetas, setEtiquetas] = useState<string[]>([]);
   const [coasignados, setCoasignados] = useState<string[]>([]);
+  const [empresa, setEmpresa] = useState(empresaInicial ?? SIN_EMPRESA);
 
   /* Al elegir responsable, el área se autollena con la de su perfil (editable).
      Si esa persona estaba como acompañante, se sale de la lista: ya está en la
@@ -92,6 +105,8 @@ export function TaskDialog({
       titulo,
       descripcion,
       responsable_id: responsable === SIN_ASIGNAR ? null : responsable,
+      espacio,
+      empresa_id: esAgencia && empresa !== SIN_EMPRESA ? empresa : null,
       coasignados,
       area,
       prioridad,
@@ -112,10 +127,36 @@ export function TaskDialog({
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nueva tarea</DialogTitle>
+          <DialogTitle>{esAgencia ? "Nueva tarea de la Agencia" : "Nueva tarea"}</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
+          {/* El cliente va primero en la agencia: es la primera decisión ("¿de
+              quién es esto?") y de ahí cuelga todo lo demás. */}
+          {esAgencia && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Cliente</Label>
+              <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string) =>
+                      v === SIN_EMPRESA
+                        ? "De la agencia (sin cliente)"
+                        : (empresas.find((e) => e.id === v)?.nombre ?? "Cliente")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {empresas.map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.nombre}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="titulo">Título</Label>
             <Input

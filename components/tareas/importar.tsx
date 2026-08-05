@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { AREAS } from "@/lib/catalogos";
 import { importarTareas, type TaskInput } from "@/app/(app)/tareas/actions";
-import type { Profile, AreaId, PrioridadId } from "@/lib/types";
+import type { Profile, AreaId, EspacioId, PrioridadId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /* Normaliza para comparar nombres sin acentos ni mayúsculas. */
@@ -82,7 +82,17 @@ function parsear(texto: string, equipo: Profile[]): FilaParseada[] {
 
 /* Botón + diálogo para dar de alta muchas tareas pegando texto (solo gestor).
    Formato por renglón:  emoji Título | Área | Responsable | Fecha(AAAA-MM-DD) */
-export function ImportarTareas({ equipo }: { equipo: Profile[] }) {
+export function ImportarTareas({
+  equipo,
+  espacio = "fresafit",
+  empresaId = null,
+}: {
+  equipo: Profile[];
+  /* Tablero desde el que se importa (las tareas nacen en ese negocio). */
+  espacio?: EspacioId;
+  /* Cliente al que se le cargan, si en la agencia hay uno filtrado. */
+  empresaId?: string | null;
+}) {
   const [abierto, setAbierto] = useState(false);
   const [texto, setTexto] = useState("");
   const [pending, startTransition] = useTransition();
@@ -102,7 +112,7 @@ export function ImportarTareas({ equipo }: { equipo: Profile[] }) {
     }
     startTransition(async () => {
       try {
-        const r = await importarTareas(conTitulo.map(aTaskInput));
+        const r = await importarTareas(conTitulo.map((f) => aTaskInput(f, espacio, empresaId)));
         if ("error" in r) {
           toast.error(r.error);
           return;
@@ -207,12 +217,16 @@ export function ImportarTareas({ equipo }: { equipo: Profile[] }) {
   );
 }
 
-/* Quita los campos de diagnóstico antes de mandar al servidor. */
-function aTaskInput(f: FilaParseada): TaskInput {
+/* Quita los campos de diagnóstico antes de mandar al servidor. Las tareas nacen
+   en el tablero desde el que se importó: pegar el acta de una junta de la
+   agencia no debe llenar el tablero de Fresafit. */
+function aTaskInput(f: FilaParseada, espacio: EspacioId, empresaId: string | null): TaskInput {
   return {
     titulo: f.titulo,
     descripcion: f.descripcion,
     responsable_id: f.responsable_id,
+    espacio,
+    empresa_id: empresaId,
     area: f.area,
     prioridad: f.prioridad,
     estado: f.estado,

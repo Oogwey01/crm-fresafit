@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { despacharPushPendientes } from "@/lib/push/enviar";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { esGestor } from "@/lib/catalogos";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
@@ -18,6 +19,7 @@ import {
 import { textoONulo } from "@/lib/validacion";
 import type {
   AreaId,
+  EspacioId,
   EstadoId,
   PrioridadId,
   TaskDetalle,
@@ -36,10 +38,22 @@ function empujarAvisos() {
   });
 }
 
+/* Los dos tableros (Fresafit y Agencia) comparten estos actions, así que cada
+   cambio tiene que refrescar ambos: una tarea puede cambiar de cliente y aparecer
+   en el otro listado, y el badge del menú cuenta por espacio. */
+const RUTAS_TAREAS = ["/tareas", "/agencia/tareas"];
+const revalidarTareas = () => RUTAS_TAREAS.forEach((r) => revalidatePath(r));
+
 export type TaskInput = {
   titulo: string;
   descripcion: string;
   responsable_id: string | null;
+  /* De qué negocio nace la tarea. Lo fija el tablero donde se creó; sin definir,
+     Fresafit (que es lo que había antes de partir los tableros). */
+  espacio?: EspacioId;
+  /* Cliente de la agencia. Solo aplica en el espacio "agencia": en Fresafit se
+     ignora, porque la marca no tiene cliente que pida el trabajo. */
+  empresa_id?: string | null;
   /* Las DEMÁS personas que trabajan la tarea (tabla task_assignees). El
      responsable principal no va aquí: es quien manda en el área y en el carril
      del tablero. Sin definir = no se toca el equipo actual. */
@@ -133,6 +147,16 @@ async function registrarActividad(
   await supabase.from("task_activity").insert({ task_id: taskId, autor, texto });
 }
 
+/* El cliente solo existe en la agencia: en Fresafit se descarta aunque venga en
+   el formulario. La BD tiene la misma regla (`tasks_empresa_solo_agencia`), pero
+   aquí se limpia antes para no chocar contra el check con un error feo. */
+function empresaParaEspacio(
+  espacio: EspacioId,
+  empresaId: string | null | undefined,
+): string | null {
+  return espacio === "agencia" ? (empresaId || null) : null;
+}
+
 /* ============================ Tareas ====================================== */
 
 export async function crearTarea(input: TaskInput): Promise<Resultado> {
@@ -148,6 +172,8 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
       titulo,
       descripcion: textoONulo(input.descripcion),
       responsable_id: input.responsable_id,
+      espacio: input.espacio ?? "fresafit",
+      empresa_id: empresaParaEspacio(input.espacio ?? "fresafit", input.empresa_id),
       area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
       prioridad: input.prioridad,
       estado: input.estado,
@@ -170,7 +196,7 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
   );
   if (falloEquipo) return { error: `La tarea se creó, pero no se pudo sumar al equipo: ${falloEquipo}` };
 
-  revalidatePath("/tareas");
+  revalidarTareas();
   empujarAvisos();
   return { ok: true };
 }
@@ -182,12 +208,21 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
   const titulo = input.titulo.trim();
   if (!titulo) return { error: "La tarea necesita un título." };
 
+  /* El espacio NO se edita: una tarea nace en el tablero donde se creó. El
+     cliente sí, y solo se toca si el formulario lo mandó (el de Fresafit no lo
+     tiene y no debe borrar el que ya trae la tarea). */
+  const cliente =
+    input.espacio === "agencia" && input.empresa_id !== undefined
+      ? { empresa_id: input.empresa_id || null }
+      : {};
+
   const { error } = await cx.supabase
     .from("tasks")
     .update({
       titulo,
       descripcion: textoONulo(input.descripcion),
       responsable_id: input.responsable_id,
+      ...cliente,
       area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
       prioridad: input.prioridad,
       estado: input.estado,
@@ -208,7 +243,7 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
   );
   if (falloEquipo) return { error: `Se guardó la tarea, pero no el equipo: ${falloEquipo}` };
 
-  revalidatePath("/tareas");
+  revalidarTareas();
   empujarAvisos(); // editar puede cambiar el responsable o sumar gente
   return { ok: true };
 }
@@ -229,7 +264,7 @@ export async function moverTarea(
     .update({ estado, motivo_atorado: motivoParaEstado(estado, motivoAtorado) })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   empujarAvisos(); // pasar a "atorado" avisa a quien delegó
   return { ok: true };
 }
@@ -240,7 +275,7 @@ export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Prom
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("tasks").update({ prioridad }).eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -271,8 +306,46 @@ export async function reasignarTarea(id: string, responsableId: string | null): 
       .eq("user_id", responsableId);
   }
 
-  revalidatePath("/tareas");
+  revalidarTareas();
   empujarAvisos();
+  return { ok: true };
+}
+
+/* Mover una tarea de la agencia a otro cliente (arrastre entre carriles del
+   tablero por cliente, o el selector del detalle). `null` = trabajo de la propia
+   agencia. Solo aplica en el espacio "agencia": la BD rechaza ponerle cliente a
+   una tarea de Fresafit, y aquí se avisa con palabras en vez de con un error de
+   constraint. */
+export async function reasignarEmpresa(
+  id: string,
+  empresaId: string | null,
+): Promise<Resultado> {
+  const cx = await exigirRol("gestor", "Solo dirección, administración o coordinación puede cambiar de cliente una tarea.");
+  if ("error" in cx) return cx;
+
+  const { data, error: errLeer } = await cx.supabase
+    .from("tasks")
+    .select("espacio")
+    .eq("id", id)
+    .single();
+  if (errLeer) return { error: errLeer.message };
+  if (data.espacio !== "agencia") {
+    return { error: "Solo las tareas de la Agencia pertenecen a un cliente." };
+  }
+
+  const { error } = await cx.supabase
+    .from("tasks")
+    .update({ empresa_id: empresaId })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  await registrarActividad(
+    cx.supabase,
+    id,
+    cx.user.id,
+    empresaId ? "cambió la tarea de cliente" : "quitó el cliente de la tarea",
+  );
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -292,7 +365,7 @@ export async function guardarCoasignados(id: string, userIds: string[]): Promise
   const fallo = await sincronizarCoasignados(cx.supabase, id, userIds, data.responsable_id);
   if (fallo) return { error: fallo };
 
-  revalidatePath("/tareas");
+  revalidarTareas();
   empujarAvisos();
   return { ok: true };
 }
@@ -307,7 +380,7 @@ export async function borrarTarea(id: string): Promise<Resultado> {
     .update({ deleted_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -318,7 +391,7 @@ export async function restaurarTarea(id: string): Promise<Resultado> {
 
   const { error } = await cx.supabase.from("tasks").update({ deleted_at: null }).eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -329,7 +402,7 @@ export async function eliminarDefinitivo(id: string): Promise<Resultado> {
 
   const { error } = await cx.supabase.from("tasks").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -340,7 +413,7 @@ export async function guardarEtiquetas(id: string, etiquetas: string[]): Promise
   const { error } = await cx.supabase.from("tasks").update({ etiquetas }).eq("id", id);
   if (error) return { error: error.message };
   await registrarActividad(cx.supabase, id, cx.user.id, "actualizó las etiquetas");
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -379,7 +452,7 @@ export async function comentar(taskId: string, texto: string): Promise<Resultado
   if (!t) return { error: "El comentario está vacío." };
   const { error } = await cx.supabase.from("task_comments").insert({ task_id: taskId, autor: cx.user.id, texto: t });
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   empujarAvisos();
   return { ok: true };
 }
@@ -389,7 +462,7 @@ export async function borrarComentario(id: string): Promise<Resultado> {
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("task_comments").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -403,7 +476,7 @@ export async function agregarChecklist(taskId: string, texto: string): Promise<R
   const { error } = await cx.supabase.from("task_checklist").insert({ task_id: taskId, texto: t });
   if (error) return { error: error.message };
   await registrarActividad(cx.supabase, taskId, cx.user.id, `agregó la subtarea «${t}»`);
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -412,7 +485,7 @@ export async function toggleChecklist(id: string, hecho: boolean): Promise<Resul
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("task_checklist").update({ hecho }).eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -421,7 +494,7 @@ export async function borrarChecklist(id: string): Promise<Resultado> {
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("task_checklist").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -435,7 +508,7 @@ export async function agregarEnlace(taskId: string, titulo: string, url: string)
   const { error } = await cx.supabase.from("task_links").insert({ task_id: taskId, titulo: textoONulo(titulo), url: u });
   if (error) return { error: error.message };
   await registrarActividad(cx.supabase, taskId, cx.user.id, "agregó un enlace");
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -444,7 +517,7 @@ export async function borrarEnlace(id: string): Promise<Resultado> {
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("task_links").delete().eq("id", id);
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -480,7 +553,7 @@ export async function subirAdjunto(taskId: string, formData: FormData): Promise<
     errorRegistro: "No se pudo registrar el adjunto.",
   });
   if ("error" in r) return r;
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -495,7 +568,7 @@ export async function borrarAdjunto(id: string, storagePath: string): Promise<Re
     id,
   });
   if ("error" in r) return r;
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }
 
@@ -509,9 +582,23 @@ export async function urlAdjunto(storagePath: string): Promise<{ url: string } |
 /* ============================ Respaldo completo =========================== */
 
 /* Trae TODO el módulo de tareas (tareas + comentarios + subtareas + enlaces +
-   metadatos de adjuntos + historial) para descargarlo como respaldo .json.
+   metadatos de adjuntos + historial + quién trabaja y con quién se compartió)
+   para descargarlo como respaldo .json.
    Solo gestores: es la copia de seguridad de todo el equipo, no la vista propia.
-   Los archivos binarios de Storage NO se incluyen (solo sus rutas). */
+   Los archivos binarios de Storage NO se incluyen (solo sus rutas).
+
+   TODAS las tablas se traen paginadas con `traerTodo`. Antes iban con un
+   `select` a secas, que parecía traerlo todo pero no: PostgREST corta en 1000
+   filas SIN devolver error, así que el archivo que el equipo se descargaba
+   creyendo que era su copia de seguridad venía mutilado —comentarios y bitácora
+   pasaron de mil hace tiempo— y nada en pantalla lo delataba. Un respaldo que
+   miente es peor que no tener respaldo, porque nadie va a buscar el original.
+
+   `task_assignees` y `task_shares` se agregaron por lo mismo: quién más trabaja
+   la tarea y con quién se compartió solo viven ahí, y sin ellas el respaldo no
+   alcanzaba para reconstruir el módulo. `task_reads` se deja fuera a propósito:
+   es la marca de "ya lo vi" de cada persona, se regenera sola con el uso y
+   restaurarla no devuelve nada de trabajo perdido. */
 export async function exportarRespaldo(): Promise<
   { datos: Record<string, unknown> } | { error: string }
 > {
@@ -519,32 +606,71 @@ export async function exportarRespaldo(): Promise<
   if (!user) return { error: "No autenticado." };
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede descargar el respaldo completo." };
 
-  const [tareas, perfiles, comentarios, checklist, enlaces, adjuntos, actividad] = await Promise.all([
-    supabase.from("tasks").select("*").order("created_at", { ascending: true }),
-    supabase.from("profiles").select("id, nombre, rol, area"),
-    supabase.from("task_comments").select("*").order("created_at", { ascending: true }),
-    supabase.from("task_checklist").select("*").order("orden", { ascending: true }),
-    supabase.from("task_links").select("*").order("created_at", { ascending: true }),
-    supabase.from("task_attachments").select("*").order("created_at", { ascending: true }),
-    supabase.from("task_activity").select("*").order("created_at", { ascending: true }),
-  ]);
+  type Fila = Record<string, unknown>;
+  try {
+    /* El orden lleva `id` de desempate a propósito: paginar por rangos exige un
+       criterio ÚNICO, y `created_at` no lo es (una importación en lote guarda
+       decenas de filas con el mismo instante). Sin el desempate, dos tandas
+       podían repetir una fila y saltarse otra. */
+    const [tareas, perfiles, comentarios, checklist, enlaces, adjuntos, actividad, equipoTarea, compartidas] =
+      await Promise.all([
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("tasks").select("*").order("created_at").order("id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("profiles").select("id, nombre, rol, area").order("id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_comments").select("*").order("created_at").order("id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_checklist").select("*").order("created_at").order("id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_links").select("*").order("created_at").order("id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_attachments").select("*").order("created_at").order("id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_activity").select("*").order("created_at").order("id").range(desde, hasta),
+        ),
+        /* Tablas puente: no tienen `id`, su llave es el par (tarea, persona). */
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_assignees").select("*").order("task_id").order("user_id").range(desde, hasta),
+        ),
+        traerTodo<Fila>((desde, hasta) =>
+          supabase.from("task_shares").select("*").order("task_id").order("user_id").range(desde, hasta),
+        ),
+      ]);
 
-  const conError = [tareas, perfiles, comentarios, checklist, enlaces, adjuntos, actividad].find((r) => r.error);
-  if (conError?.error) return { error: conError.error.message };
-
-  return {
-    datos: {
-      exportadoEl: new Date().toISOString(),
-      nota: "Respaldo completo del módulo Tareas. Los archivos adjuntos no se incluyen; solo sus rutas en Storage.",
-      equipo: perfiles.data ?? [],
-      tareas: tareas.data ?? [],
-      comentarios: comentarios.data ?? [],
-      subtareas: checklist.data ?? [],
-      enlaces: enlaces.data ?? [],
-      adjuntos: adjuntos.data ?? [],
-      actividad: actividad.data ?? [],
-    },
-  };
+    return {
+      datos: {
+        exportadoEl: new Date().toISOString(),
+        /* La nota dice exactamente qué hay y qué no: es el papelito que va a
+           leer quien abra este archivo dentro de un año para saber si le sirve. */
+        nota:
+          "Respaldo completo del módulo Tareas: tareas (incluidas las de la papelera)," +
+          " comentarios, subtareas, enlaces, historial, el equipo de cada tarea y con quién" +
+          " se compartió. Todas las tablas van íntegras, sin recorte. No incluye los archivos" +
+          " adjuntos —solo sus rutas en Storage— ni las marcas de 'ya lo vi' de cada persona," +
+          " que se regeneran solas con el uso.",
+        equipo: perfiles,
+        tareas,
+        comentarios,
+        subtareas: checklist,
+        enlaces,
+        adjuntos,
+        actividad,
+        coasignados: equipoTarea,
+        compartidas,
+      },
+    };
+  } catch (e) {
+    /* `traerTodo` lanza en cuanto una tanda falla, y hace bien: mejor no
+       entregar respaldo que entregar uno a medias sin decirlo. */
+    return { error: e instanceof Error ? e.message : "No se pudo armar el respaldo." };
+  }
 }
 
 /* ============================ Importar en lote ============================= */
@@ -567,6 +693,8 @@ export async function importarTareas(
       titulo: f.titulo,
       descripcion: textoONulo(f.descripcion),
       responsable_id: f.responsable_id,
+      espacio: f.espacio ?? "fresafit",
+      empresa_id: empresaParaEspacio(f.espacio ?? "fresafit", f.empresa_id),
       area: f.area,
       prioridad: f.prioridad,
       estado: f.estado,
@@ -577,7 +705,7 @@ export async function importarTareas(
     })),
   );
   if (error) return { error: error.message };
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true, creadas: validas.length };
 }
 
@@ -637,6 +765,6 @@ export async function compartirTarea(taskId: string, userIds: string[]): Promise
     const { error } = await supabase.from("task_shares").insert(filas);
     if (error) return { error: error.message };
   }
-  revalidatePath("/tareas");
+  revalidarTareas();
   return { ok: true };
 }

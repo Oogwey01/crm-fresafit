@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
-import { esGestor } from "@/lib/catalogos";
+import { esGestor, puedeAdministrar } from "@/lib/catalogos";
 
 type Sesion = Awaited<ReturnType<typeof usuarioActual>>;
 
@@ -16,12 +16,16 @@ export type ContextoRol =
    patrón `direccion()` de finanzas. La BD refuerza lo mismo con RLS — esto es
    defensa en profundidad, y el mensaje se personaliza por action porque es el
    texto que ve el usuario en el toast. */
-export type NivelRol = "autenticado" | "interno" | "gestor" | "direccion";
+/* `admin` = quien lleva la administración (dirección + administración): gastos,
+   nómina, reportes y agencia. `direccion` sigue siendo el nivel de arriba, para
+   lo que decide quién es quién: roles del equipo y ventas importadas por API. */
+export type NivelRol = "autenticado" | "interno" | "gestor" | "admin" | "direccion";
 
 const MENSAJE_POR_NIVEL: Record<NivelRol, string> = {
   autenticado: "No autenticado.",
   interno: "Solo el equipo interno puede hacer esto.",
-  gestor: "Solo dirección o coordinación puede hacer esto.",
+  gestor: "Solo dirección, administración o coordinación puede hacer esto.",
+  admin: "Solo dirección o administración puede hacer esto.",
   direccion: "Solo Dirección puede hacer esto.",
 };
 
@@ -32,6 +36,7 @@ export async function exigirRol(nivel: NivelRol, mensaje?: string): Promise<Cont
     nivel === "autenticado" ||
     (nivel === "interno" && esInterno(rol)) ||
     (nivel === "gestor" && esGestor(rol)) ||
+    (nivel === "admin" && puedeAdministrar(rol)) ||
     (nivel === "direccion" && rol === "direccion");
   if (!pasa) return { error: mensaje ?? MENSAJE_POR_NIVEL[nivel] };
   return { supabase, user, rol: rol ?? "miembro" };

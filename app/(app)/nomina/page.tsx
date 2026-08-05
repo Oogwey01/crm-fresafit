@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelNomina } from "@/components/nomina/panel";
 import type {
   AgenciaEmpresa,
@@ -18,7 +19,7 @@ export const metadata = { title: "Nómina · Fresafit" };
    vería una pantalla vacía sin entender por qué. */
 export default async function NominaFresafitPage() {
   const { supabase, rol } = await usuarioActual();
-  if (rol !== "direccion") redirect("/tareas");
+  if (!puedeAdministrar(rol)) redirect("/tareas");
 
   const [empleadosRes, equipoRes] = await Promise.all([
     supabase

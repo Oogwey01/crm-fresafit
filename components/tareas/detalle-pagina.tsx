@@ -15,12 +15,17 @@ export function DetalleTareaPagina({
   rol,
   currentUserId,
   enfocarComentario,
+  empresas = [],
+  volverA = "/tareas",
 }: {
   tarea: TaskConResponsable;
   equipo: Profile[];
   rol: RolId;
   currentUserId: string;
   enfocarComentario: boolean;
+  empresas?: { id: string; nombre: string; color: string }[];
+  /* Tablero al que se regresa al cerrar: el de Fresafit o el de la Agencia. */
+  volverA?: string;
 }) {
   const router = useRouter();
 
@@ -39,7 +44,8 @@ export function DetalleTareaPagina({
       currentUserId={currentUserId}
       comoPagina
       enfocarComentario={enfocarComentario}
-      onClose={() => router.push("/tareas")}
+      empresas={empresas}
+      onClose={() => router.push(volverA)}
     />
   );
 }

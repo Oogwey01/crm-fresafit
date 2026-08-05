@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Menu } from "lucide-react";
 import { LogoFresafit } from "@/components/logo-fresafit";
 import { Notificaciones } from "@/components/tareas/notificaciones";
-import type { Profile, Notificacion } from "@/lib/types";
+import type { Profile, Notificacion, EspacioId } from "@/lib/types";
 import { SidebarContent } from "@/components/sidebar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
@@ -13,7 +13,7 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 export function MobileNav(props: {
   profile: Profile | null;
   email: string;
-  tareasActivas: number;
+  tareasActivas: Record<EspacioId, number>;
   notificaciones: Notificacion[];
 }) {
   /* El panel se cierra al navegar vía el onNavigate que recibe SidebarContent

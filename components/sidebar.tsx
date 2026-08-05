@@ -7,8 +7,10 @@ import {
   Building2,
   ClipboardCheck,
   DollarSign,
+  Factory,
   LogOut,
   Package,
+  Palette,
   Receipt,
   Store,
   TrendingUp,
@@ -21,7 +23,15 @@ import { AvisosPush } from "@/components/tareas/avisos-push";
 import { Notificaciones } from "@/components/tareas/notificaciones";
 import { TemaToggle } from "@/components/tema-toggle";
 import { SelectorEspacio } from "@/components/selector-espacio";
-import { ESPACIOS, MODULOS, ROLES, espacioDeRuta, type EspacioId } from "@/lib/catalogos";
+import {
+  ESPACIOS,
+  MODULOS,
+  ROLES,
+  esDireccion,
+  espacioDeRuta,
+  puedeAdministrar,
+  type EspacioId,
+} from "@/lib/catalogos";
 import type { Profile, Notificacion } from "@/lib/types";
 import { cn, iniciales } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,11 +39,14 @@ import { Badge } from "@/components/ui/badge";
 
 const ICONOS: Record<string, LucideIcon> = {
   tareas: ClipboardCheck,
+  "agencia-tareas": ClipboardCheck,
   inventario: Package,
+  proveedores: Factory,
   metricas: BarChart3,
   canales: Store,
   finanzas: DollarSign,
   clientes: Users,
+  personalizados: Palette,
   pedidos: Truck,
   nomina: Users,
   reportes: TrendingUp,
@@ -48,7 +61,8 @@ const ICONOS: Record<string, LucideIcon> = {
 export function Sidebar(props: {
   profile: Profile | null;
   email: string;
-  tareasActivas: number;
+  /* Pendientes por negocio: el badge del menú muestra las del espacio abierto. */
+  tareasActivas: Record<EspacioId, number>;
   notificaciones: Notificacion[];
 }) {
   return (
@@ -73,7 +87,8 @@ export function SidebarContent({
 }: {
   profile: Profile | null;
   email: string;
-  tareasActivas: number;
+  /* Pendientes por negocio: el badge del menú muestra las del espacio abierto. */
+  tareasActivas: Record<EspacioId, number>;
   notificaciones: Notificacion[];
   onNavigate?: () => void;
 }) {
@@ -82,11 +97,15 @@ export function SidebarContent({
     ROLES.find((r) => r.id === profile?.rol)?.nombre ?? "Miembro";
   const nombre = profile?.nombre || email;
 
-  /* Finanzas y toda la Agencia solo existen para Dirección: ni siquiera aparecen
-     en el menú del resto (la BD lo refuerza con RLS; esto es para no tentar ni
-     confundir). */
+  /* Finanzas, nómina, reportes y los cobros de la Agencia solo existen para quien
+     lleva la administración (dirección y administración): ni siquiera aparecen en
+     el menú del resto (la BD lo refuerza con RLS; esto es para no tentar ni
+     confundir). Las tareas de la Agencia sí las ve todo el equipo.
+     `soloDireccion` es el escalón de arriba: Proveedores lleva costos de compra
+     y ahí no entra ni administración. */
   const visible = (m: (typeof MODULOS)[number]) =>
-    !("soloDireccion" in m && m.soloDireccion) || profile?.rol === "direccion";
+    (!("soloAdmin" in m && m.soloAdmin) || puedeAdministrar(profile?.rol)) &&
+    (!("soloDireccion" in m && m.soloDireccion) || esDireccion(profile?.rol));
 
   /* El menú muestra un solo negocio a la vez, el de la ruta en la que estás.
      Fresafit y Agencia comparten equipo pero no comparten nada más: verlos
@@ -117,7 +136,11 @@ export function SidebarContent({
           (usuario, tema, cerrar sesión) queda clavado abajo y siempre visible,
           aunque algún día la lista de módulos no quepa. */}
       <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
-        <SelectorEspacio actual={espacio} destinos={destinos} onNavigate={onNavigate} />
+        {/* A propósito SIN `onNavigate`: cambiar de negocio no es llegar a
+            destino, es cambiar de qué va la lista de abajo. Cerrando el panel
+            había que volver a abrirlo para elegir módulo, y de paso te dejaba
+            en la primera pantalla de la Agencia sin haberla pedido. */}
+        <SelectorEspacio actual={espacio} destinos={destinos} />
         <div className="px-2.5 pb-2 text-[10.5px] font-semibold tracking-wide text-muted-foreground/80 uppercase">
           {espacio === "agencia" ? "Agencia Fresafit" : "Operación"}
         </div>
@@ -138,11 +161,12 @@ export function SidebarContent({
             >
               <Icono className="size-[18px]" strokeWidth={1.9} />
               <span className="flex-1">{m.nombre}</span>
-              {m.id === "tareas" && tareasActivas > 0 && (
-                <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">
-                  {tareasActivas}
-                </span>
-              )}
+              {(m.id === "tareas" || m.id === "agencia-tareas") &&
+                tareasActivas[m.espacio] > 0 && (
+                  <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">
+                    {tareasActivas[m.espacio]}
+                  </span>
+                )}
             </Link>
           );
         })}
@@ -191,8 +215,10 @@ export function SidebarContent({
         <div className="mt-2">
           <TemaToggle />
         </div>
-        <form action="/auth/signout" method="post">
-          <Button type="submit" variant="outline" size="sm" className="w-full gap-2">
+        {/* Aire entre el selector de tema y «Cerrar sesión»: pegados, en el
+            teléfono se tocaban y era fácil salirse queriendo poner modo claro. */}
+        <form action="/auth/signout" method="post" className="mt-3">
+          <Button type="submit" variant="outline" size="sm" className="h-9 w-full gap-2">
             <LogOut className="size-[15px]" strokeWidth={1.8} />
             Cerrar sesión
           </Button>

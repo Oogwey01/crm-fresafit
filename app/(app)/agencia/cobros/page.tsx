@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelCobros } from "@/components/agencia/panel-cobros";
 import type { AgenciaContrato, AgenciaEmpresa, AgenciaIngresoConEmpresa } from "@/lib/types";
 
@@ -9,7 +10,7 @@ export const metadata = { title: "Cobros · Agencia Fresafit" };
    referidos, con su ciclo calculado → cobrado → pagado. */
 export default async function CobrosPage() {
   const { supabase, rol } = await usuarioActual();
-  if (rol !== "direccion") redirect("/tareas");
+  if (!puedeAdministrar(rol)) redirect("/tareas");
 
   const [ingresosRes, empresasRes, contratosRes] = await Promise.all([
     supabase
