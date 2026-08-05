@@ -15,6 +15,13 @@ import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
 
 type Alcance = "mis" | "delegadas" | "todas";
 
+/* Chips de la barra de filtros: reparten el ancho a partes iguales (flex-1) y
+   recortan antes de empujar a los de al lado (min-w-0 + truncate). */
+const CHIP =
+  "min-w-0 flex-1 truncate rounded-full px-2 py-2 text-center text-[12px] font-semibold transition-colors";
+const CHIP_ACTIVO = "bg-foreground text-background";
+const CHIP_INACTIVO = "border bg-card text-foreground";
+
 /* Pastilla de estado — tintes suaves tomados del diseño móvil. */
 const ESTILO_ESTADO: Record<EstadoId, { nombre: string; bg: string; color: string; dot: string }> = {
   por_hacer: { nombre: "Por hacer", bg: "#F1F3F6", color: "#5A6474", dot: "#94A3B8" },
@@ -36,6 +43,8 @@ export function VistaMovil({
   onAbrir,
   onNueva,
   checklistPorTarea,
+  titulo,
+  empresas,
 }: {
   tareas: TaskConResponsable[];
   currentUserId: string;
@@ -48,7 +57,14 @@ export function VistaMovil({
   onAbrir: (t: TaskConResponsable) => void;
   onNueva: () => void;
   checklistPorTarea?: Record<string, { total: number; hechos: number }>;
+  /* Encabezado alterno (el tablero de la Agencia no dice "del equipo"). */
+  titulo?: string;
+  /* Con clientes, la lista se agrupa por cliente en vez de por área: en la
+     agencia el área es siempre la misma (contenido, diseño) y agrupar por ella
+     dejaba una sola pila con todo adentro. */
+  empresas?: { id: string; nombre: string; color: string }[];
 }) {
+  const porCliente = !!empresas;
   /* "mis" = lo asignado a mí; "delegadas" = lo que yo delegué; "todas" = todo
      (los filtros de persona/área son de escritorio y aquí no aplican). */
   const base =
@@ -63,11 +79,20 @@ export function VistaMovil({
     ? base.filter((t) => esVencida(t.fecha_limite, t.estado))
     : base;
 
-  /* Agrupado por área, en el orden del catálogo, omitiendo áreas sin tareas. */
-  const grupos = AREAS.map((area) => ({
-    area,
-    tasks: filtradas.filter((t) => t.area === area.id),
-  })).filter((g) => g.tasks.length > 0);
+  /* Agrupado por cliente (agencia) o por área (Fresafit), omitiendo los grupos
+     vacíos. `area` conserva el nombre porque es lo que pinta el encabezado:
+     lleva id, nombre y color, que es todo lo que necesita el carril. */
+  const grupos = (
+    porCliente
+      ? [
+          ...empresas!.map((e) => ({ area: e, tasks: filtradas.filter((t) => t.empresa_id === e.id) })),
+          {
+            area: { id: "sin-empresa", nombre: "De la agencia", color: "#94a3b8" },
+            tasks: filtradas.filter((t) => !t.empresa_id),
+          },
+        ]
+      : AREAS.map((area) => ({ area, tasks: filtradas.filter((t) => t.area === area.id) }))
+  ).filter((g) => g.tasks.length > 0);
 
   /* Los temas (áreas) arrancan COLAPSADOS: guardamos las que están abiertas. */
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
@@ -85,23 +110,24 @@ export function VistaMovil({
   return (
     <div className="pb-24">
       {/* Encabezado */}
-      <h1 className="text-[21px] font-bold tracking-tight">Tareas del equipo</h1>
+      <h1 className="text-[21px] font-bold tracking-tight">{titulo ?? "Tareas del equipo"}</h1>
       <p className="mt-1.5 text-[13.5px] text-muted-foreground">
-        Quién hace qué y en qué va cada cosa.
+        {porCliente
+          ? "Lo que traemos de cada cliente."
+          : "Quién hace qué y en qué va cada cosa."}
       </p>
 
-      {/* Chips de filtro (scroll horizontal) */}
-      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Chips de filtro: todos a la vista en una sola fila. Antes iban en un
+          carril con scroll lateral, y el filtro de la derecha —justo el de las
+          vencidas— quedaba fuera de la pantalla y no se sabía que existía.
+          Se reparten el ancho a partes iguales y los rótulos se acortan («Mías»,
+          «Delegadas») para que quepan sin recortarse. */}
+      <div className="mt-4 flex gap-1.5">
         <button
           type="button"
           onClick={() => setAlcance("todas")}
           aria-pressed={alcance === "todas"}
-          className={cn(
-            "shrink-0 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition-colors",
-            alcance === "todas"
-              ? "bg-foreground text-background"
-              : "border bg-card text-foreground",
-          )}
+          className={cn(CHIP, alcance === "todas" ? CHIP_ACTIVO : CHIP_INACTIVO)}
         >
           Todas · {tareas.length}
         </button>
@@ -109,28 +135,19 @@ export function VistaMovil({
           type="button"
           onClick={() => setAlcance("mis")}
           aria-pressed={alcance === "mis"}
-          className={cn(
-            "shrink-0 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition-colors",
-            alcance === "mis"
-              ? "bg-foreground text-background"
-              : "border bg-card text-foreground",
-          )}
+          className={cn(CHIP, alcance === "mis" ? CHIP_ACTIVO : CHIP_INACTIVO)}
         >
-          Mis tareas
+          Mías
         </button>
         {gestor && (
           <button
             type="button"
             onClick={() => setAlcance("delegadas")}
             aria-pressed={alcance === "delegadas"}
-            className={cn(
-              "shrink-0 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition-colors",
-              alcance === "delegadas"
-                ? "bg-foreground text-background"
-                : "border bg-card text-foreground",
-            )}
+            title="Delegadas por mí"
+            className={cn(CHIP, alcance === "delegadas" ? CHIP_ACTIVO : CHIP_INACTIVO)}
           >
-            Delegadas por mí
+            Delegadas
           </button>
         )}
         {(vencidas > 0 || soloVencidas) && (
@@ -138,15 +155,20 @@ export function VistaMovil({
             type="button"
             onClick={() => setSoloVencidas((v) => !v)}
             aria-pressed={soloVencidas}
+            title="Ver solo las tareas vencidas"
             className={cn(
-              "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-semibold transition-colors",
+              CHIP,
               soloVencidas
                 ? "bg-red-600 text-white"
                 : "border border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
             )}
           >
-            <AlertTriangle className="size-3" strokeWidth={2.2} aria-hidden="true" />
-            {vencidas} {vencidas === 1 ? "vencida" : "vencidas"}
+            <AlertTriangle
+              className="mr-1 inline-block size-3 align-[-1px]"
+              strokeWidth={2.2}
+              aria-hidden="true"
+            />
+            {vencidas}
           </button>
         )}
       </div>

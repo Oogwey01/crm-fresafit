@@ -194,13 +194,12 @@ export function PanelPedidos({
     {
       clave: "estado",
       label: "Estado",
-      cardValorClassName: "flex justify-end",
       celda: (p) => (
         <Select
           value={p.estado ?? undefined}
           onValueChange={(v) => v && cambiar(p.id, v as EstadoPedidoId)}
         >
-          <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
+          <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0">
             {p.estado && <PastillaEstado estado={p.estado} />}
           </SelectTrigger>
           <SelectContent>
@@ -216,6 +215,7 @@ export function PanelPedidos({
     {
       clave: "envio",
       label: "Envío",
+      cardAncho: true,
       celda: (p) => {
         const rastreo = urlRastreo(p.paqueteria, p.num_guia, p.url_rastreo);
         return (

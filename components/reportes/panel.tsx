@@ -98,7 +98,6 @@ export function PanelReportes({
     {
       clave: "url",
       label: "",
-      cardValorClassName: "flex justify-end",
       celda: (r) =>
         r.url ? (
           <a
@@ -106,7 +105,7 @@ export function PanelReportes({
             target="_blank"
             rel="noopener noreferrer"
             title="Abrir el reporte"
-            className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground md:ml-0"
+            className="inline-flex rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <ExternalLink className="size-4" />
           </a>

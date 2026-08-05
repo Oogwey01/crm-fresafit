@@ -145,7 +145,6 @@ export function PanelCobros({
     {
       clave: "honorarios",
       label: "Honorarios",
-      cardValorClassName: "text-right",
       celda: (i) => (
         <span className="font-semibold tabular-nums">{formatearMXN(honorarios(i))}</span>
       ),
@@ -153,9 +152,8 @@ export function PanelCobros({
     {
       clave: "total",
       label: "Se le cobra",
-      cardValorClassName: "text-right",
       celda: (i) => (
-        <div className="text-right md:text-left">
+        <div>
           <div className="tabular-nums">{formatearMXN(i.total)}</div>
           {i.fondo_delegado > 0 && (
             <div className="text-[11px] text-muted-foreground" title="No cuenta como ingreso">
@@ -168,7 +166,6 @@ export function PanelCobros({
     {
       clave: "estado",
       label: "Estado",
-      cardValorClassName: "flex justify-end",
       celda: (i) => {
         const e = obtenerEstadoIngreso(i.estado);
         return (
@@ -177,7 +174,7 @@ export function PanelCobros({
             onValueChange={(v) => v && mover(i.id, v as EstadoIngresoId)}
             disabled={pending}
           >
-            <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
+            <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0">
               {e && <Pastilla nombre={e.nombre} color={e.color} />}
             </SelectTrigger>
             <SelectContent>

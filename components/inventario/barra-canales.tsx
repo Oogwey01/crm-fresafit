@@ -1,6 +1,6 @@
 "use client";
 
-import { Music2, RefreshCw, ShoppingCart, Store, type LucideIcon } from "lucide-react";
+import { Music2, Plug, RefreshCw, ShoppingCart, Store, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   sincronizarMercadolibre,
@@ -8,7 +8,13 @@ import {
   sincronizarTiktok,
 } from "@/app/(app)/inventario/actions";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 /* Los tres canales usan el mismo par de botones (Conectar / Sincronizar); era
@@ -72,10 +78,81 @@ export function BarraCanales({
   };
   return (
     <>
-      {CANALES.map((canal) => (
-        <BotonCanal key={canal.id} canal={canal} conectada={conectadas[canal.id]} />
-      ))}
+      {/* Escritorio: un botón por canal, como siempre. `md:contents` deja que
+          los tres sigan siendo hijos directos del flex de la cabecera. */}
+      <div className="hidden md:contents">
+        {CANALES.map((canal) => (
+          <BotonCanal key={canal.id} canal={canal} conectada={conectadas[canal.id]} />
+        ))}
+      </div>
+
+      {/* Teléfono: los tres detrás de un menú. Sincronizar a mano es
+          mantenimiento —el cron lo hace solo— y no merece tres botones a ancho
+          completo delante del catálogo, que es a lo que se entra. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          className={cn(
+            buttonVariants({ variant: "outline" }),
+            "h-auto w-full gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:hidden",
+          )}
+        >
+          <Plug className="size-4" strokeWidth={1.9} aria-hidden="true" />
+          Canales
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {CANALES.map((canal) => (
+            <ItemCanal key={canal.id} canal={canal} conectada={conectadas[canal.id]} />
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </>
+  );
+}
+
+/* El mismo par conectar/sincronizar, como renglón de menú. */
+function ItemCanal({
+  canal,
+  conectada,
+}: {
+  canal: (typeof CANALES)[number];
+  conectada: boolean;
+}) {
+  const { pending: sincronizando, ejecutar } = useAccionServidor();
+  const Icono = canal.icono;
+
+  if (!conectada) {
+    return (
+      <DropdownMenuItem
+        onClick={() => {
+          window.location.href = `/api/${canal.id}/conectar`;
+        }}
+      >
+        <Icono aria-hidden="true" />
+        {canal.etiquetaConectar}
+      </DropdownMenuItem>
+    );
+  }
+
+  return (
+    <DropdownMenuItem
+      disabled={sincronizando}
+      /* closeOnClick=false: el menú se cerraba antes de que apareciera la
+         confirmación, y con él desaparecía el contexto de qué se iba a
+         sincronizar. */
+      closeOnClick={false}
+      onClick={() =>
+        ejecutar(canal.sincronizar, {
+          confirmar: canal.confirmacion,
+          error: "No se pudo sincronizar. Revisa tu conexión.",
+          alExito: (r) => {
+            toast.success(r.detalle);
+          },
+        })
+      }
+    >
+      <RefreshCw className={cn(sincronizando && "animate-spin")} aria-hidden="true" />
+      {sincronizando ? "Sincronizando…" : `Sincronizar ${canal.etiquetaSync}`}
+    </DropdownMenuItem>
   );
 }
 

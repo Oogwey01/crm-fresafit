@@ -111,7 +111,9 @@ export function TablaProductos({
       esTitulo: true,
       celda: (p) => (
         <div className="flex min-w-0 items-center gap-2.5">
-          <Miniatura src={portadaProducto(p)} alt={p.nombre} />
+          {/* En la tarjeta del teléfono la miniatura de 80 px se comía media
+              tarjeta para no decir nada que el nombre no diga. */}
+          <Miniatura src={portadaProducto(p)} alt={p.nombre} tam="size-11 md:size-20" />
           <button
             type="button"
             onClick={() => onAbrir(p)}
@@ -143,6 +145,8 @@ export function TablaProductos({
     {
       clave: "stock",
       label: "Stock",
+      /* Los −/+ más el semáforo no caben en media tarjeta. */
+      cardAncho: true,
       celda: (p) => {
         return <ControlStock p={p} onCambiar={cambiarStock} titulo={tituloAjuste} />;
       },

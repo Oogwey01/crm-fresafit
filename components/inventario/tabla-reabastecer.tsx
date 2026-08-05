@@ -77,7 +77,9 @@ export function TablaReabastecer({
   params: ParamsReorden;
   busqueda: string;
   filtroTipo: string;
-  onPedir: (grupo: GrupoReorden) => void;
+  /* Solo dirección puede armar el pedido: para el resto la columna se queda
+     con la sugerencia y sin botón. */
+  onPedir?: (grupo: GrupoReorden) => void;
 }) {
   const [ventanaDias, setVentanaDias] = useState(30);
   const [canal, setCanal] = useState<CanalId | "todas">("todas");
@@ -216,7 +218,7 @@ export function TablaReabastecer({
     {
       clave: "cuando",
       label: "Pedir antes de",
-      cardValorClassName: "flex justify-end",
+      cardAncho: true,
       celda: (g) => (
         <div className="flex items-center gap-2">
           <span
@@ -231,7 +233,7 @@ export function TablaReabastecer({
                 ? "Ya"
                 : formatearFecha(g.pedirAntesDe)}
           </span>
-          {g.sugerido > 0 && (
+          {g.sugerido > 0 && onPedir && (
             <Button
               variant="outline"
               size="sm"

@@ -43,11 +43,20 @@ export function Dato({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11.5px] text-muted-foreground">{etiqueta}</div>
-      <div className={cn("text-[19px] font-bold leading-tight tabular-nums", className)}>
+      <div className="text-[11.5px] leading-tight text-muted-foreground">{etiqueta}</div>
+      {/* break-words: un importe no lleva espacios, así que sin esto «$1,234.56»
+          no se parte y se mete encima del dato de al lado en vez de caber. */}
+      <div
+        className={cn(
+          "break-words text-[17px] font-bold leading-tight tabular-nums md:text-[19px]",
+          className,
+        )}
+      >
         {valor}
       </div>
-      {detalle && <div className="text-[11.5px] text-muted-foreground">{detalle}</div>}
+      {detalle && (
+        <div className="text-[11.5px] leading-tight text-muted-foreground">{detalle}</div>
+      )}
     </div>
   );
 }

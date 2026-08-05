@@ -135,9 +135,8 @@ export function PanelNomina({
     {
       clave: "monto",
       label: "Pago",
-      cardValorClassName: "text-right",
       celda: (e) => (
-        <div className="text-right md:text-left">
+        <div>
           <div className="font-semibold tabular-nums">{formatearMXN(e.monto)}</div>
           <div className="text-[11.5px] text-muted-foreground">
             {PERIODICIDADES_PAGO.find((p) => p.id === e.periodicidad)?.nombre?.toLowerCase() ??
@@ -158,13 +157,11 @@ export function PanelNomina({
     {
       clave: "acciones",
       label: "",
-      cardValorClassName: "flex justify-end",
       celda: (e) => (
         <Button
           variant="outline"
           size="sm"
           onClick={() => setPagoDialog(e)}
-          className="ml-auto md:ml-0"
         >
           Pagar
         </Button>
@@ -200,7 +197,6 @@ export function PanelNomina({
     {
       clave: "monto",
       label: "Monto",
-      cardValorClassName: "text-right",
       celda: (p) => <span className="font-semibold tabular-nums">{formatearMXN(p.monto)}</span>,
     },
     {
@@ -215,14 +211,12 @@ export function PanelNomina({
     {
       clave: "estado",
       label: "Estado",
-      cardValorClassName: "flex justify-end",
       celda: (p) => (
         <button
           type="button"
           disabled={pending}
           onClick={() => alternarPago(p.id, p.estado !== "pagado")}
           title={p.estado === "pagado" ? "Marcar como pendiente" : "Marcar como pagado"}
-          className="ml-auto md:ml-0"
         >
           <Pastilla
             nombre={p.estado === "pagado" ? "Pagado" : "Pendiente"}

@@ -173,7 +173,10 @@ export function RangoFechas({
     >
       <PopoverTrigger
         className={cn(
-          "flex h-9 items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-left text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:h-8",
+          /* max-w-full: el botón mide lo que su etiqueta, y un rango a mano
+             («1 ago 2026 – 31 ago 2026») es más ancho que un teléfono. Sin esto
+             desbordaba la pantalla en vez de dejar que el `truncate` recorte. */
+          "flex h-9 max-w-full items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-left text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:h-8",
           className,
         )}
       >

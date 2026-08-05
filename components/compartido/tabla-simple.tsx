@@ -4,8 +4,13 @@ import { cn } from "@/lib/utils";
 /* Tabla compartida con modo dual:
    - Escritorio (md+): tabla en grid, idéntica a la de siempre (con scroll
      horizontal si hace falta), donde cada celda es el JSX que devuelve `celda`.
-   - Móvil (<md): cada registro se apila como TARJETA etiqueta:valor, sin scroll
-     horizontal. La columna marcada `esTitulo` es el encabezado de la tarjeta.
+   - Móvil (<md): cada registro se apila como TARJETA, con los campos en dos
+     columnas (etiqueta arriba, valor abajo) y sin scroll horizontal. La columna
+     marcada `esTitulo` es el encabezado de la tarjeta.
+
+     Antes cada campo era un renglón entero etiqueta ↔ valor: con cuatro o cinco
+     campos cortos —SKU, tipo, precio— la tarjeta medía media pantalla y estaba
+     casi toda vacía por dentro. En dos columnas ocupa la mitad y se lee igual.
 
    Cada módulo define sus columnas con una función `celda(row)` que devuelve el
    MISMO JSX que antes iba en la fila (botones, enlaces, steppers, selects…), así
@@ -19,6 +24,10 @@ export type Columna<T> = {
   esTitulo?: boolean;
   /** Clases del valor en la tarjeta móvil. */
   cardValorClassName?: string;
+  /** En la tarjeta móvil ocupa el renglón completo en vez de media columna.
+      Es para lo que no cabe en la mitad: controles (−/+ de stock), botones de
+      acción, pastillas con texto largo. */
+  cardAncho?: boolean;
 };
 
 export function TablaSimple<T>({
@@ -115,22 +124,33 @@ export function TablaSimple<T>({
             <div
               key={filaKey(row)}
               onClick={onRowClick ? clicFila(row) : undefined}
+              /* overflow-hidden: la celda de título suele ser un <button>, que
+                 mide lo que su contenido (un nombre de cliente largo desbordaba
+                 la tarjeta y con ella la pantalla, y el teléfono contestaba
+                 alejando el zoom). El `[&>*]:max-w-full` lo devuelve al ancho
+                 de la tarjeta para que su `truncate` sí recorte. */
               className={cn(
-                "rounded-2xl border bg-card p-4 shadow-sm",
+                "overflow-hidden rounded-2xl border bg-card p-3.5 shadow-sm",
                 onRowClick && "cursor-pointer",
                 filaClassName?.(row),
               )}
             >
               {tituloCol && (
-                <div className="mb-2.5 text-[15px] font-semibold">{tituloCol.celda(row)}</div>
+                <div className="mb-2.5 min-w-0 text-[14.5px] font-semibold [&>*]:max-w-full">
+                  {tituloCol.celda(row)}
+                </div>
               )}
-              <dl className="flex flex-col gap-2">
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-2.5">
                 {camposCard.map((c) => (
-                  <div key={c.clave} className="flex items-baseline justify-between gap-4 text-sm">
-                    <dt className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {c.label}
-                    </dt>
-                    <dd className={cn("min-w-0 text-right", c.cardValorClassName)}>
+                  <div key={c.clave} className={cn("min-w-0", c.cardAncho && "col-span-2")}>
+                    {/* Las columnas de acciones no tienen rótulo en escritorio;
+                        un <dt> vacío solo dejaría un hueco encima del botón. */}
+                    {c.label && (
+                      <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {c.label}
+                      </dt>
+                    )}
+                    <dd className={cn("min-w-0 text-[13.5px]", c.label && "mt-0.5", c.cardValorClassName)}>
                       {c.celda(row)}
                     </dd>
                   </div>
