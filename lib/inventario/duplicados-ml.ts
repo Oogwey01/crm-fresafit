@@ -217,22 +217,23 @@ function ficha(f: FilaCRM, ventas: Map<string, number>): FichaDuplicada {
 async function ventasPorFicha(ids: string[]): Promise<Map<string, number>> {
   const admin = createAdminClient();
   const unicos = [...new Set(ids)];
-  /* Un conteo en el servidor por ficha (head:true → no viaja ninguna fila), en
-     paralelo. Se elige esto y no un solo select con .in() porque las fichas
-     duplicadas son pocas —son anomalías pendientes de fusionar—, mientras que
-     su historial de ventas puede ser largo: salen más baratas N consultas que
-     no bajan nada que una que baja una fila por venta solo para contarlas. */
-  const conteos = await Promise.all(
-    unicos.map(async (id) => {
-      const { count, error } = await admin
-        .from("sales")
-        .select("producto_id", { count: "exact", head: true })
-        .eq("producto_id", id);
-      if (error) throw new Error(error.message);
-      return [id, count ?? 0] as const;
-    }),
+  if (unicos.length === 0) return new Map();
+
+  /* Un `group by` en la base: una consulta que devuelve un renglón por ficha.
+     Antes era un conteo por ficha lanzado en paralelo, con el argumento de que
+     las duplicadas son pocas —cierto— y de que así no viajaba ninguna fila
+     —también cierto—. Pero agrupar tampoco baja filas y además no depende de
+     que sigan siendo pocas: el día que un canal duplique medio catálogo, esto
+     sigue costando una consulta. */
+  const { data, error } = await admin.rpc("conteo_ventas_por_producto", { ids: unicos });
+  if (error) throw new Error(error.message);
+
+  return new Map(
+    ((data ?? []) as { producto_id: string; ventas: number }[]).map((f) => [
+      f.producto_id,
+      Number(f.ventas),
+    ]),
   );
-  return new Map(conteos);
 }
 
 /* Primero los que se pueden unir sin pensarlo, y dentro de esos los que más

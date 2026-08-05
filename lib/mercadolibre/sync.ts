@@ -26,6 +26,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionMercadolibre,
@@ -199,17 +200,15 @@ async function escribirStockFull(
     if (error) throw new Error(error.message);
     const actual = new Map((data ?? []).map((f) => [f.id as string, f.meli_stock_full as number | null]));
     const cambiaron = conFull.filter((f) => actual.get(f.id) !== f.total);
-    for (let i = 0; i < cambiaron.length; i += 10) {
-      await Promise.all(
-        cambiaron.slice(i, i + 10).map(async ({ id, total }) => {
-          const { error: err } = await admin
-            .from("products")
-            .update({ meli_stock_full: total })
-            .eq("id", id);
-          if (err) throw new Error(err.message);
-        }),
-      );
-    }
+    /* Estos cambios son de una sola columna, así que el helper los deja fila por
+       fila: sin `nombre` (NOT NULL) no hay upsert posible, y traerlo solo para
+       reescribirlo tal cual arriesgaría pisar el catálogo por ahorrar viajes que
+       aquí no existen —en una sync normal casi ninguna ficha está en Full y esto
+       son dos o tres updates, no uno por producto—. */
+    await aplicarCambiosProductos(
+      admin,
+      cambiaron.map(({ id, total }) => ({ id, fila: { meli_stock_full: total } })),
+    );
   }
 
   // Fichas que ya no tienen publicación Full: se limpia el número (un solo
@@ -535,14 +534,19 @@ export async function sincronizarItemsML(
       if (productoId) registrar(u, productoId, false);
     }
   }
-  for (let i = 0; i < cambios.length; i += 10) {
-    await Promise.all(
-      cambios.slice(i, i + 10).map(async ({ id, fila }) => {
-        const { error } = await admin.from("products").update(fila).eq("id", id);
-        if (error) throw new Error(error.message);
-      }),
-    );
-  }
+  /* Los cambios se aplican en lote SOLO donde se tiene la ficha entera, que aquí
+     son las publicaciones que no viven en Tienda Nube: de esas, Mercado Libre es
+     dueño del catálogo y manda nombre, variante, precio, sku y estado.
+
+     Los otros dos casos siguen fila por fila a propósito, y el helper los
+     distingue solo: el de una ficha que TAMBIÉN está en Tienda Nube —donde solo
+     se refresca el dato de la publicación (logística, unidad de inventario) y no
+     se toca el catálogo, que gobierna TN— y el de vincular por SKU, que escribe
+     únicamente los identificadores. Ninguno de los dos trae `nombre`, que es
+     NOT NULL, así que un upsert los rechazaría; y "completarlos" con el nombre
+     que ya está en la base sería devolverle a Mercado Libre el mando sobre un
+     catálogo que no es suyo. En una sync normal son un puñado de filas. */
+  await aplicarCambiosProductos(admin, cambios);
 
   /* Registro de publicaciones: el mapa que usa la importación de ventas para
      saber a qué ficha pertenece una orden, venga por la publicación original o

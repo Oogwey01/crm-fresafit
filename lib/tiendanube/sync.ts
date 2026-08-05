@@ -8,6 +8,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   actualizarVarianteTN,
@@ -181,14 +182,13 @@ export async function sincronizarProductosTN(
     const { error } = await admin.from("products").insert(nuevos);
     if (error) throw new Error(error.message);
   }
-  for (let i = 0; i < cambios.length; i += 10) {
-    await Promise.all(
-      cambios.slice(i, i + 10).map(async ({ id, fila }) => {
-        const { error } = await admin.from("products").update(fila).eq("id", id);
-        if (error) throw new Error(error.message);
-      }),
-    );
-  }
+  /* Aquí TODOS los cambios traen la ficha completa (Tienda Nube manda el
+     catálogo: nombre, variante, precio, costo, sku, estado y fotos), así que se
+     escriben de verdad en lote: la pasada diaria pasó de un viaje por variante a
+     un puñado de viajes. Las que además llevan `stock` viajan en su propio lote
+     —lo agrupa el helper por columnas—, de modo que a las fichas donde manda el
+     CRM se les sigue sin tocar el stock. */
+  await aplicarCambiosProductos(admin, cambios);
 
   /* Hub de stock. Los dos empujes son excluyentes —dependen de quién mande— y
      ambos son no-op mientras la escritura a canales esté apagada (el default).

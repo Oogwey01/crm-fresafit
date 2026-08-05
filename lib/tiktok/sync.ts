@@ -41,7 +41,7 @@
    almacenes del SKU. El almacén principal (para escribir stock) se guarda en
    integraciones.datos al conectar. Solo servidor (service role).
 
-   `tiktok_stock` (supabase/migrations/20260808000000_tiktok_stock.sql) es un
+   `tiktok_stock` (supabase/migrations/20260808000100_tiktok_stock.sql) es un
    respaldo defensivo para el caso raro de que una ficha de bodega termine con
    vínculo de TikTok de todos modos (dato viejo, edición a mano): si pasa,
    `stock` lo sigue gobernando bodega y el número de TikTok se guarda aparte
@@ -52,6 +52,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   conexionTiktok,
@@ -279,17 +280,14 @@ async function poblarImagenesTikTokDesdeCatalogo(): Promise<number> {
     if (imagen && imagen !== o.imagen_url) cambios.push({ id: o.id, imagen_url: imagen });
   }
 
-  for (let i = 0; i < cambios.length; i += 20) {
-    await Promise.all(
-      cambios.slice(i, i + 20).map(async ({ id, imagen_url }) => {
-        const { error } = await admin
-          .from("products")
-          .update({ imagen_url, imagenes: [imagen_url] })
-          .eq("id", id);
-        if (error) throw new Error(error.message);
-      }),
-    );
-  }
+  /* Se quedan fila por fila (el helper lo decide solo): son cambios de una o dos
+     columnas, sin `nombre` —NOT NULL— y por tanto imposibles de mandar por
+     upsert. Tampoco haría falta: esto es una red de seguridad idempotente, así
+     que en cuanto las fichas sin foto quedan cubiertas la lista viene vacía. */
+  await aplicarCambiosProductos(
+    admin,
+    cambios.map(({ id, imagen_url }) => ({ id, fila: { imagen_url, imagenes: [imagen_url] } })),
+  );
   return cambios.length;
 }
 
@@ -556,14 +554,18 @@ export async function sincronizarProductosTikTok(
       }
     }
   }
-  for (let i = 0; i < cambios.length; i += 10) {
-    await Promise.all(
-      cambios.slice(i, i + 10).map(async ({ id, fila }) => {
-        const { error } = await admin.from("products").update(fila).eq("id", id);
-        if (error) throw new Error(error.message);
-      }),
-    );
-  }
+  /* En lote van las fichas que viven SOLO en TikTok, que son la mayoría del
+     catálogo de este canal (es un catálogo aparte del de bodega): de esas TikTok
+     es la única fuente de verdad y el cambio trae la ficha entera.
+
+     Los otros dos casos siguen fila por fila —el helper los separa solo—: el
+     `tiktok_stock` de una ficha que TAMBIÉN vive en Tienda Nube/Mercado Libre y
+     los identificadores al vincular por SKU. Los dos son cambios de una o dos
+     columnas, sin `nombre` (NOT NULL), así que el upsert los rechazaría; y
+     rellenarlos con lo que ya hay en la base para poder agruparlos sería
+     justamente lo que se prohibió después del incidente de MQR004: dejar que
+     TikTok escriba encima de una ficha cuyo dueño es otro canal. */
+  await aplicarCambiosProductos(admin, cambios);
   await registrarPublicaciones(publicaciones);
 
   return { creados: nuevos.length, actualizados: cambios.length - vinculados, vinculados };
