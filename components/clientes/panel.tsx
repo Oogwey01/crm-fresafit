@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
+import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { ClienteDialog } from "@/components/clientes/cliente-dialog";
 import { ClienteDetalle } from "@/components/clientes/cliente-detalle";
@@ -36,14 +37,30 @@ const ORDENES: [Orden, string][] = [
 
 const COLS = "grid-cols-[minmax(180px,1fr)_140px_130px_90px_120px_110px]";
 
+/* Las dos mitades del módulo: quién nos compra y quién nos trae compradores.
+   La segunda solo existe para gestores. */
+type Vista = "clientes" | "influencers";
+
+const VISTAS = [
+  ["clientes", "Clientes"],
+  ["influencers", "Influencers"],
+] as const;
+
 export function PanelClientes({
   clientes,
   rol,
+  programa,
 }: {
   clientes: CustomerConStats[];
   rol: RolId;
+  /* El programa de influencers, ya renderizado en el servidor dentro de un
+     <Suspense>: son cuatro tablas más que solo se miran al cambiar de pestaña, y
+     esperarlas retrasaba la lista de clientes, que es a lo que se entra.
+     null = quien entró no es gestor y ni siquiera se pidieron. */
+  programa: React.ReactNode | null;
 }) {
   const gestor = esGestor(rol);
+  const [vista, setVista] = useState<Vista>("clientes");
   const [busqueda, setBusqueda] = useState("");
   const [orden, setOrden] = useState<Orden>("total");
   const [editar, setEditar] = useState<CustomerConStats | "nuevo" | null>(null);
@@ -155,18 +172,33 @@ export function PanelClientes({
         <div>
           <h1 className="text-[26px] font-bold tracking-[-0.5px]">Clientes y ventas</h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
-            Quién compra, por dónde y cuánto. Los de Tienda Nube entran solos con cada pedido.
+            {vista === "clientes"
+              ? "Quién compra, por dónde y cuánto. Los de Tienda Nube entran solos con cada pedido."
+              : "Quién nos representa, qué se le manda y cuánto vende su código."}
           </p>
         </div>
-        <Button
-          onClick={() => setEditar("nuevo")}
-          className="h-10 w-full rounded-xl text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_var(--primary)] md:w-auto"
-        >
-          <Plus className="size-4" strokeWidth={2.1} />
-          Nuevo cliente
-        </Button>
+        {vista === "clientes" && (
+          <Button
+            onClick={() => setEditar("nuevo")}
+            className="h-10 w-full rounded-xl text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_var(--primary)] md:w-auto"
+          >
+            <Plus className="size-4" strokeWidth={2.1} />
+            Nuevo cliente
+          </Button>
+        )}
       </div>
 
+      {/* Solo hay dos mitades si esta persona puede ver el programa. */}
+      {programa && (
+        <div className="mb-4">
+          <ControlSegmentado opciones={VISTAS} valor={vista} onCambio={setVista} />
+        </div>
+      )}
+
+      {programa && vista === "influencers" ? (
+        programa
+      ) : (
+        <>
       {/* KPIs */}
       <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
         <StatCard etiqueta="Clientes" valor={String(clientes.length)} icono={Users} />
@@ -238,6 +270,8 @@ export function PanelClientes({
           minW="min-w-[880px]"
           onRowClick={setDetalle}
         />
+      )}
+        </>
       )}
 
       {editar && (
