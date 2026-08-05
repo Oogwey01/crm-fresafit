@@ -38,6 +38,7 @@ const admin = createClient(URL, SERVICE_KEY, {
 const EQUIPO = [
   { slug: "armando",  email: "armando@fresafit.com.mx",   nombre: "Diego Armando Duarte Palacios",  rol: "direccion",   area: "direccion",   color: "#e84393" },
   { slug: "rene",     email: "rene@fresafit.com.mx",       nombre: "René Duarte Palacios",           rol: "direccion",   area: "operaciones", color: "#0984e3" },
+  { slug: "diana",    email: "diana@fresafit.com.mx",      nombre: "Diana",                          rol: "administracion", area: "administracion", color: "#00cec9" },
   { slug: "manuel",   email: "manuel@fresafit.com.mx",     nombre: "Manuel Enrique Barrera Rodríguez", rol: "coordinador", area: "diseno",    color: "#8e44ad" },
   { slug: "julio",    email: "juliozea10@gmail.com",       nombre: "Julio Enrique Zea Silva",        rol: "coordinador", area: "contenido",   color: "#16a085" },
   { slug: "juanpablo",email: "juanpverdugolopez@gmail.com",nombre: "Juan Pablo Verdugo López",       rol: "miembro",     area: "diseno",      color: "#9b59b6" },
