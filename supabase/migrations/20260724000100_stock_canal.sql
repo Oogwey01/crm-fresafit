@@ -24,6 +24,12 @@
 -- toca el inventario por fuera.
 --
 -- Idempotente: se puede pegar tal cual en el SQL Editor de Supabase.
+--
+-- Renombrado, no reescrito: este archivo era 20260724000000_stock_canal.sql y
+-- compartía versión con 20260724000000_bajo_pedido.sql. El CLI de Supabase usa
+-- ese prefijo como clave única en schema_migrations, así que se le movió a
+-- ...000100 para deshacer la colisión. El contenido es el mismo y sigue corriendo
+-- justo donde corría: después de la otra migración del mismo día.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------

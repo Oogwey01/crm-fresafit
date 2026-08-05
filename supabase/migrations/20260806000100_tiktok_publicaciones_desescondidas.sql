@@ -25,6 +25,13 @@
 -- Paso 1 (solo lectura): revisar ANTES de borrar que son los cintos
 -- esperados y no algo inesperado. Paso 2: el DELETE. Ambos pasos son
 -- idempotentes — si no queda ninguna fila `principal = false`, no hacen nada.
+--
+-- Renombrado, no reescrito: este archivo era
+-- 20260806000000_tiktok_publicaciones_desescondidas.sql y compartía versión con
+-- 20260806000000_tareas_comentarios_novedades.sql. El CLI de Supabase usa ese
+-- prefijo como clave única en schema_migrations, así que se le movió a ...000100
+-- para deshacer la colisión. El contenido es el mismo y sigue corriendo justo
+-- donde corría: después de la otra migración del mismo día.
 -- ============================================================================
 
 -- Paso 1 — diagnóstico: revisar el resultado antes de correr el paso 2.

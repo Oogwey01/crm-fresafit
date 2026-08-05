@@ -136,7 +136,6 @@ export function PanelMercadoLibre({
   ultimaSync,
   resumen,
   costos,
-  conPlazos,
   dias,
   ahora,
 }: {
@@ -146,8 +145,6 @@ export function PanelMercadoLibre({
   resumen: ResumenDespacho;
   /* Null = todavía no hay órdenes con comisión archivada. */
   costos: CostosCanal | null;
-  /* false = falta aplicar la migración de plazos; el tablero no tiene datos. */
-  conPlazos: boolean;
   dias: number;
   /* El instante contra el que se midieron los plazos. Llega desde la página en
      vez de leerse aquí para que el "vence en 3 h" y la situación de esa misma
@@ -274,61 +271,52 @@ export function PanelMercadoLibre({
           hecha, así que los pedidos a los que les falte alguno de esos dos datos no aparecen.
         </p>
 
-        {!conPlazos ? (
-          <p className="rounded-xl border border-dashed p-5 text-center text-[13.5px] text-muted-foreground">
-            Falta aplicar la migración <code>20260815000000_desempeno_envios_ml.sql</code> en el
-            SQL Editor de Supabase. Hasta entonces no hay plazos que mostrar.
+        <div className="mb-4 grid gap-3 sm:grid-cols-3">
+          <StatCard
+            etiqueta="Se pasó el plazo"
+            valor={String(resumen.vencidos)}
+            icono={AlertTriangle}
+            valorClassName={resumen.vencidos > 0 ? "text-red-600" : undefined}
+            nota={resumen.vencidos > 0 ? "ya suman a la métrica" : "ninguno"}
+          />
+          <StatCard
+            etiqueta="Vence en horas"
+            valor={String(resumen.porVencer)}
+            icono={Clock}
+            valorClassName={resumen.porVencer > 0 ? "text-amber-600" : undefined}
+            nota={resumen.porVencer > 0 ? "hay que sacarlos hoy" : "nada urgente"}
+          />
+          <StatCard
+            etiqueta="Pendientes en total"
+            valor={String(resumen.pendientes.length)}
+            icono={PackageCheck}
+            nota="sin despachar"
+          />
+        </div>
+
+        {resumen.pendientes.length === 0 ? (
+          <p className="rounded-xl border border-dashed p-6 text-center text-[13.5px] text-muted-foreground">
+            No hay nada esperando despacho. Así se conserva la exposición.
           </p>
         ) : (
-          <>
-            <div className="mb-4 grid gap-3 sm:grid-cols-3">
-              <StatCard
-                etiqueta="Se pasó el plazo"
-                valor={String(resumen.vencidos)}
-                icono={AlertTriangle}
-                valorClassName={resumen.vencidos > 0 ? "text-red-600" : undefined}
-                nota={resumen.vencidos > 0 ? "ya suman a la métrica" : "ninguno"}
-              />
-              <StatCard
-                etiqueta="Vence en horas"
-                valor={String(resumen.porVencer)}
-                icono={Clock}
-                valorClassName={resumen.porVencer > 0 ? "text-amber-600" : undefined}
-                nota={resumen.porVencer > 0 ? "hay que sacarlos hoy" : "nada urgente"}
-              />
-              <StatCard
-                etiqueta="Pendientes en total"
-                valor={String(resumen.pendientes.length)}
-                icono={PackageCheck}
-                nota="sin despachar"
-              />
-            </div>
+          <div className="rounded-2xl border bg-card px-5 py-1 shadow-sm">
+            <ul>
+              {resumen.pendientes.map((p) => (
+                <FilaDespacho key={p.orden} d={p} ahora={ahora} />
+              ))}
+            </ul>
+          </div>
+        )}
 
-            {resumen.pendientes.length === 0 ? (
-              <p className="rounded-xl border border-dashed p-6 text-center text-[13.5px] text-muted-foreground">
-                No hay nada esperando despacho. Así se conserva la exposición.
-              </p>
-            ) : (
-              <div className="rounded-2xl border bg-card px-5 py-1 shadow-sm">
-                <ul>
-                  {resumen.pendientes.map((p) => (
-                    <FilaDespacho key={p.orden} d={p} ahora={ahora} />
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {urgentes > 0 && (
-              <p className="mt-3 flex items-start gap-2 rounded-xl bg-amber-500/10 p-3.5 text-[13px] leading-relaxed text-amber-700 dark:text-amber-500">
-                <AlertTriangle className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
-                <span>
-                  {urgentes === 1 ? "Hay 1 pedido" : `Hay ${urgentes} pedidos`} que ya venció o
-                  vence en horas. Cada uno que salga tarde se queda 60 días dentro de la métrica
-                  que nos quita exposición.
-                </span>
-              </p>
-            )}
-          </>
+        {urgentes > 0 && (
+          <p className="mt-3 flex items-start gap-2 rounded-xl bg-amber-500/10 p-3.5 text-[13px] leading-relaxed text-amber-700 dark:text-amber-500">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" strokeWidth={2} />
+            <span>
+              {urgentes === 1 ? "Hay 1 pedido" : `Hay ${urgentes} pedidos`} que ya venció o vence en
+              horas. Cada uno que salga tarde se queda 60 días dentro de la métrica que nos quita
+              exposición.
+            </span>
+          </p>
         )}
       </section>
 

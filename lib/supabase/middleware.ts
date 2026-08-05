@@ -8,11 +8,11 @@ import { NextResponse, type NextRequest } from "next/server";
    webhooks llegan sin cookies (validan firma/origen adentro) y los
    conectar/callback verifican sesión por su cuenta.
 
-   /api/inventario/foto y /api/tareas/recordatorios igual: los dispara un
-   programador externo (el plan Hobby de Vercel no da crons frecuentes) y llegan
-   sin cookies. Se lista la ruta exacta, no todo el segmento, para no abrir de
-   más. Adentro exigen CRON_SECRET o usuario interno, así que sin credencial
-   responden 401. */
+   /api/inventario/foto, /api/tareas/recordatorios y /api/cron/purga igual: los
+   dispara un programador externo (el plan Hobby de Vercel no da crons
+   frecuentes) y llegan sin cookies. Se lista la ruta exacta, no todo el
+   segmento, para no abrir de más. Adentro exigen CRON_SECRET o usuario interno,
+   así que sin credencial responden 401. */
 const RUTAS_PUBLICAS = [
   "/login",
   "/auth",
@@ -22,6 +22,7 @@ const RUTAS_PUBLICAS = [
   "/api/inventario/foto",
   "/api/inventario/reconciliacion",
   "/api/tareas/recordatorios",
+  "/api/cron/purga",
   /* El service worker y el manifest los pide el navegador SIN cookies de sesión
      (y a veces antes de que exista sesión). Si se redirigen al login, el
      registro del worker falla y no llega ni un aviso push. */

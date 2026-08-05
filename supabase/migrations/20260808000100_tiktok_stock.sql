@@ -17,6 +17,14 @@
 -- todavía, o ficha sin publicación de TikTok.
 --
 -- Idempotente: se puede pegar tal cual en el SQL Editor de Supabase.
+--
+-- Renombrado, no reescrito: este archivo era 20260808000000_tiktok_stock.sql y
+-- compartía versión con 20260808000000_refresco_direccion.sql. El CLI de
+-- Supabase usa ese prefijo como clave única en schema_migrations, así que se le
+-- movió a ...000100 para deshacer la colisión. El contenido es el mismo y sigue
+-- corriendo justo donde corría: después de la otra migración del mismo día, y
+-- antes de 20260809000100_tiktok_desvincular_bodega.sql, que limpia la columna
+-- `tiktok_stock` que aquí se crea.
 -- ============================================================================
 
 alter table public.products

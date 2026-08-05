@@ -1,5 +1,5 @@
 -- ============================================================================
--- 20260805000000_ventas_cuadre.sql — Cuadrar las ventas con los paneles oficiales
+-- 20260805000100_ventas_cuadre.sql — Cuadrar las ventas con los paneles oficiales
 -- ----------------------------------------------------------------------------
 -- Armando midió el mismo rango (27 jul – 2 ago) en el CRM y en los paneles de
 -- los canales, y no cuadró: 90 687.59 vs 93 302.31 en Tienda Nube, 61 771.22 vs
@@ -22,6 +22,14 @@
 -- solo lectura salvo para Dirección.
 --
 -- Idempotente: se puede pegar tal cual en el SQL Editor de Supabase.
+--
+-- Renombrado, no reescrito: este archivo era 20260805000000_ventas_cuadre.sql y
+-- compartía versión con 20260805000000_tiktok_publicaciones.sql. El CLI de
+-- Supabase usa ese prefijo como clave única en schema_migrations, así que se le
+-- movió a ...000100 para deshacer la colisión. El contenido es el mismo y sigue
+-- corriendo justo donde corría: después de la otra migración del mismo día, y
+-- antes de los relevos de `sincronizar_renglones_venta` (20260808, 20260809,
+-- 20260811, 20260815), que dependen de que ésta vaya primero.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------

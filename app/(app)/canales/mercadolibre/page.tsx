@@ -1,5 +1,4 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
-import { conColumnasOpcionales } from "@/lib/supabase/columnas-opcionales";
 import { saludML } from "@/lib/canales/salud";
 import { estadoMercadolibre } from "@/lib/mercadolibre/api";
 import { agruparDespachos, instanteDeCorte, resumirDespachos } from "@/lib/mercadolibre/desempeno";
@@ -22,54 +21,38 @@ export default async function MercadoLibrePage() {
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase } = await usuarioActual();
 
-  const COMUNES =
-    "id, fecha, cantidad, descripcion, estado, num_guia, url_orden, referencia_externa";
+  /* Las dos consultas iban dobladas en `conColumnasOpcionales` mientras sus
+     migraciones (20260815000000_desempeno_envios_ml.sql para los plazos y
+     20260816000000_comision_canal.sql para los costos) podían faltar en la base.
+     Ya llevan tiempo aplicadas —de ahí salen los números que el negocio viene
+     mirando: el 3.9% real de demoras y el 28.8% que se lleva el canal—, así que
+     se piden directo. El andamiaje repetía la consulta ENTERA cuando fallaba, o
+     sea el doble de trabajo justo cuando la base ya iba mal. */
+  type FilaCosto = { total: number; comision: number | null; costo_envio: number | null };
 
-  const consulta = (columnas: string) =>
+  const [ventasRes, salud, estado, comisionesRes] = await Promise.all([
     supabase
       .from("sales")
-      .select(columnas)
+      .select(
+        "id, fecha, cantidad, descripcion, estado, num_guia, url_orden," +
+          " referencia_externa, envio_limite_despacho, envio_despachado_en",
+      )
       .eq("canal", "mercado_libre")
       .gte("fecha", diasDesdeHoy(-DIAS_DESPACHO))
       .order("fecha", { ascending: false })
-      .limit(3000) as unknown as PromiseLike<{
-      data: VentaDespacho[] | null;
-      error: { message: string } | null;
-    }>;
-
-  /* Lo que se queda Mercado Libre. Viene dentro de cada orden y se archiva al
-     importar, así que aquí solo se suma. La columna es de una migración que se
-     aplica a mano: si todavía no está, el bloque no se pinta. */
-  type FilaCosto = { total: number; comision: number | null; costo_envio: number | null };
-  const comisiones = conColumnasOpcionales<FilaCosto>(
-    () =>
-      supabase
-        .from("sale_orders")
-        .select("total, comision, costo_envio")
-        .eq("canal", "mercado_libre")
-        .gte("fecha", diasDesdeHoy(-DIAS_COMISION))
-        .neq("estado", "cancelled")
-        .limit(5000) as unknown as PromiseLike<{
-        data: FilaCosto[] | null;
-        error: { message: string } | null;
-      }>,
-    async () => ({ data: [], error: null }),
-    "canales/mercadolibre costos",
-  );
-
-  const [ventasRes, salud, estado, comisionesRes] = await Promise.all([
-    /* Las columnas de plazo son de una migración que se aplica a mano: mientras
-       no esté, la página carga con el termómetro y sin el tablero, en vez de
-       quedarse en blanco. */
-    conColumnasOpcionales<VentaDespacho>(
-      () => consulta(`${COMUNES}, envio_limite_despacho, envio_despachado_en`),
-      () => consulta(COMUNES),
-      "canales/mercadolibre",
-    ),
+      .limit(3000),
     /* Si Mercado Libre no contesta, el resto de la página sigue en pie. */
     saludML(),
     estadoMercadolibre(),
-    comisiones,
+    /* Lo que se queda Mercado Libre. Viene dentro de cada orden y se archiva al
+       importar, así que aquí solo se suma. */
+    supabase
+      .from("sale_orders")
+      .select("total, comision, costo_envio")
+      .eq("canal", "mercado_libre")
+      .gte("fecha", diasDesdeHoy(-DIAS_COMISION))
+      .neq("estado", "cancelled")
+      .limit(5000),
   ]);
 
   /* Solo las órdenes que traen comisión: mezclar las que no la tienen (las
@@ -79,7 +62,7 @@ export default async function MercadoLibrePage() {
   let comision = 0;
   let flete = 0;
   let ordenesConDato = 0;
-  for (const o of comisionesRes.data ?? []) {
+  for (const o of (comisionesRes.data ?? []) as FilaCosto[]) {
     if (o.comision == null) continue;
     ventaConDato += Number(o.total || 0);
     comision += Number(o.comision);
@@ -101,11 +84,7 @@ export default async function MercadoLibrePage() {
         }
       : null;
 
-  const ventas = (ventasRes.data ?? []) as VentaDespacho[];
-  /* Si la migración no se ha aplicado, PostgREST devolvió las filas sin esas
-     claves. Se distingue así en vez de mostrar "0 pendientes", que se leería
-     como que todo está despachado. */
-  const conPlazos = ventas.length === 0 || "envio_limite_despacho" in ventas[0];
+  const ventas = (ventasRes.data ?? []) as unknown as VentaDespacho[];
 
   /* Un solo instante para toda la pantalla: si cada fila leyera la hora por su
      cuenta, dos pedidos con el mismo plazo podrían salir clasificados distinto. */
@@ -119,7 +98,6 @@ export default async function MercadoLibrePage() {
       ultimaSync={estado.ultimaSync}
       resumen={resumirDespachos(despachos)}
       costos={costos}
-      conPlazos={conPlazos}
       dias={DIAS_DESPACHO}
       ahora={ahora}
     />

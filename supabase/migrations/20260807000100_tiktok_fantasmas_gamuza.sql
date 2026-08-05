@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Fresafit CRM — Limpieza de fichas fantasma creadas por la primera versión
--- del fix de 20260806000000_tiktok_publicaciones_desescondidas.sql
+-- del fix de 20260806000100_tiktok_publicaciones_desescondidas.sql
 -- ----------------------------------------------------------------------------
 -- Esa migración liberó las publicaciones de TikTok que estaban escondidas
 -- (principal = false) para que la sync las reevaluara. El código de la sync
@@ -26,6 +26,13 @@
 -- volver a esconder correctamente (sin crear ficha), sin duplicar inventario.
 --
 -- Idempotente: si estas filas ya no existen, el DELETE no hace nada.
+--
+-- Renombrado, no reescrito: este archivo era
+-- 20260807000000_tiktok_fantasmas_gamuza.sql y compartía versión con
+-- 20260807000000_direccion_envio.sql. El CLI de Supabase usa ese prefijo como
+-- clave única en schema_migrations, así que se le movió a ...000100 para
+-- deshacer la colisión. El contenido es el mismo y sigue corriendo justo donde
+-- corría: después de la otra migración del mismo día.
 -- ============================================================================
 
 -- Diagnóstico — revisar antes de borrar.

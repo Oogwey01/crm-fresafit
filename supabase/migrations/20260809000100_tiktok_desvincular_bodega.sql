@@ -40,6 +40,15 @@
 --
 -- Idempotente: si ya no queda ninguna ficha de bodega con tiktok_sku_id, no
 -- hace nada.
+--
+-- Renombrado, no reescrito: este archivo era
+-- 20260809000000_tiktok_desvincular_bodega.sql y compartía versión con
+-- 20260809000000_rastreo_pedidos.sql. El CLI de Supabase usa ese prefijo como
+-- clave única en schema_migrations, así que se le movió a ...000100 para
+-- deshacer la colisión. El contenido es el mismo y sigue corriendo justo donde
+-- corría: después de la otra migración del mismo día y después de
+-- 20260808000100_tiktok_stock.sql, que crea la columna `tiktok_stock` que aquí
+-- se limpia.
 -- ============================================================================
 
 -- Diagnóstico — revisar antes de correr el resto: cuántas fichas se van a
