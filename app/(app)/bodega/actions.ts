@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { textoONulo } from "@/lib/validacion";
 import type {
   CategoriaInsumoId,
@@ -751,11 +753,12 @@ export async function importarInsumos(
   if (!filas.length) return { error: "No hay nada que importar." };
 
   /* Lo que ya existe no se toca: la existencia se mueve con un movimiento, no
-     pegando de nuevo la hoja. */
-  const { data: existentes } = await cx.supabase.from("insumos").select("id, nombre");
-  const yaEsta = new Set(
-    ((existentes ?? []) as { nombre: string }[]).map((i) => i.nombre.trim().toLowerCase()),
+     pegando de nuevo la hoja. Paginado, porque un select a secas se corta en
+     ~1000 y un nombre fuera de la lista se daría de alta repetido. */
+  const existentes = await traerTodo<{ nombre: string }>((desde, hasta) =>
+    cx.supabase.from("insumos").select("nombre").order("id").range(desde, hasta),
   );
+  const yaEsta = new Set(existentes.map((i) => i.nombre.trim().toLowerCase()));
 
   /* Agrupa por nombre respetando el orden en que venían pegadas. */
   const grupos = new Map<string, FilaRecursoInput[]>();
@@ -766,74 +769,99 @@ export async function importarInsumos(
     grupos.set(clave, [...(grupos.get(clave) ?? []), { ...f, nombre }]);
   }
 
-  let creados = 0;
-  let presentaciones = 0;
-  let omitidos = 0;
+  /* Antes esto eran hasta TRES viajes por insumo —su insert, el de sus
+     presentaciones y la RPC del stock inicial— uno tras otro: una hoja de 200
+     renglones costaba ~600 round-trips en serie. Ahora son dos inserts en lote
+     y las RPC del stock en tandas paralelas. */
+  const nuevos = [...grupos.entries()].filter(([clave]) => !yaEsta.has(clave));
+  const omitidos = grupos.size - nuevos.length;
+  if (!nuevos.length) {
+    revalidar();
+    return { ok: true, datos: { creados: 0, presentaciones: 0, omitidos } };
+  }
 
-  for (const [clave, grupo] of grupos) {
-    if (yaEsta.has(clave)) {
-      omitidos++;
-      continue;
-    }
-    const base = grupo[0];
-    /* El stock, el mínimo y el máximo van en celdas combinadas de la hoja: se
-       toma el primer valor que traiga alguna de las filas del grupo. */
-    const primerTexto = (campo: "empresa" | "dimensiones" | "link") =>
-      grupo.map((g) => g[campo]?.trim()).find(Boolean) ?? "";
-    const primerNumero = (campo: "stock" | "minimo" | "maximo") =>
-      grupo.map((g) => g[campo]).find((v) => v != null) ?? null;
+  /* El stock, el mínimo y el máximo van en celdas combinadas de la hoja: se
+     toma el primer valor que traiga alguna de las filas del grupo. */
+  const primerTexto = (grupo: FilaRecursoInput[], campo: "empresa" | "dimensiones" | "link") =>
+    grupo.map((g) => g[campo]?.trim()).find(Boolean) ?? "";
+  const primerNumero = (grupo: FilaRecursoInput[], campo: "stock" | "minimo" | "maximo") =>
+    grupo.map((g) => g[campo]).find((v) => v != null) ?? null;
 
-    /* Nace en cero y la existencia entra como movimiento: así el histórico
-       explica de dónde salió cada pieza desde el primer día. */
-    const stock = Number(primerNumero("stock") ?? 0);
-    const maximo = primerNumero("maximo");
-    const { data: insumo, error } = await cx.supabase
+  /* Nacen en cero y la existencia entra como movimiento: así el histórico
+     explica de dónde salió cada pieza desde el primer día. */
+  const filasInsumo = nuevos.map(([, grupo]) => {
+    const maximo = primerNumero(grupo, "maximo");
+    return {
+      nombre: grupo[0].nombre,
+      categoria,
+      empresa: textoONulo(primerTexto(grupo, "empresa")),
+      dimensiones: textoONulo(primerTexto(grupo, "dimensiones")),
+      unidad: grupo[0].unidad.trim() || "pieza",
+      stock: 0,
+      minimo: Number(primerNumero(grupo, "minimo") ?? 0),
+      maximo: maximo != null ? Number(maximo) : null,
+      reserva: grupo.reduce((a, g) => a + (g.reserva || 0), 0),
+      pedido: grupo.reduce((a, g) => a + (g.pedido || 0), 0),
+      link: textoONulo(primerTexto(grupo, "link")),
+      created_by: cx.user.id,
+    };
+  });
+
+  const idPorClave = new Map<string, string>();
+  for (let i = 0; i < filasInsumo.length; i += TAM_LOTE_UPSERT) {
+    const { data, error } = await cx.supabase
       .from("insumos")
-      .insert({
-        nombre: base.nombre,
-        categoria,
-        empresa: textoONulo(primerTexto("empresa")),
-        dimensiones: textoONulo(primerTexto("dimensiones")),
-        unidad: base.unidad.trim() || "pieza",
-        stock: 0,
-        minimo: Number(primerNumero("minimo") ?? 0),
-        maximo: maximo != null ? Number(maximo) : null,
-        reserva: grupo.reduce((a, g) => a + (g.reserva || 0), 0),
-        pedido: grupo.reduce((a, g) => a + (g.pedido || 0), 0),
-        link: textoONulo(primerTexto("link")),
-        created_by: cx.user.id,
-      })
-      .select("id")
-      .single();
+      .insert(filasInsumo.slice(i, i + TAM_LOTE_UPSERT))
+      .select("id, nombre");
+    if (error || !data) return { error: error?.message ?? "No se pudieron crear los insumos." };
+    for (const f of data) idPorClave.set((f.nombre as string).trim().toLowerCase(), f.id as string);
+  }
+  const creados = idPorClave.size;
 
-    if (error || !insumo) return { error: error?.message ?? "No se pudo crear el insumo." };
-    creados++;
+  const filasPresentacion = nuevos.flatMap(([clave, grupo]) => {
+    const insumoId = idPorClave.get(clave);
+    if (!insumoId) return [];
+    return grupo
+      .filter((g) => g.unidades > 0)
+      .map((g) => ({
+        insumo_id: insumoId,
+        descripcion: g.unidades > 1 ? `Paquete de ${g.unidades}` : "Pieza",
+        unidades: g.unidades,
+        precio: g.precio,
+        reserva: g.reserva || 0,
+        pedido: g.pedido || 0,
+        link: textoONulo(g.link),
+      }));
+  });
+  for (let i = 0; i < filasPresentacion.length; i += TAM_LOTE_UPSERT) {
+    const { error: errPres } = await cx.supabase
+      .from("insumo_presentaciones")
+      .insert(filasPresentacion.slice(i, i + TAM_LOTE_UPSERT));
+    if (errPres) return { error: errPres.message };
+  }
+  const presentaciones = filasPresentacion.length;
 
-    const conPrecio = grupo.filter((g) => g.unidades > 0);
-    if (conPrecio.length) {
-      const { error: errPres } = await cx.supabase.from("insumo_presentaciones").insert(
-        conPrecio.map((g) => ({
-          insumo_id: insumo.id as string,
-          descripcion: g.unidades > 1 ? `Paquete de ${g.unidades}` : "Pieza",
-          unidades: g.unidades,
-          precio: g.precio,
-          reserva: g.reserva || 0,
-          pedido: g.pedido || 0,
-          link: textoONulo(g.link),
-        })),
-      );
-      if (errPres) return { error: errPres.message };
-      presentaciones += conPrecio.length;
-    }
-
-    if (stock > 0) {
-      await cx.supabase.rpc("mover_insumo", {
-        iid: insumo.id as string,
-        p_tipo: "entrada",
-        p_cantidad: stock,
-        p_motivo: "Carga inicial desde la hoja de recursos",
-      });
-    }
+  /* mover_insumo va uno por insumo (la RPC valida permiso y arma el histórico),
+     pero en tandas paralelas. Igual que antes, un fallo aquí no tira la
+     importación: el insumo ya existe y el stock se puede mover a mano. */
+  const conStock = nuevos
+    .map(([clave, grupo]) => ({
+      id: idPorClave.get(clave),
+      stock: Number(primerNumero(grupo, "stock") ?? 0),
+    }))
+    .filter((x): x is { id: string; stock: number } => !!x.id && x.stock > 0);
+  const RPC_POR_TANDA = 8;
+  for (let i = 0; i < conStock.length; i += RPC_POR_TANDA) {
+    await Promise.all(
+      conStock.slice(i, i + RPC_POR_TANDA).map((x) =>
+        cx.supabase.rpc("mover_insumo", {
+          iid: x.id,
+          p_tipo: "entrada",
+          p_cantidad: x.stock,
+          p_motivo: "Carga inicial desde la hoja de recursos",
+        }),
+      ),
+    );
   }
 
   revalidar();
