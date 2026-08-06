@@ -13,10 +13,13 @@ import type { Influencer, InfluencerEvaluacion } from "@/lib/types";
 export function TablaEvaluaciones({
   evaluaciones,
   influencers,
+  verVentas,
   onVerDetalle,
 }: {
   evaluaciones: InfluencerEvaluacion[];
   influencers: Influencer[];
+  /* Lo que vendió su código es ingreso: sin permiso, sin columna. */
+  verVentas: boolean;
   onVerDetalle: (influencerId: string) => void;
 }) {
   const { ejecutar } = useAccionServidor();
@@ -39,15 +42,21 @@ export function TablaEvaluaciones({
       label: "Usos del código",
       celda: (e) => <span className="tabular-nums">{e.usos_codigo ?? "—"}</span>,
     },
-    {
-      clave: "ventas",
-      label: "Ventas",
-      celda: (e) => (
-        <span className="tabular-nums font-semibold">
-          {e.ventas_monto != null ? formatearMXN(e.ventas_monto) : "—"}
-        </span>
-      ),
-    },
+    /* La columna del importe se va entera: en blanco se leería como un mes sin
+       ventas, y el dato tampoco llegó del servidor. */
+    ...(verVentas
+      ? ([
+          {
+            clave: "ventas",
+            label: "Ventas",
+            celda: (e) => (
+              <span className="tabular-nums font-semibold">
+                {e.ventas_monto != null ? formatearMXN(e.ventas_monto) : "—"}
+              </span>
+            ),
+          },
+        ] satisfies Columna<InfluencerEvaluacion>[])
+      : []),
     {
       clave: "contenido",
       label: "Contenido",
@@ -89,7 +98,11 @@ export function TablaEvaluaciones({
 
   return (
     <TablaSimple
-      cols="grid-cols-[minmax(180px,1.4fr)_140px_130px_130px_180px_1fr_60px]"
+      cols={
+        verVentas
+          ? "grid-cols-[minmax(180px,1.4fr)_140px_130px_130px_180px_1fr_60px]"
+          : "grid-cols-[minmax(180px,1.4fr)_140px_130px_180px_1fr_60px]"
+      }
       columnas={columnas}
       datos={evaluaciones}
       filaKey={(e) => e.id}

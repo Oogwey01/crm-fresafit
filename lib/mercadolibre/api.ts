@@ -59,6 +59,9 @@ export type ItemML = {
   /* Galería de la publicación, en orden. Las variaciones referencian estas
      fotos por id (`picture_ids`). */
   pictures?: FotoML[];
+  /* URL pública de la publicación. Es la única forma fiable de enlazarla: las
+     URLs armadas desde el id ya no resuelven en el sitio. */
+  permalink?: string | null;
 };
 
 /* Publicación en Mercado Full (stock en el centro de ML). */

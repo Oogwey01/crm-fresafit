@@ -1,5 +1,9 @@
 import { notFound } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { leerDatosIntegracion } from "@/lib/canales/integraciones";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import { adjuntarCostos } from "@/lib/supabase/montos";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import { esGestor } from "@/lib/catalogos";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { claveFamilia, nombreBase } from "@/lib/inventario/familia";
@@ -23,13 +27,21 @@ const VENTANA_REORDEN = 30;
 /* Columnas de la ficha: todas menos `imagenes`, que es la galería importada de
    los canales (~950 KB sobre el catálogo entero) y que la vista pide aparte al
    montarse. */
-const COLUMNAS =
-  "id, nombre, variante, sku, tipo, costo, precio, stock, stock_minimo," +
-  " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
-  " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
-  " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
-  " tiktok_product_id, tiktok_sku_id, tiktok_stock, created_at, created_by, updated_at," +
-  " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)";
+/* El costo es egreso y el precio ingreso: ninguno viaja para quien no puede
+   verlos, porque con los dos al lado el margen del SKU es una resta. El costo
+   ni se pide a la tabla —está fuera del alcance del token— y se une después
+   desde `producto_costos`. */
+function columnasFicha(dinero: VistaDinero): string {
+  return (
+    "id, nombre, variante, sku, tipo, stock, stock_minimo," +
+    " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
+    " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full, meli_permalink," +
+    " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id, tiendanube_permalink," +
+    " tiktok_product_id, tiktok_sku_id, tiktok_stock, created_at, created_by, updated_at," +
+    " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)" +
+    (dinero.ingresos ? ", precio" : "")
+  );
+}
 
 /* Página propia de un producto. Antes era un pop-up del catálogo, y con él la
    ficha heredaba dos problemas: en el teléfono no cabía, y para llegar había que
@@ -41,9 +53,19 @@ const COLUMNAS =
 export default async function ProductoPage({ params }: { params: Promise<{ id: string }> }) {
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
+  const dinero = await vistaDinero();
+  const COLUMNAS = columnasFicha(dinero);
   const { id } = await params;
 
-  const { data: base } = await supabase.from("products").select(COLUMNAS).eq("id", id).maybeSingle();
+  const { data: base, error } = await supabase
+    .from("products")
+    .select(COLUMNAS)
+    .eq("id", id)
+    .maybeSingle();
+  /* Que la consulta falle NO es que la ficha no exista: traducir las dos cosas a
+     404 manda a buscar un producto borrado cuando lo que pasó fue que el select
+     ni corrió —una columna que la migración todavía no creó, por ejemplo—. */
+  if (error) throw new Error(error.message);
   const producto = base as unknown as ProductConProveedor | null;
   if (!producto) notFound();
 
@@ -54,7 +76,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
   const prefijo = nombreBase(producto.nombre);
   const sku = producto.sku?.trim();
 
-  const [familiaRes, fotosRes, mismoSkuRes, proveedoresRes] = await Promise.all([
+  const [familiaRes, fotosRes, mismoSkuRes, proveedoresRes, datosTN] = await Promise.all([
     supabase.from("products").select(COLUMNAS).ilike("nombre", `${prefijo}%`).limit(60),
     supabase.from("product_photos").select("*").eq("producto_id", producto.id).order("orden"),
     /* Renglones que comparten SKU: la misma talla publicada en varios canales.
@@ -63,10 +85,17 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
       ? supabase.from("products").select(COLUMNAS).eq("sku", sku).limit(30)
       : Promise.resolve({ data: null }),
     supabase.from("suppliers").select("*").order("nombre"),
+    /* El admin de Tienda Nube vive en el subdominio de cada tienda: el enlace
+       «Ver en Tienda Nube» necesita ese dato. Lo deja la sync en
+       `integraciones.datos`; si aún no ha corrido, el enlace no aparece. */
+    leerDatosIntegracion("tiendanube").catch(() => ({}) as Record<string, unknown>),
   ]);
 
   const fotos = (fotosRes.data ?? []) as ProductPhoto[];
-  const conFotos: ProductConProveedor = { ...producto, fotos_propias: fotos };
+  /* El costo se une aquí, desde `producto_costos`. Solo el de ESTA ficha: es la
+     única que lo pinta. */
+  const [conCosto] = await adjuntarCostos(supabase, [producto], dinero.egresos);
+  const conFotos: ProductConProveedor = { ...conCosto, fotos_propias: fotos };
 
   const clave = claveFamilia(producto);
   const hermanas = ((familiaRes.data ?? []) as unknown as ProductConProveedor[])
@@ -117,9 +146,11 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
       ventanaDias={VENTANA_REORDEN}
       proveedores={(proveedoresRes.data ?? []) as Supplier[]}
       gestor={esGestor(rol)}
-      esDireccion={rol === "direccion"}
+      dinero={dinero}
       escrituraCanales={ESCRITURA_CANALES}
-      sugerido={grupo?.sugerido ?? 0}
+      dominioTiendaNube={
+        typeof datosTN.dominio_admin === "string" ? datosTN.dominio_admin : null
+      }
     />
   );
 }

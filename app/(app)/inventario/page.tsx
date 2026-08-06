@@ -1,10 +1,13 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import { adjuntarCostos } from "@/lib/supabase/montos";
 import { estadoCanales } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelInventario, type AvisoConexion } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 import { estadoPiloto } from "@/lib/inventario/piloto";
+import { FILTRO_PUESTA_AL_DIA, LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
 import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/inventario/reabastecimiento";
 import type {
   ProductConProveedor,
@@ -16,6 +19,7 @@ import type {
   Profile,
 } from "@/lib/types";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Inventario · Fresafit" };
 
@@ -95,10 +99,27 @@ export default async function InventarioPage({
 }: {
   searchParams: Promise<Params>;
 }) {
+  await exigirModulo("inventario");
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
   const avisosConexion = avisosDeConexion(await searchParams);
+
+  /* El costo es EGRESO —lo que nos cuesta— y el precio, INGRESO. Con los dos al
+     lado, el margen de cada SKU es una resta, así que ninguno viaja para quien
+     no puede verlos. El costo ni siquiera se pide a la tabla: está fuera del
+     alcance del token y sale de `producto_costos` (ver 20260902000000).
+     Anotado como `string`: el parser de tipos de supabase-js se rinde ante una
+     lista de columnas armada al vuelo. */
+  const dinero = await vistaDinero();
+  const columnasCatalogo: string =
+    "id, nombre, variante, sku, tipo, stock, stock_minimo," +
+    " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
+    " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
+    " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
+    " tiktok_product_id, tiktok_sku_id, tiktok_stock, created_at, created_by, updated_at," +
+    " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)" +
+    (dinero.ingresos ? ", precio" : "");
 
   const [
     productosRes,
@@ -125,14 +146,7 @@ export default async function InventarioPage({
     traerTodo<ProductConProveedor>((desde, hasta) =>
       supabase
         .from("products")
-        .select(
-          "id, nombre, variante, sku, tipo, costo, precio, stock, stock_minimo," +
-            " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
-            " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
-            " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
-            " tiktok_product_id, tiktok_sku_id, tiktok_stock, created_at, created_by, updated_at," +
-            " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)",
-        )
+        .select(columnasCatalogo)
         .order("nombre")
         /* El join anidado hace que supabase-js no pueda inferir la forma; el
            cast es el mismo patrón que ya usa la página de clientes. */
@@ -148,12 +162,22 @@ export default async function InventarioPage({
       supabase.from("product_photos").select("*").order("orden").range(desde, hasta),
     ),
     supabase.from("suppliers").select("*").order("nombre"),
-    // Historial de movimientos de stock (los 300 más recientes).
+    /* Historial de movimientos de stock. Solo los REALES: las puestas al día
+       —el CRM copiando el número que ya tenía el canal— son el 93% de la tabla
+       y sepultaban a las ventas y a la mercancía recibida. Se piden aparte,
+       cuando alguien las pide (ver `movimientosStock` en actions.ts).
+
+       El tope se aplica ANTES que cualquier filtro, así que tiene que ser
+       holgado o el filtro de canal mentiría: con ~70 movimientos reales al mes
+       y 90 días de retención, 250 no corta nunca en la práctica.
+
+       `autor` es quien lo provocó: null en lo que hicieron el cron o un webhook. */
     supabase
       .from("stock_log")
-      .select("*, producto:products!producto_id(nombre, variante)")
+      .select("*, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)")
+      .not("origen", "in", FILTRO_PUESTA_AL_DIA)
       .order("creado_en", { ascending: false })
-      .limit(300),
+      .limit(LIMITE_MOVIMIENTOS),
     // Ventas de la ventana: alimentan la velocidad de salida de cada producto.
     // Agregadas por día/canal/producto en la base (RPC ventas_reorden), que es
     // la granularidad que usa el panel: mismo resultado, muchas menos filas
@@ -187,7 +211,10 @@ export default async function InventarioPage({
   for (const f of fotosRes) {
     (fotosPorProducto[f.producto_id] ??= []).push(f);
   }
-  const productos = productosRes.map((p) => ({
+  /* El costo se une aquí, desde `producto_costos`: la columna está fuera del
+     alcance del token y la vista la sirve solo a quien lleva los egresos. */
+  const conCosto = await adjuntarCostos(supabase, productosRes, dinero.egresos);
+  const productos = conCosto.map((p) => ({
     ...p,
     fotos_propias: fotosPorProducto[p.id] ?? [],
   }));
@@ -216,6 +243,7 @@ export default async function InventarioPage({
       enCamino={enCamino}
       paramsReorden={paramsReordenDesdeEnv()}
       rol={rol}
+      dinero={dinero}
       tiendanube={canales.tiendanube}
       mercadolibre={canales.mercadolibre}
       tiktok={canales.tiktok}

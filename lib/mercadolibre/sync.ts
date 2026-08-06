@@ -73,6 +73,8 @@ export type UnidadML = {
   /* Galería de la unidad, en orden (la de la variación si la tiene; si no, la
      del item). Vacía = la publicación no trae fotos. */
   imagenes: string[];
+  /* URL pública de la publicación (del item: las variaciones la comparten). */
+  permalink: string | null;
 };
 
 type FilaProducto = {
@@ -85,10 +87,11 @@ type FilaProducto = {
   meli_variation_id: number | null;
   meli_logistic_type: string | null;
   meli_user_product_id: string | null;
+  meli_permalink: string | null;
 };
 
 const CAMPOS_FILA =
-  "id, stock, sku, tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type, meli_user_product_id";
+  "id, stock, sku, tiendanube_product_id, tiendanube_variant_id, meli_item_id, meli_variation_id, meli_logistic_type, meli_user_product_id, meli_permalink";
 
 /* Una publicación de ML apuntando a una ficha del CRM (tabla meli_publicaciones). */
 type Publicacion = {
@@ -128,6 +131,7 @@ export function unidadesDe(item: ItemML): UnidadML[] {
   const activo = item.status !== "closed";
   const logisticType = item.shipping?.logistic_type ?? null;
   const userProductId = item.user_product_id ?? null;
+  const permalink = item.permalink?.trim() || null;
   if (item.variations?.length) {
     return item.variations.map((v) => ({
       itemId: item.id,
@@ -145,6 +149,7 @@ export function unidadesDe(item: ItemML): UnidadML[] {
       logisticType,
       userProductId,
       imagenes: galeriaDe(item, v.picture_ids),
+      permalink,
     }));
   }
   return [
@@ -160,6 +165,7 @@ export function unidadesDe(item: ItemML): UnidadML[] {
       logisticType,
       userProductId,
       imagenes: galeriaDe(item),
+      permalink,
     },
   ];
 }
@@ -364,6 +370,10 @@ export async function sincronizarItemsML(
       if (u.logisticType !== existente.meli_logistic_type) {
         dePublicacion.meli_logistic_type = u.logisticType;
       }
+      /* Solo si viene: un multiget sin permalink no debe borrar el guardado. */
+      if (u.permalink && u.permalink !== existente.meli_permalink) {
+        dePublicacion.meli_permalink = u.permalink;
+      }
 
       /* Cuando el CRM manda este producto, Mercado Libre NO dicta su stock: solo
          se adopta catálogo. El stock baja por venta (descuento) o ajuste manual,
@@ -463,6 +473,7 @@ export async function sincronizarItemsML(
           ...meliIds,
           meli_logistic_type: u.logisticType,
           meli_user_product_id: u.userProductId,
+          meli_permalink: u.permalink,
         },
       });
       registrar(u, fila.id, true);
@@ -488,6 +499,7 @@ export async function sincronizarItemsML(
       activo: u.activo,
       meli_logistic_type: u.logisticType,
       meli_user_product_id: u.userProductId,
+      meli_permalink: u.permalink,
       ...fotos(u),
       ...meliIds,
     });

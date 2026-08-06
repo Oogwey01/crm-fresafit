@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import { adjuntarCostos } from "@/lib/supabase/montos";
 import {
   archivoDeFormData,
   rutaParaArchivo,
@@ -15,7 +17,14 @@ import { importacionCompletaML } from "@/lib/mercadolibre/sync";
 import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
 import { propagarStock } from "@/lib/inventario/stock-hub";
 import { registrarStockLog } from "@/lib/inventario/stock-log";
+import { conActor } from "@/lib/inventario/actor";
 import { reconciliarInventario, type ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
+import {
+  FILTRO_PUESTA_AL_DIA,
+  LIMITE_MOVIMIENTOS,
+  LIMITE_PUESTAS_AL_DIA,
+  ORIGENES_PUESTA_AL_DIA,
+} from "@/lib/inventario/origenes";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 import type {
   ProductPhoto,
@@ -49,7 +58,10 @@ export async function sincronizarTiendanube(): Promise<{ ok: true; detalle: stri
   if ("error" in cx) return cx;
 
   try {
-    const r = await sincronizacionCompleta();
+    /* `conActor` firma en el historial los movimientos de esta corrida: una
+       sincronización picada a mano no es lo mismo que la del cron de las 6:00,
+       y en el ledger se veían idénticas. */
+    const r = await conActor(cx.user.id, () => sincronizacionCompleta());
     revalidatePath("/inventario");
     return {
       ok: true,
@@ -89,7 +101,7 @@ export async function sincronizarMercadolibre(): Promise<{ ok: true; detalle: st
   if ("error" in cx) return cx;
 
   try {
-    const r = await importacionCompletaML();
+    const r = await conActor(cx.user.id, () => importacionCompletaML());
     revalidatePath("/inventario");
     return {
       ok: true,
@@ -106,7 +118,7 @@ export async function sincronizarTiktok(): Promise<{ ok: true; detalle: string }
   if ("error" in cx) return cx;
 
   try {
-    const r = await importacionCompletaTikTok();
+    const r = await conActor(cx.user.id, () => importacionCompletaTikTok());
     revalidatePath("/inventario");
     return {
       ok: true,
@@ -193,6 +205,8 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     notas: textoONulo(input.notas),
   };
 
+  const dinero = await vistaDinero();
+
   if (id) {
     // El inventario NO se administra desde el diálogo de edición: el stock solo
     // cambia con el ajuste manual +/− de la tabla (ajustarStock). Aquí, para
@@ -202,25 +216,40 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
     // habilitada: por defecto el CRM es solo lectura y no toca la tienda.
     const { data: actual, error: errActual } = await cx.supabase
       .from("products")
-      .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, precio, costo")
+      .select("tiendanube_product_id, tiendanube_variant_id, meli_item_id, precio")
       .eq("id", id)
       .single();
     if (errActual) return { error: errActual.message };
+
+    /* El costo anterior sale de `producto_costos`: la columna está fuera del
+       alcance del token (ver 20260902000000). Solo hace falta para saber si
+       cambió y avisar a Tienda Nube, así que ni se pide sin ese permiso. */
+    const [{ costo: costoActual }] = await adjuntarCostos(
+      cx.supabase,
+      [{ id }],
+      dinero.egresos,
+    );
     const vinculado = actual.tiendanube_variant_id != null || actual.meli_item_id != null;
 
-    const filaSinStock: Record<string, unknown> = { ...fila };
-    delete filaSinStock.stock;
-    const { error } = await cx.supabase
-      .from("products")
-      .update(vinculado ? filaSinStock : fila)
-      .eq("id", id);
+    /* Quien no ve el costo (o el precio) tampoco lo recibió al abrir la ficha,
+       así que el formulario lo manda vacío: dejarlo pasar lo pondría en nulo sin
+       que nadie lo pidiera. Se conserva el que ya tenía. Al dar de alta sí van
+       —ahí el número lo pone quien captura—, y por eso esto solo pasa al editar. */
+    const cambios: Record<string, unknown> = { ...fila };
+    if (vinculado) delete cambios.stock;
+    if (!dinero.egresos) delete cambios.costo;
+    if (!dinero.ingresos) delete cambios.precio;
+
+    const { error } = await cx.supabase.from("products").update(cambios).eq("id", id);
     if (error) return { error: error.message };
     revalidatePath("/inventario");
 
     // Sync inversa a Tienda Nube: SOLO precio/costo que hayan cambiado. Nunca stock.
+    // Y solo los que esta persona podía ver: los otros ni se guardaron aquí, así
+    // que compararlos daría un cambio inventado y empujaría un nulo a la tienda.
     const cambiosTN: { precio?: number | null; costo?: number | null } = {};
-    if (fila.precio !== actual.precio) cambiosTN.precio = fila.precio;
-    if (fila.costo !== actual.costo) cambiosTN.costo = fila.costo;
+    if (dinero.ingresos && fila.precio !== actual.precio) cambiosTN.precio = fila.precio;
+    if (dinero.egresos && fila.costo !== costoActual) cambiosTN.costo = fila.costo;
     if (ESCRITURA_CANALES && (cambiosTN.precio !== undefined || cambiosTN.costo !== undefined)) {
       try {
         await empujarProductoTN({
@@ -264,17 +293,19 @@ export async function ajustarStock(id: string, stock: number): Promise<Resultado
     .single();
   if (error) return { error: error.message };
   revalidatePath("/inventario");
-  await registrarStockLog([
-    { producto_id: id, canal: "crm", origen: "manual", stock_anterior: prev?.stock ?? null, stock_nuevo: stock },
-  ]);
-  /* Sync inversa: el ajuste viaja a los canales vinculados (no-op en solo
-     lectura, que es el default). Va con el `delta` para que cada canal reciba el
-     MOVIMIENTO —"suma 3"— y no un total que quizá ya no corresponde a lo que
-     tiene: si alguien vendió entre nuestra lectura y nuestra escritura, sumar 3
-     respeta esa venta; imponer el total la borraría. */
-  const errores = await propagarStock("crm", [
-    { id, ...data, stock, delta: prev ? stock - prev.stock : null },
-  ]);
+  /* Todo lo que registre stock aquí dentro queda firmado con quien ajustó: es
+     el único camino manual que toca el inventario y el que más se audita. */
+  const errores = await conActor(cx.user.id, async () => {
+    await registrarStockLog([
+      { producto_id: id, canal: "crm", origen: "manual", stock_anterior: prev?.stock ?? null, stock_nuevo: stock },
+    ]);
+    /* Sync inversa: el ajuste viaja a los canales vinculados (no-op en solo
+       lectura, que es el default). Va con el `delta` para que cada canal reciba el
+       MOVIMIENTO —"suma 3"— y no un total que quizá ya no corresponde a lo que
+       tiene: si alguien vendió entre nuestra lectura y nuestra escritura, sumar 3
+       respeta esa venta; imponer el total la borraría. */
+    return propagarStock("crm", [{ id, ...data, stock, delta: prev ? stock - prev.stock : null }]);
+  });
   if (errores.length > 0) {
     return { error: `El stock se guardó en el CRM, pero: ${errores.join(" · ")}` };
   }
@@ -292,23 +323,64 @@ export async function borrarProducto(id: string): Promise<Resultado> {
 }
 
 /* Historial de UN producto, para el pop-up. Va aparte del que carga la página
-   (los 300 movimientos más recientes de todo el catálogo): filtrar esos por
-   producto dejaría casi todas las fichas en blanco. */
+   (los movimientos más recientes de todo el catálogo): filtrar esos por producto
+   dejaría casi todas las fichas en blanco.
+
+   Por defecto SIN las puestas al día: son el 93% del ledger, así que los últimos
+   ocho renglones de una ficha eran casi siempre «igualado con el canal» y nunca
+   se veía la venta ni la recepción que de verdad la movieron. */
 export async function movimientosProducto(
   productoId: string,
   limite = 8,
+  incluirPuestasAlDia = false,
 ): Promise<{ movimientos: StockLog[] } | { error: string }> {
   const cx = await exigirRol("interno", "Solo el equipo interno puede ver el historial.");
   if ("error" in cx) return cx;
 
-  const { data, error } = await cx.supabase
+  let q = cx.supabase
     .from("stock_log")
-    .select("*")
-    .eq("producto_id", productoId)
-    .order("creado_en", { ascending: false })
-    .limit(limite);
+    .select("*, autor:profiles!created_by(nombre)")
+    .eq("producto_id", productoId);
+  if (!incluirPuestasAlDia) q = q.not("origen", "in", FILTRO_PUESTA_AL_DIA);
+
+  const { data, error } = await q.order("creado_en", { ascending: false }).limit(limite);
   if (error) return { error: error.message };
   return { movimientos: (data ?? []) as unknown as StockLog[] };
+}
+
+/* Historial de stock de la pantalla de Inventario, en sus dos vistas.
+   La página ya trae la inicial (movimientos reales, todos los canales); esta
+   acción sirve los cambios de vista y de canal.
+
+   El filtro de canal va AQUÍ y no en el navegador a propósito: filtrar en el
+   cliente sobre una lista ya recortada por el tope enseñaría tres renglones de
+   Mercado Libre y daría a entender que solo hubo tres. */
+export async function movimientosStock(opts: {
+  vista: "reales" | "puestas_al_dia";
+  canal?: "todos" | StockLog["canal"];
+  limite?: number;
+}): Promise<{ movimientos: StockLog[]; tope: boolean } | { error: string }> {
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ver el historial.");
+  if ("error" in cx) return cx;
+
+  const limite =
+    opts.limite ?? (opts.vista === "reales" ? LIMITE_MOVIMIENTOS : LIMITE_PUESTAS_AL_DIA);
+
+  let q = cx.supabase
+    .from("stock_log")
+    .select("*, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)");
+  q =
+    opts.vista === "reales"
+      ? q.not("origen", "in", FILTRO_PUESTA_AL_DIA)
+      : q.in("origen", [...ORIGENES_PUESTA_AL_DIA]);
+  if (opts.canal && opts.canal !== "todos") q = q.eq("canal", opts.canal);
+
+  const { data, error } = await q.order("creado_en", { ascending: false }).limit(limite);
+  if (error) return { error: error.message };
+  const movimientos = (data ?? []) as unknown as StockLog[];
+  // Con el tope alcanzado hay más historia detrás; la pantalla lo dice en vez de
+  // aparentar que eso es todo lo que pasó.
+  return { movimientos, tope: movimientos.length >= limite };
 }
 
 /* ========================= Fotos propias (Storage) ======================== */

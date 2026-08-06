@@ -54,6 +54,17 @@ function estaCancelada(o: OrdenTN): boolean {
   return o.status === "cancelled" || o.payment_status === "refunded" || o.payment_status === "voided";
 }
 
+/* Por qué se retiró la venta. El stock vuelve igual en los dos casos; lo que
+   cambia es lo que queda escrito en el historial. */
+type MotivoRetiro = "cancelacion_tn" | "reembolso_tn";
+
+function motivoRetiro(o: OrdenTN): MotivoRetiro {
+  /* `refunded` manda aunque la orden esté ADEMÁS cancelada: si el dinero ya se
+     devolvió, eso es lo que describe el movimiento. `voided` —el pago se anuló
+     sin llegar a capturarse— es una cancelación: nunca hubo dinero que volver. */
+  return o.payment_status === "refunded" ? "reembolso_tn" : "cancelacion_tn";
+}
+
 /* Correo del comprador, normalizado: es la llave con la que se identifica al
    cliente (Tienda Nube no expone un id de cliente en sus órdenes). */
 function correoDe(orden: OrdenTN): string | null {
@@ -416,51 +427,68 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
     }),
   );
 
-  // Órdenes canceladas/reembolsadas: retirar sus renglones si se importaron.
-  const refsCanceladas = ordenes
-    .filter(estaCancelada)
-    .flatMap((o) => (o.products ?? []).map((l) => `${o.id}:${l.variant_id}`));
+  /* Órdenes retiradas: se agrupan POR MOTIVO. Para el stock da igual —las piezas
+     vuelven en los dos casos—, pero para quien lee el historial no: una venta
+     cancelada nunca ocurrió, una reembolsada sí ocurrió y se devolvió el dinero.
+     Con un solo origen las dos se veían iguales. */
+  const refsPorMotivo = new Map<MotivoRetiro, string[]>();
+  for (const o of ordenes.filter(estaCancelada)) {
+    const motivo = motivoRetiro(o);
+    const refs = refsPorMotivo.get(motivo) ?? [];
+    for (const l of o.products ?? []) refs.push(`${o.id}:${l.variant_id}`);
+    refsPorMotivo.set(motivo, refs);
+  }
   let retiradas = 0;
-  if (refsCanceladas.length > 0) {
-    const { data, error } = await admin
-      .from("sales")
-      .delete()
-      .eq("canal", "tienda_nube")
-      .in("referencia_externa", refsCanceladas)
-      .select("id, producto_id, cantidad");
-    if (error) throw new Error(error.message);
-    retiradas = data?.length ?? 0;
+  for (const [motivo, refs] of refsPorMotivo) {
+    if (refs.length === 0) continue;
+    /* En tandas: una reimportación del histórico son cientos de referencias, y
+       un `.in()` con todas arma una URL que el servidor rechaza con 400 (el
+       mismo fallo que ya se corrigió en la sync de clientes). */
+    const borrados: { producto_id: string | null; cantidad: number }[] = [];
+    for (let i = 0; i < refs.length; i += 200) {
+      const { data, error } = await admin
+        .from("sales")
+        .delete()
+        .eq("canal", "tienda_nube")
+        .in("referencia_externa", refs.slice(i, i + 200))
+        .select("id, producto_id, cantidad");
+      if (error) throw new Error(error.message);
+      retiradas += data?.length ?? 0;
+      for (const r of data ?? []) {
+        borrados.push({ producto_id: r.producto_id as string | null, cantidad: r.cantidad as number });
+      }
+    }
 
-    /* Devolver el stock de lo cancelado (simétrico al descuento por venta):
-       cancelar una venta suma la unidad de vuelta. `data` son solo los renglones
-       que EXISTÍAN y se acaban de borrar, así que una segunda notificación de la
-       misma cancelación no encuentra nada y no devuelve dos veces.
+    /* Devolver el stock de lo retirado (simétrico al descuento por venta):
+       cancelar o reembolsar una venta suma la unidad de vuelta. `borrados` son
+       solo los renglones que EXISTÍAN y se acaban de borrar, así que una segunda
+       notificación de lo mismo no encuentra nada y no devuelve dos veces.
 
        Tienda Nube ya restituyó lo suyo al cancelar; por eso el origen es
        "tiendanube" y el hub reenvía el +N solo a los demás canales, no a ella. */
     if (HUB_VENTAS_ACTIVO) {
       const aDevolver = await productosDelPiloto(
-        (data ?? [])
+        borrados
           .filter((r) => r.producto_id)
-          .map((r) => ({ producto_id: r.producto_id as string, cantidad: r.cantidad as number })),
+          .map((r) => ({ producto_id: r.producto_id as string, cantidad: r.cantidad })),
       );
       if (aDevolver.length > 0) {
         try {
           const { data: afectados, error: errDev } = await admin.rpc("devolver_stock_ventas", {
             items: aDevolver,
-            p_origen: "cancelacion_tn",
+            p_origen: motivo,
           });
           if (errDev) throw new Error(errDev.message);
           const filasHub = ((afectados ?? []) as (FilaVinculada & { devuelto?: number })[]).map(
             (f) => ({ ...f, delta: f.devuelto ? f.devuelto : null }),
           );
           if (filasHub.length > 0) {
-            (await propagarStock("tiendanube", filasHub, "cancelacion_tn")).forEach((e) =>
-              console.error("[stock-hub] cancelación TN→ML:", e),
+            (await propagarStock("tiendanube", filasHub, motivo)).forEach((e) =>
+              console.error(`[stock-hub] ${motivo} TN→ML:`, e),
             );
           }
         } catch (e) {
-          console.error("[tiendanube] devolución de stock por cancelación:", e);
+          console.error("[tiendanube] devolución de stock por venta retirada:", e);
         }
       }
     }

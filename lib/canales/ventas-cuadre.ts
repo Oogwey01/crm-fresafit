@@ -66,6 +66,8 @@ export type RenglonRefrescado = {
   /* Enlace al pedido en el panel del canal. Se guarda en vez de deducirse porque
      Mercado Libre lo abre por `pack_id`, que solo conoce su API. */
   url_orden?: string | null;
+  /* Id del shipment de Mercado Libre, para pedir la etiqueta PDF a su API. */
+  envio_id?: string | null;
   /* La dirección solo llega en algunas pasadas (depende de qué devuelva el
      canal); la RPC conserva la anterior cuando viene nula. */
   envio_direccion?: unknown;

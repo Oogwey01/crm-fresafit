@@ -4,16 +4,22 @@ import { useRef, useState, useTransition } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  ChevronDown,
   ExternalLink,
   Image as ImageIcon,
   Minus,
   Pencil,
   Plus,
   Trash2,
-  Truck,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { BadgeStock } from "@/components/inventario/badge-stock";
 import { Seccion } from "@/components/compartido/seccion";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
@@ -34,6 +40,13 @@ import { tallaDeVariante } from "@/lib/talla";
 import { formatearFechaHora, formatearFechaLarga, hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
+  urlPublicacionML,
+  urlPublicacionMLVendedor,
+  urlPublicacionTikTok,
+  urlPublicacionTN,
+} from "@/lib/canales/publicaciones";
+import type { VistaDinero } from "@/lib/permisos-dinero";
+import {
   ajustarStock,
   borrarFotoProducto,
   movimientosProducto,
@@ -41,36 +54,18 @@ import {
   subirFotoProducto,
 } from "@/app/(app)/inventario/actions";
 import type { ProductConProveedor, StockLog } from "@/lib/types";
+import { firmaMovimiento } from "@/components/inventario/tabla-movimientos";
+import { cortoOrigen } from "@/lib/inventario/origenes";
 import { cn } from "@/lib/utils";
 
-/* Mismas etiquetas que el historial completo (tabla-movimientos.tsx). */
-const ORIGEN_LABEL: Record<string, string> = {
-  manual: "Ajuste manual",
-  tiendanube_sync: "Sync Tienda Nube",
-  mercadolibre_sync: "Sync Mercado Libre",
-  tiktok_sync: "Sync TikTok",
-  proveedor: "Recepción proveedor",
-  venta_ml: "Venta Mercado Libre",
-  venta_tn: "Venta Tienda Nube",
-  venta_tiktok: "Venta TikTok",
-  reparacion: "Reparación automática",
-  cancelacion_tn: "Cancelación Tienda Nube",
-  cancelacion_ml: "Cancelación Mercado Libre",
-};
+/* Las etiquetas salen de lib/inventario/origenes.ts, las mismas que el historial
+   completo: aquí se usa la versión corta porque cada movimiento es una línea. */
 
 /* Fecha límite para pedir. El cálculo nunca la deja en el pasado (la trunca a
    hoy), así que "hoy" significa "ya se pasó el punto de reorden". */
 function limitePedido(iso: string): string {
   if (iso <= hoyISO()) return "hoy mismo";
   return `antes del ${formatearFechaLarga(iso)}`;
-}
-
-/* Enlace a la publicación de Mercado Libre. Solo se arma para los ids mexicanos
-   (MLM…), que es lo único que publica la tienda; para otros se omite el enlace
-   en vez de mandar a una URL que no resuelve. */
-function urlMeli(itemId: string): string | null {
-  if (!/^MLM\d+$/.test(itemId)) return null;
-  return `https://articulo.mercadolibre.com.mx/${itemId.replace(/^MLM/, "MLM-")}`;
 }
 
 function Cifra({
@@ -93,6 +88,72 @@ function Cifra({
   );
 }
 
+/* Cada bloque de la ficha va en su propia tarjeta. La `Seccion` compartida
+   trae un separador superior —pensado para cuando todo esto era una sola
+   columna con líneas entre bloque y bloque—; dentro de una tarjeta ese filo
+   sobra, así que se anula. */
+function SeccionTarjeta({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+      <Seccion titulo={titulo} className="border-t-0 pt-0">
+        {children}
+      </Seccion>
+    </div>
+  );
+}
+
+/* Botón «Ver en <canal>». Con un solo destino es un enlace directo; con dos
+   (la vista pública del comprador y la del panel del vendedor) se vuelve menú:
+   los dos llevan a la MISMA publicación y no merecen dos botones. */
+function BotonVerEnCanal({
+  etiqueta,
+  destinos,
+  size = "default",
+  className,
+}: {
+  /* Texto del botón: el largo de escritorio («Ver en Tienda Nube») o el corto
+     de la barra del teléfono («Tienda Nube»). */
+  etiqueta: string;
+  destinos: { etiqueta: string; href: string }[];
+  size?: "default" | "lg";
+  className?: string;
+}) {
+  if (destinos.length === 1) {
+    return (
+      <a
+        href={destinos[0].href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(buttonVariants({ variant: "outline", size }), className)}
+      >
+        <ExternalLink />
+        {etiqueta}
+      </a>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(buttonVariants({ variant: "outline", size }), className)}
+      >
+        <ExternalLink />
+        {etiqueta}
+        <ChevronDown className="size-3.5 opacity-60" aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {destinos.map((d) => (
+          <DropdownMenuItem
+            key={d.href}
+            render={<a href={d.href} target="_blank" rel="noopener noreferrer" />}
+          >
+            {d.etiqueta}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function Chip({ children, title }: { children: React.ReactNode; title?: string }) {
   return (
     <span
@@ -104,10 +165,10 @@ function Chip({ children, title }: { children: React.ReactNode; title?: string }
   );
 }
 
-/* Ficha de un producto: toda su información de un vistazo, más las dos acciones
-   del día a día (reponer stock, pedir al proveedor). Es de solo lectura salvo el
-   stock y las fotos; el formulario completo vive en ProductoDialog, al que se
-   llega con «Editar».
+/* Ficha de un producto: toda su información de un vistazo, más las acciones
+   del día a día (reponer stock, abrir la publicación en su canal). Es de solo
+   lectura salvo el stock y las fotos; el formulario completo vive en
+   ProductoDialog, al que se llega con «Editar».
 
    Vive en su PROPIA PÁGINA (/inventario/producto/[id]) y no en un pop-up, como
    pidió Armando: son fotos, tallas, ventas, canales, movimientos y proveedor —
@@ -119,11 +180,12 @@ export function ProductoVista({
   hermanas = [],
   grupo,
   ventanaDias,
+  dinero,
   escrituraCanales,
   onVerHermana,
   onEditar,
-  onGenerarPedido,
   onVolver,
+  dominioTiendaNube = null,
 }: {
   producto: ProductConProveedor;
   /* Todas las variantes del mismo producto (incluida ésta), ordenadas por talla.
@@ -136,13 +198,16 @@ export function ProductoVista({
      con sus publicaciones gemelas. */
   grupo: GrupoReorden | null;
   ventanaDias: number;
+  /* Qué puede ver de dinero quien mira: precio (ingreso) y costo (egreso). */
+  dinero: VistaDinero;
   /* false (el default del sistema) = el ajuste es local, no viaja a los canales. */
   escrituraCanales: boolean;
   onEditar: () => void;
-  /* Solo dirección: el pedido a proveedor vive en su propio módulo. */
-  onGenerarPedido?: () => void;
   /* Volver al catálogo (la flecha de la barra superior). */
   onVolver: () => void;
+  /* Subdominio del admin de Tienda Nube (integraciones.datos.dominio_admin, lo
+     deja la sync). Sin él no se puede armar el enlace a la publicación de TN. */
+  dominioTiendaNube?: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [subiendo, setSubiendo] = useState(false);
@@ -164,7 +229,44 @@ export function ProductoVista({
      producto está agotado de verdad o solo lo está una talla. */
   const totalHermanas = hermanas.reduce((a, h) => a + h.stock, 0);
   const urgencia = grupo ? obtenerUrgencia(grupo.urgencia) : null;
-  const enlaceMeli = producto.meli_item_id ? urlMeli(producto.meli_item_id) : null;
+  const enlaceMeli = producto.meli_item_id
+    ? urlPublicacionML(producto.meli_item_id, producto.meli_permalink)
+    : null;
+  /* «Ver en …»: la misma publicación pero en su plataforma, un botón por canal
+     donde la ficha está amarrada. Sustituyó a «Generar pedido», que vive en el
+     módulo de proveedores (y en el listado del inventario para dirección).
+     Cada canal ofrece hasta dos vistas: la del COMPRADOR (la página pública) y
+     la del VENDEDOR (su panel). Las públicas viajan guardadas por la sync
+     (tiendanube_permalink / meli_permalink): mientras no haya vuelto a correr,
+     el canal ofrece las vistas que sí se pueden armar. TikTok no tiene página
+     pública enlazable, solo el Seller Center. */
+  const enlaces: { canal: string; destinos: { etiqueta: string; href: string }[] }[] = [];
+  if (producto.tiendanube_product_id != null) {
+    const publica = producto.tiendanube_permalink?.trim();
+    const admin = urlPublicacionTN(dominioTiendaNube, producto.tiendanube_product_id);
+    const destinos = [
+      ...(publica ? [{ etiqueta: "Como comprador", href: publica }] : []),
+      ...(admin ? [{ etiqueta: "Como vendedor", href: admin }] : []),
+    ];
+    if (destinos.length > 0) enlaces.push({ canal: "Tienda Nube", destinos });
+  }
+  if (producto.meli_item_id) {
+    enlaces.push({
+      canal: "Mercado Libre",
+      destinos: [
+        ...(enlaceMeli ? [{ etiqueta: "Como comprador", href: enlaceMeli }] : []),
+        { etiqueta: "Como vendedor", href: urlPublicacionMLVendedor(producto.meli_item_id) },
+      ],
+    });
+  }
+  if (producto.tiktok_product_id) {
+    enlaces.push({
+      canal: "TikTok",
+      destinos: [
+        { etiqueta: "Seller Center", href: urlPublicacionTikTok(producto.tiktok_product_id) },
+      ],
+    });
+  }
   const tituloAjuste = escrituraCanales
     ? undefined
     : "Ajuste local: el stock cambia solo en el CRM, no en Tienda Nube ni Mercado Libre.";
@@ -230,7 +332,10 @@ export function ProductoVista({
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-4">
+    /* Ancho de trabajo, no de lectura: la ficha vivía en una columna de 672 px
+       con media pantalla vacía a los lados, y eso obligaba a apilar la foto, el
+       stock, las ventas y los canales en una tira larguísima. */
+    <div className="mx-auto flex max-w-6xl flex-col gap-4">
       {/* Barra de vuelta al catálogo. Va pegada arriba en el teléfono, debajo
           del header de navegación (sticky, z-40, 3.5rem de alto): de ahí el
           top-14 y el z-30. El -mx-4 cancela el padding del <main>. */}
@@ -249,7 +354,11 @@ export function ProductoVista({
       </div>
 
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
+        {/* Cabecera ancha: qué es, y a la derecha los saltos a la publicación
+            en cada canal más «Editar» —donde caben sin empujar nada—. En el
+            teléfono viven en la barra fija de abajo, al alcance del pulgar. */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between md:gap-4">
+        <div className="flex min-w-0 flex-col gap-2">
           <h1 className="text-[19px] font-bold leading-snug tracking-tight md:text-[22px]">
             {producto.nombre}
             {producto.variante && <span className="text-muted-foreground"> · {producto.variante}</span>}
@@ -281,10 +390,26 @@ export function ProductoVista({
             )}
           </div>
         </div>
+          <div className="hidden shrink-0 flex-wrap justify-end gap-2 md:flex">
+            {enlaces.map((e) => (
+              <BotonVerEnCanal key={e.canal} etiqueta={`Ver en ${e.canal}`} destinos={e.destinos} />
+            ))}
+            <Button variant="outline" onClick={onEditar} disabled={pending}>
+              <Pencil />
+              Editar
+            </Button>
+          </div>
+        </div>
 
+        {/* Dos columnas: a la izquierda lo que se MIRA (la foto, las tallas, el
+            historial); a la derecha lo que se CONSULTA y se toca —existencias,
+            reposición, canales—, fijo al hacer scroll para no perderlo de vista.
+            En el teléfono todo se apila, en el orden de siempre. */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="flex min-w-0 flex-col gap-4">
         {/* Fotos: las propias (subidas aquí) van primero; las del canal se
             importan y no se borran desde el CRM. */}
-        <div className="flex flex-col gap-2 border-t pt-3">
+        <div className="flex flex-col gap-2 rounded-2xl border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
               Fotos del artículo
@@ -311,11 +436,16 @@ export function ProductoVista({
             />
           </div>
 
-          <div className="grid grid-cols-[1fr_auto] gap-2">
-            <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg border bg-muted/40">
+          {/* La foto manda: con el ancho nuevo cabe grande de verdad, y las
+              miniaturas pasan a una fila debajo. En columna lateral vivían en
+              una tira con scroll propio donde la cuarta foto ya no se veía.
+              `object-contain`: son fotos de catálogo con fondo blanco y
+              `cover` recortaba la mochila por los bordes. */}
+          <div className="flex flex-col gap-2">
+            <div className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-xl border bg-muted/30">
               {principal ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={principal.src} alt={producto.nombre} className="size-full object-cover" />
+                <img src={principal.src} alt={producto.nombre} className="size-full object-contain" />
               ) : (
                 <div className="flex flex-col items-center gap-1.5 text-muted-foreground/50">
                   <ImageIcon className="size-8" />
@@ -324,7 +454,7 @@ export function ProductoVista({
               )}
             </div>
 
-            <div className="flex max-h-[248px] flex-col gap-2 overflow-y-auto pr-0.5">
+            <div className="flex flex-wrap gap-2">
               {galeria.map(({ src, foto }, i) => (
                 <div key={src} className="group relative shrink-0">
                   <button
@@ -369,10 +499,106 @@ export function ProductoVista({
           </div>
         </div>
 
+        {/* Las demás tallas del mismo producto. Sin esto había que volver al
+            listado y buscarlas una por una para saber de qué talla queda stock,
+            que es justo lo que pidió resolver Armando. */}
+        {hermanas.length > 1 && (
+          <SeccionTarjeta titulo={`Tallas de este producto · ${totalHermanas} en total`}>
+            <div className="flex flex-col gap-1">
+              {hermanas.map((h) => {
+                const talla = tallaDeVariante(h.variante) ?? h.variante ?? "Única";
+                const esta = h.id === producto.id;
+                const est = estadoStock(h);
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => !esta && onVerHermana?.(h.id)}
+                    disabled={esta}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-[13.5px] transition-colors",
+                      esta ? "border-primary bg-primary/5" : "hover:bg-accent",
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="font-semibold">{talla}</span>
+                      {h.sku && (
+                        <span className="truncate font-mono text-[12px] text-muted-foreground">
+                          {h.sku}
+                        </span>
+                      )}
+                      {esta && <span className="text-[11px] text-primary">· estás aquí</span>}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 font-semibold tabular-nums",
+                        est === "agotado" && "text-red-600",
+                        est === "por_acabarse" && "text-amber-600",
+                      )}
+                    >
+                      {h.stock}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </SeccionTarjeta>
+        )}
+
+        {producto.notas?.trim() && (
+          <SeccionTarjeta titulo="Notas">
+            <p className="text-[12.5px] whitespace-pre-line">{producto.notas}</p>
+          </SeccionTarjeta>
+        )}
+
+        <SeccionTarjeta titulo="Últimos movimientos">
+          {movimientos === null ? (
+            <p className="text-[12.5px] text-muted-foreground">Cargando…</p>
+          ) : movimientos.length === 0 ? (
+            <p className="text-[12.5px] text-muted-foreground">Sin movimientos registrados.</p>
+          ) : (
+            <ul className="flex flex-col gap-1.5">
+              {movimientos.map((m) => {
+                const delta = m.stock_anterior == null ? null : m.stock_nuevo - m.stock_anterior;
+                const quien = firmaMovimiento(m);
+                return (
+                  <li key={m.id} className="flex items-center justify-between gap-2 text-[12.5px]">
+                    <span className="min-w-0 truncate">
+                      <span className="text-muted-foreground">{formatearFechaHora(m.creado_en)}</span>{" "}
+                      {cortoOrigen(m.origen)}
+                      {quien && <span className="text-muted-foreground"> · {quien}</span>}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
+                      {m.stock_anterior != null && (
+                        <>
+                          <span className="text-muted-foreground">{m.stock_anterior}</span>
+                          <ArrowRight className="size-3 text-muted-foreground/60" strokeWidth={2} />
+                        </>
+                      )}
+                      <span className="font-semibold">{m.stock_nuevo}</span>
+                      {delta !== null && delta !== 0 && (
+                        <span
+                          className={cn("font-semibold", delta > 0 ? "text-green-600" : "text-red-600")}
+                        >
+                          {delta > 0 ? `+${delta}` : delta}
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </SeccionTarjeta>
+
+        {/* ---------------- Columna derecha: lo operativo ---------------- */}
+        </div>
+        <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
         {/* Existencias: el mismo ajuste que los +/− de la tabla (server action
-            ajustarStock), que deja rastro en el ledger. */}
+            ajustarStock), que deja rastro en el ledger. Es el dato que se viene
+            a ver y lo único que se toca a diario, así que abre la ficha. */}
         <div
-          className="flex items-center justify-between gap-3 rounded-lg border bg-muted/40 px-3 py-2.5"
+          className="flex items-center justify-between gap-3 rounded-2xl border bg-card px-4 py-3.5 shadow-sm"
           title={tituloAjuste}
         >
           <div className="flex flex-col items-start gap-1.5">
@@ -417,56 +643,10 @@ export function ProductoVista({
           </div>
         </div>
 
-        {/* Las demás tallas del mismo producto. Sin esto había que volver al
-            listado y buscarlas una por una para saber de qué talla queda stock,
-            que es justo lo que pidió resolver Armando. */}
-        {hermanas.length > 1 && (
-          <Seccion titulo={`Tallas de este producto · ${totalHermanas} en total`}>
-            <div className="flex flex-col gap-1">
-              {hermanas.map((h) => {
-                const talla = tallaDeVariante(h.variante) ?? h.variante ?? "Única";
-                const esta = h.id === producto.id;
-                const est = estadoStock(h);
-                return (
-                  <button
-                    key={h.id}
-                    type="button"
-                    onClick={() => !esta && onVerHermana?.(h.id)}
-                    disabled={esta}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-[13.5px] transition-colors",
-                      esta ? "border-primary bg-primary/5" : "hover:bg-accent",
-                    )}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="font-semibold">{talla}</span>
-                      {h.sku && (
-                        <span className="truncate font-mono text-[12px] text-muted-foreground">
-                          {h.sku}
-                        </span>
-                      )}
-                      {esta && <span className="text-[11px] text-primary">· estás aquí</span>}
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 font-semibold tabular-nums",
-                        est === "agotado" && "text-red-600",
-                        est === "por_acabarse" && "text-amber-600",
-                      )}
-                    >
-                      {h.stock}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </Seccion>
-        )}
-
         {/* Ventas y reposición: el mismo cálculo de «Qué pedir». Agrupa por SKU,
             así que las cifras son del grupo, no solo de esta ficha. */}
         {grupo ? (
-          <Seccion titulo={`Ventas y reposición · ${ventanaDias} días`}>
+          <SeccionTarjeta titulo={`Ventas y reposición · ${ventanaDias} días`}>
             <div className="grid grid-cols-3 gap-3 rounded-lg border px-3 py-2.5">
               <Cifra
                 label="Vendidas"
@@ -517,20 +697,20 @@ export function ProductoVista({
                 </span>
               )}
             </div>
-          </Seccion>
+          </SeccionTarjeta>
         ) : (
-          <Seccion titulo="Ventas y reposición">
+          <SeccionTarjeta titulo="Ventas y reposición">
             <p className="text-[12.5px] text-muted-foreground">
               {producto.bajo_pedido
                 ? "Se fabrica contra pedido: queda fuera del cálculo de reposición."
                 : "Producto inactivo: queda fuera del cálculo de reposición."}
             </p>
-          </Seccion>
+          </SeccionTarjeta>
         )}
 
         {/* Canales: dónde está publicado. Los ids son los que amarran la ficha
             con cada plataforma. */}
-        <Seccion titulo="Canales">
+        <SeccionTarjeta titulo="Canales">
           <div className="flex flex-wrap items-center gap-2">
             {producto.tiendanube_variant_id != null && (
               <Chip title={`Producto ${producto.tiendanube_product_id} · variante ${producto.tiendanube_variant_id}`}>
@@ -584,83 +764,43 @@ export function ProductoVista({
               </span>
             )}
           </div>
-        </Seccion>
-
-        {producto.notas?.trim() && (
-          <Seccion titulo="Notas">
-            <p className="text-[12.5px] whitespace-pre-line">{producto.notas}</p>
-          </Seccion>
-        )}
-
-        <Seccion titulo="Últimos movimientos">
-          {movimientos === null ? (
-            <p className="text-[12.5px] text-muted-foreground">Cargando…</p>
-          ) : movimientos.length === 0 ? (
-            <p className="text-[12.5px] text-muted-foreground">Sin movimientos registrados.</p>
-          ) : (
-            <ul className="flex flex-col gap-1.5">
-              {movimientos.map((m) => {
-                const delta = m.stock_anterior == null ? null : m.stock_nuevo - m.stock_anterior;
-                return (
-                  <li key={m.id} className="flex items-center justify-between gap-2 text-[12.5px]">
-                    <span className="min-w-0 truncate">
-                      <span className="text-muted-foreground">{formatearFechaHora(m.creado_en)}</span>{" "}
-                      {ORIGEN_LABEL[m.origen] ?? m.origen}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
-                      {m.stock_anterior != null && (
-                        <>
-                          <span className="text-muted-foreground">{m.stock_anterior}</span>
-                          <ArrowRight className="size-3 text-muted-foreground/60" strokeWidth={2} />
-                        </>
-                      )}
-                      <span className="font-semibold">{m.stock_nuevo}</span>
-                      {delta !== null && delta !== 0 && (
-                        <span
-                          className={cn("font-semibold", delta > 0 ? "text-green-600" : "text-red-600")}
-                        >
-                          {delta > 0 ? `+${delta}` : delta}
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Seccion>
+        </SeccionTarjeta>
 
         {/* Proveedor y costo: a mano pero en segundo plano, no compiten con lo
             que se consulta a diario. */}
-        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t pt-3 text-[12.5px] text-muted-foreground">
-          <span>
-            Precio <span className="font-semibold text-foreground">{formatearMXN(producto.precio)}</span>
-          </span>
-          <span>Costo {formatearMXN(producto.costo)}</span>
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded-2xl border bg-card px-4 py-3 text-[12.5px] text-muted-foreground shadow-sm">
+          {dinero.ingresos && (
+            <span>
+              Precio{" "}
+              <span className="font-semibold text-foreground">{formatearMXN(producto.precio)}</span>
+            </span>
+          )}
+          {dinero.egresos && <span>Costo {formatearMXN(producto.costo)}</span>}
           <span>Proveedor {producto.proveedor?.nombre ?? "—"}</span>
         </div>
+        </aside>
+        </div>
 
-        {/* Las dos acciones, del mismo tamaño y una al lado de la otra.
-            «Generar pedido» iba con flex-1 dentro de un pie que en el teléfono
-            apila en columna: ahí flex-1 vale por la ALTURA, así que el botón se
-            aplastaba y quedaba más chico que «Editar», justo al revés de lo que
-            se quería. */}
-        <div className="sticky bottom-0 -mx-4 flex gap-2.5 border-t bg-lienzo/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:static md:mx-0 md:border-0 md:bg-transparent md:px-0 md:pb-0 md:backdrop-blur-none">
-          {onGenerarPedido && (
-            <Button
+        {/* Las acciones, al alcance del pulgar. Solo en el teléfono: en
+            escritorio viven arriba, en la cabecera, donde no hay que bajar
+            hasta el final para llegar a ellas.
+            Los enlaces van con el nombre corto del canal (sin «Ver en»), y el
+            min-w hace que a partir del tercer botón la fila envuelva en vez de
+            aplastarlos. */}
+        <div className="sticky bottom-0 -mx-4 flex flex-wrap gap-2.5 border-t bg-lienzo/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
+          {enlaces.map((e) => (
+            <BotonVerEnCanal
+              key={e.canal}
+              etiqueta={e.canal}
+              destinos={e.destinos}
               size="lg"
-              className="h-12 flex-1 text-[15px]"
-              onClick={onGenerarPedido}
-              disabled={pending}
-            >
-              <Truck />
-              Generar pedido
-            </Button>
-          )}
+              className="h-12 min-w-[45%] flex-1 text-[15px]"
+            />
+          ))}
           <Button
             size="lg"
             variant="outline"
-            className="h-12 flex-1 text-[15px]"
+            className="h-12 min-w-[45%] flex-1 text-[15px]"
             onClick={onEditar}
             disabled={pending}
           >

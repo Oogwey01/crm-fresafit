@@ -10,5 +10,10 @@ import type { Product } from "@/lib/types";
    campos), así que Inventario puede seguir pasando el suyo donde haga falta. */
 export type ProductoProveedor = Pick<
   Product,
-  "id" | "nombre" | "variante" | "sku" | "costo" | "activo" | "proveedor_id"
->;
+  "id" | "nombre" | "variante" | "sku" | "activo" | "proveedor_id"
+> & {
+  /* Opcional porque no sale de `products`: la columna está fuera del alcance del
+     token y llega desde la vista `producto_costos` (ver 20260902000000). Aquí
+     siempre viene —el módulo es de dirección—, pero el tipo lo refleja. */
+  costo?: number | null;
+};

@@ -2,18 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CLASE_NAV_TABS, claseTab } from "@/components/compartido/tabs-seccion";
 import { PANELES_CANAL } from "@/lib/catalogos";
-import { cn } from "@/lib/utils";
 
 /* Pestañas del módulo Canales: una por plataforma.
 
-   Las que todavía no existen se muestran apagadas en vez de esconderse, para
-   que se vea que el módulo va a crecer y nadie las busque en otro lado. */
+   Comparten aspecto con las de los demás módulos (`tabs-seccion`), pero aquí
+   son <Link>: cada plataforma es una ruta propia. Las que todavía no existen se
+   muestran apagadas en vez de esconderse, para que se vea que el módulo va a
+   crecer y nadie las busque en otro lado. */
 export function TabsCanales() {
   const pathname = usePathname();
 
   return (
-    <nav className="-mx-1 flex gap-1 overflow-x-auto border-b pb-px">
+    <nav className={CLASE_NAV_TABS}>
       {PANELES_CANAL.map((p) => {
         if (!p.activo) {
           return (
@@ -31,12 +33,8 @@ export function TabsCanales() {
           <Link
             key={p.id}
             href={p.href}
-            className={cn(
-              "shrink-0 rounded-t-lg px-3.5 py-2 text-[13.5px] transition-colors",
-              activo
-                ? "border-b-2 border-primary font-semibold text-foreground"
-                : "font-medium text-muted-foreground hover:text-foreground",
-            )}
+            aria-current={activo ? "page" : undefined}
+            className={claseTab(activo)}
           >
             {p.nombre}
           </Link>

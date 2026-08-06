@@ -47,11 +47,16 @@ export function VentaDialog({
   venta,
   gestor,
   direccion = false,
+  verDinero = true,
   onClose,
 }: {
   venta: VentaMetricas | null; // null = alta
   gestor: boolean;
   direccion?: boolean; // solo Dirección puede corregir a mano una venta importada
+  /* ¿Quien captura puede VER los importes? Capturar uno nuevo sí puede
+     cualquiera —eso es registrar, no revelar—; lo que no puede es reescribir el
+     de una venta existente que nunca vio. */
+  verDinero?: boolean;
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -104,6 +109,13 @@ export function VentaDialog({
   const importada = venta?.origen === "api";
   const [desbloqueado, setDesbloqueado] = useState(false);
   const bloqueado = importada && !desbloqueado;
+
+  /* El campo del total desaparece al EDITAR si quien mira no ve los importes: su
+     monto nunca llegó del servidor, así que el campo saldría vacío y guardar
+     dejaría la venta en cero sin que nadie lo pidiera. Al dar de alta sí se
+     pide, porque ahí el número lo pone quien captura. El servidor conserva el
+     monto anterior aunque llegue vacío; esto es la primera de las dos capas. */
+  const pedirMonto = verDinero || !venta;
   const nombreCanal = venta ? (obtenerCanal(venta.canal)?.nombre ?? "la plataforma") : "";
 
   const coincidencias = useMemo(() => {
@@ -303,7 +315,7 @@ export function VentaDialog({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className={cn("grid grid-cols-2 gap-3", pedirMonto ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
             <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
               <Label>Canal</Label>
               <Select
@@ -344,22 +356,24 @@ export function VentaDialog({
                 }}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="venta-monto">Total ($)</Label>
-              <Input
-                id="venta-monto"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={monto}
-                disabled={bloqueado}
-                onChange={(e) => {
-                  setMontoTocado(true);
-                  setMonto(e.target.value);
-                }}
-              />
-            </div>
+            {pedirMonto && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="venta-monto">Total ($)</Label>
+                <Input
+                  id="venta-monto"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={monto}
+                  disabled={bloqueado}
+                  onChange={(e) => {
+                    setMontoTocado(true);
+                    setMonto(e.target.value);
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Cliente (opcional): buscador + alta rápida con solo el nombre. */}

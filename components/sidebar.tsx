@@ -16,6 +16,7 @@ import {
   TrendingUp,
   Truck,
   Users,
+  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import { LogoFresafit } from "@/components/logo-fresafit";
@@ -27,9 +28,8 @@ import {
   ESPACIOS,
   MODULOS,
   ROLES,
-  esDireccion,
   espacioDeRuta,
-  puedeAdministrar,
+  puedeVerModulo,
   type EspacioId,
 } from "@/lib/catalogos";
 import type { Profile, Notificacion } from "@/lib/types";
@@ -41,6 +41,7 @@ const ICONOS: Record<string, LucideIcon> = {
   tareas: ClipboardCheck,
   "agencia-tareas": ClipboardCheck,
   inventario: Package,
+  bodega: Warehouse,
   proveedores: Factory,
   metricas: BarChart3,
   canales: Store,
@@ -97,15 +98,15 @@ export function SidebarContent({
     ROLES.find((r) => r.id === profile?.rol)?.nombre ?? "Miembro";
   const nombre = profile?.nombre || email;
 
-  /* Finanzas, nómina, reportes y los cobros de la Agencia solo existen para quien
-     lleva la administración (dirección y administración): ni siquiera aparecen en
-     el menú del resto (la BD lo refuerza con RLS; esto es para no tentar ni
-     confundir). Las tareas de la Agencia sí las ve todo el equipo.
-     `soloDireccion` es el escalón de arriba: Proveedores lleva costos de compra
-     y ahí no entra ni administración. */
-  const visible = (m: (typeof MODULOS)[number]) =>
-    (!("soloAdmin" in m && m.soloAdmin) || puedeAdministrar(profile?.rol)) &&
-    (!("soloDireccion" in m && m.soloDireccion) || esDireccion(profile?.rol));
+  /* Qué módulos existen para esta persona. La regla vive en el catálogo
+     (`puedeVerModulo`) porque la comparte la pantalla de Equipo, que le enseña
+     a dirección qué alcanza cada quien: si fueran dos listas, una acabaría
+     mintiendo. En corto: lo administrativo es de dirección + administración, el
+     escalón de arriba es solo dirección, y la Agencia entera pide el permiso
+     por persona `ve_agencia` —sin él, el selector de negocio desaparece solo,
+     porque se queda con un espacio—. El layout de /agencia aplica lo mismo del
+     lado del servidor, para que no baste con saberse la URL. */
+  const visible = (m: (typeof MODULOS)[number]) => puedeVerModulo(m, profile);
 
   /* El menú muestra un solo negocio a la vez, el de la ruta en la que estás.
      Fresafit y Agencia comparten equipo pero no comparten nada más: verlos

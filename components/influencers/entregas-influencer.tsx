@@ -30,6 +30,8 @@ import {
 import { obtenerTierInfluencer } from "@/lib/catalogos";
 import { formatearFecha, hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
+import type { VistaDinero } from "@/lib/permisos-dinero";
+import { cn } from "@/lib/utils";
 import { aNumero } from "@/lib/validacion";
 import type { Influencer, InfluencerEntrega, InfluencerEvaluacion } from "@/lib/types";
 import type { ProductoLigero } from "@/components/influencers/panel";
@@ -44,12 +46,15 @@ export function EntregasInfluencer({
   entregas,
   evaluaciones,
   productos,
+  dinero,
   onClose,
 }: {
   influencer: Influencer;
   entregas: InfluencerEntrega[];
   evaluaciones: InfluencerEvaluacion[];
   productos: ProductoLigero[];
+  /* El valor de lo entregado es egreso; lo que vendió su código, ingreso. */
+  dinero: VistaDinero;
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -261,26 +266,37 @@ export function EntregasInfluencer({
 
             {evaluacionDelMes && (
               <p className="mb-2 text-[13px] text-muted-foreground">
-                Ya hay evaluación de este mes ({evaluacionDelMes.usos_codigo ?? 0} usos del código,{" "}
-                {formatearMXN(evaluacionDelMes.ventas_monto ?? 0)}). Guardar la sobreescribe.
+                Ya hay evaluación de este mes ({evaluacionDelMes.usos_codigo ?? 0} usos del código
+                {dinero.ingresos ? `, ${formatearMXN(evaluacionDelMes.ventas_monto ?? 0)}` : ""}).
+                Guardar la sobreescribe.
               </p>
             )}
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {/* «Ventas $» solo para quien las ve: el campo llegaría vacío y
+                reevaluar el mes dejaría el importe en cero. El servidor conserva
+                el anterior de todas formas (ver guardarEvaluacion). */}
+            <div
+              className={cn(
+                "grid grid-cols-2 gap-2",
+                dinero.ingresos ? "sm:grid-cols-5" : "sm:grid-cols-4",
+              )}
+            >
               <div className="flex flex-col gap-1">
                 <Label className="text-[12px]">Usos del código</Label>
                 <Input type="number" min="0" value={usos} onChange={(e) => setUsos(e.target.value)} />
               </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[12px]">Ventas $</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={ventas}
-                  onChange={(e) => setVentas(e.target.value)}
-                />
-              </div>
+              {dinero.ingresos && (
+                <div className="flex flex-col gap-1">
+                  <Label className="text-[12px]">Ventas $</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={ventas}
+                    onChange={(e) => setVentas(e.target.value)}
+                  />
+                </div>
+              )}
               <div className="flex flex-col gap-1">
                 <Label className="text-[12px]">Videos</Label>
                 <Input type="number" min="0" value={videos} onChange={(e) => setVideos(e.target.value)} />

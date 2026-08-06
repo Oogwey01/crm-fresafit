@@ -40,13 +40,18 @@ export const AREAS = [
 /* --- Roles de usuario (definen qué ve y hace cada quien; se refuerza con RLS). --- */
 export const ROLES = [
   { id: "direccion", nombre: "Dirección", desc: "Ve y edita todo, incluidos los roles del equipo." },
-  /* Lleva el dinero y los papeles: gastos, nómina, reportes y los cobros de la
-     agencia, más el tablero completo de tareas. Lo único que NO puede es lo que
-     define quién es quién —cambiarle el rol a alguien— ni corregir a mano las
-     ventas que bajan por API, que son la fuente contra la que se cuadra todo. */
-  { id: "administracion", nombre: "Administración", desc: "Gastos, nómina, reportes y cobros de la agencia; ve y asigna todas las tareas. No cambia roles del equipo." },
+  /* Lleva los papeles y el dinero que SALE: gastos, nómina y los cobros de la
+     agencia, más el tablero completo de tareas. No ve lo que entra —ventas,
+     precios, comisiones— ni el cierre que las resta, porque quien captura los
+     gastos no necesita saber contra cuánto se comparan. Tampoco cambia roles ni
+     corrige a mano las ventas que bajan por API. */
+  { id: "administracion", nombre: "Administración", desc: "Gastos, nómina y cobros de la agencia; ve y asigna todas las tareas. No ve ingresos ni el cierre, ni cambia roles del equipo." },
   { id: "coordinador", nombre: "Coordinador", desc: "Ve todas las tareas del equipo; crea, asigna y edita." },
-  { id: "miembro", nombre: "Miembro", desc: "Ve solo sus tareas (asignadas o creadas); mueve el estado de las suyas, comenta y adjunta." },
+  /* Crear tareas dejó de ser privilegio de gestor: cualquiera del equipo abre
+     las suyas y se las asigna a quien toque, y manda sobre lo que él creó
+     (corregirlo, reasignarlo, mandarlo a la papelera). Lo que sigue siendo de
+     gestor es meterse en las tareas AJENAS. */
+  { id: "miembro", nombre: "Miembro", desc: "Crea tareas y ve las suyas (asignadas o creadas); manda en las que él creó, y de las demás mueve el estado, comenta y adjunta." },
   { id: "externo", nombre: "Externo", desc: "Solo ve lo que se le comparte." },
 ] as const;
 
@@ -251,13 +256,17 @@ export const MODELOS_PERSONALIZADO = [
    Las secciones de la hoja «Recursos FRESA FIT», con el color con el que están
    pintadas ahí: el equipo ya reconoce cada bloque por su color y perderlo al
    pasar al CRM habría sido perder la mitad de la lectura. --- */
+/* Los bloques de colores de la hoja «Recursos FRESA FIT»: en el piso se busca
+   por color antes que por nombre («el bloque rosa de las cintas»). Van saturados
+   a propósito —la fila entera se tiñe con esto— y respetando el color que tiene
+   cada sección en la hoja, incluido el ámbar de VARIOS, que aquí se llama Otro. */
 export const CATEGORIAS_INSUMO = [
   { id: "bolsas", nombre: "Bolsas para paquetería", color: "#6c5ce7" },
-  { id: "etiquetas", nombre: "Etiquetas", color: "#a78bfa" },
-  { id: "sobres", nombre: "Sobres", color: "#34a853" },
+  { id: "etiquetas", nombre: "Etiquetas", color: "#8b5cf6" },
+  { id: "sobres", nombre: "Sobres", color: "#16a34a" },
   { id: "cintas", nombre: "Cintas", color: "#ec4899" },
-  { id: "cajas", nombre: "Cajas", color: "#f87171" },
-  { id: "otro", nombre: "Otro", color: "#94a3b8" },
+  { id: "cajas", nombre: "Cajas", color: "#ef4444" },
+  { id: "otro", nombre: "Otro", color: "#f59e0b" },
 ] as const;
 
 /* Si ya llegó el papel de un gasto. «Aun no» de la hoja de facturas = pendiente:
@@ -274,6 +283,10 @@ export const DESTINOS_FULL = [
   { id: "amazon", nombre: "Amazon", color: "#f39c12" },
   { id: "mercado_libre", nombre: "Mercado Libre", color: "#f39c12" },
 ] as const;
+
+/* Cómo viaja la caja al centro. Sugerencias de un datalist, no un enum: la
+   paquetería cotiza con los nombres que se le ocurren. */
+export const TIPOS_ENVIO_FULL = ["Terrestre", "Aéreo", "Marítimo"] as const;
 
 export const ESTADOS_ENVIO_FULL = [
   { id: "preparando", nombre: "Preparando", color: "#f59e0b" },
@@ -393,6 +406,11 @@ export type EspacioId = (typeof ESPACIOS)[number]["id"];
 export const MODULOS = [
   { id: "tareas", nombre: "Tareas", icono: "✅", href: "/tareas", activo: true, espacio: "fresafit" },
   { id: "inventario", nombre: "Inventario", icono: "🏷️", href: "/inventario", activo: true, espacio: "fresafit" },
+  /* Bodega era una subruta de Inventario y salió a su propio botón: es el
+     trabajo del piso —recibir, armar conjuntos, preparar los full, gastar
+     insumos— y se hace desde el celular, no desde el catálogo. Va pegada a
+     Inventario porque es la otra mitad de la misma mercancía. */
+  { id: "bodega", nombre: "Bodega", icono: "📥", href: "/bodega", activo: true, espacio: "fresafit" },
   /* A quién se le compra y qué se le pidió. Salió de Inventario porque son dos
      preguntas distintas —cuánto tengo / a quién le compro— y juntas hacían una
      pantalla de seis pestañas. `soloDireccion` porque lleva costos de compra y
@@ -413,14 +431,22 @@ export const MODULOS = [
   { id: "personalizados", nombre: "Personalizados", icono: "🎨", href: "/personalizados", activo: true, espacio: "fresafit" },
   { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: true, espacio: "fresafit" },
   /* Nómina y reportes existen en los dos negocios: son las mismas tablas
-     filtradas por empresa (null = Fresafit). Sueldos y cierres internos, así que
-     van restringidos a administración igual que Finanzas. */
+     filtradas por empresa (null = Fresafit). Sueldos internos, así que Nómina va
+     restringida a administración igual que Finanzas.
+     Reportes es el escalón de arriba y no por celo: el cierre resta los egresos
+     de los ingresos, así que enseñarlo es enseñar las dos mitades a la vez. Quien
+     captura los gastos no tiene por qué ver contra cuánto se comparan. */
   { id: "nomina", nombre: "Nómina", icono: "👥", href: "/nomina", activo: true, soloAdmin: true, espacio: "fresafit" },
-  { id: "reportes", nombre: "Reportes", icono: "📈", href: "/reportes", activo: true, soloAdmin: true, espacio: "fresafit" },
-  /* Agencia. Las TAREAS son la excepción del espacio: las trabaja el equipo que
-     atiende a cada cliente, no quien cobra, así que no llevan candado —cada
-     quien ve las suyas, como en el tablero de Fresafit—. Lo demás son contratos
-     ajenos y sueldos: administrativo, y la RLS lo refuerza. */
+  { id: "reportes", nombre: "Reportes", icono: "📈", href: "/reportes", activo: true, soloDireccion: true, espacio: "fresafit" },
+  /* Quién es quién y qué alcanza cada quien. Es la pantalla desde la que
+     dirección reparte el acceso —rol, área y quién entra a la Agencia— sin
+     tener que pedir SQL. Solo dirección: es el módulo que reparte el poder. */
+  { id: "equipo", nombre: "Equipo", icono: "🪪", href: "/equipo", activo: true, soloDireccion: true, espacio: "fresafit" },
+  /* Agencia. El espacio entero está detrás de `profiles.ve_agencia`: es un
+     permiso por persona, porque quienes la llevan no forman un rol (hay dos
+     direcciones dentro y una fuera). Dentro, lo administrativo —contratos
+     ajenos y sueldos— sigue pidiendo además `soloAdmin`, y la RLS lo refuerza.
+     Las TAREAS no piden nada más: las trabaja quien atiende a cada cliente. */
   { id: "agencia-tareas", nombre: "Tareas", icono: "✅", href: "/agencia/tareas", activo: true, espacio: "agencia" },
   { id: "agencia-empresas", nombre: "Empresas", icono: "🏢", href: "/agencia/empresas", activo: true, soloAdmin: true, espacio: "agencia" },
   { id: "agencia-cobros", nombre: "Cobros", icono: "🧾", href: "/agencia/cobros", activo: true, soloAdmin: true, espacio: "agencia" },
@@ -522,6 +548,14 @@ export function esGestor(rol: string | null | undefined) {
   return rol === "direccion" || rol === "administracion" || rol === "coordinador";
 }
 
+/* ¿Es del equipo de casa? (todo menos `externo`). Espejo de public.es_interno().
+   Vive aquí —y no solo en lib/supabase/usuario-actual.ts, que es de servidor—
+   porque los componentes de cliente también lo preguntan: crear tareas dejó de
+   ser privilegio de gestor y lo puede hacer cualquiera del equipo. */
+export function esInterno(rol: string | null | undefined) {
+  return esGestor(rol) || rol === "miembro";
+}
+
 /* ¿Puede entrar a los módulos administrativos (dinero y papeles)? */
 export function puedeAdministrar(rol: string | null | undefined) {
   return rol === "direccion" || rol === "administracion";
@@ -531,4 +565,66 @@ export function puedeAdministrar(rol: string | null | undefined) {
    suelto por ahí— porque ya son varios sitios los que lo preguntan. */
 export function esDireccion(rol: string | null | undefined) {
   return rol === "direccion";
+}
+
+/* ¿Entra al espacio Agencia? NO se deduce del rol a propósito: la Agencia la
+   llevan cuatro personas, y entre ellas hay dos direcciones pero no las dos que
+   existen (René es dirección y no entra), ni la administración (Diana). Es un
+   permiso por persona —`profiles.ve_agencia`— que dirección cambia desde
+   /equipo. Espejo de lo que aplican el layout de /agencia y el menú. */
+export function veAgencia(perfil: { ve_agencia?: boolean | null } | null | undefined) {
+  return !!perfil?.ve_agencia;
+}
+
+/* Lo que una persona alcanza del menú. Es la regla ÚNICA de visibilidad de
+   módulos: la usa el menú para pintarse y la pantalla de Equipo para contar qué
+   ve cada quien. Que sea la misma función es el punto — una lista de permisos
+   escrita a mano al lado del filtro real envejece y acaba mintiendo.
+
+     soloAdmin     → dinero y papeles (dirección + administración).
+     soloDireccion → el escalón de arriba (costos de compra, repartir accesos).
+     espacio agencia → permiso por persona, ver veAgencia(). */
+export type PerfilPermisos =
+  | { rol?: string | null; ve_agencia?: boolean | null; modulos_ocultos?: string[] | null }
+  | null
+  | undefined;
+
+/* La portada del CRM. No se puede restringir: es a donde va a parar quien entra
+   a una sección que no le toca, así que cerrarla sería un rebote infinito. Y de
+   todas formas las tareas propias las tiene cualquiera. */
+export const MODULO_PORTADA = "tareas";
+
+export function puedeVerModulo(m: (typeof MODULOS)[number], perfil: PerfilPermisos): boolean {
+  return (
+    (!("soloAdmin" in m && m.soloAdmin) || puedeAdministrar(perfil?.rol)) &&
+    (!("soloDireccion" in m && m.soloDireccion) || esDireccion(perfil?.rol)) &&
+    (m.espacio !== "agencia" || veAgencia(perfil)) &&
+    /* Restricciones sueltas puestas desde /equipo. Lista NEGRA: solo resta.
+       Nunca podría sumar, porque el dinero lo cierra la RLS y no esta línea. */
+    !(perfil?.modulos_ocultos ?? []).includes(m.id)
+  );
+}
+
+export function modulosVisibles(perfil: PerfilPermisos) {
+  return MODULOS.filter((m) => m.activo && puedeVerModulo(m, perfil));
+}
+
+/* El TECHO: lo que el rol (y el permiso de Agencia) le permitirían ver a esta
+   persona si no tuviera ninguna restricción suelta. Es lo que /equipo ofrece
+   como interruptores —lo que se le puede quitar y devolver—, mientras que
+   `modulosVisibles` es lo que de verdad ve hoy. */
+export function modulosDelRol(perfil: PerfilPermisos) {
+  const sinRestricciones = { ...(perfil ?? {}), modulos_ocultos: [] };
+  return MODULOS.filter((m) => m.activo && puedeVerModulo(m, sinRestricciones));
+}
+
+export function obtenerModulo(id: string) {
+  return MODULOS.find((m) => m.id === id) ?? null;
+}
+
+/* A dónde mandar a alguien que llegó a una sección que no le toca: lo primero
+   que sí alcanza. Casi siempre es /tareas —que no se puede restringir—, pero se
+   calcula por si un día la portada cambia o alguien queda sin nada. */
+export function destinoSeguro(perfil: PerfilPermisos): string {
+  return modulosVisibles(perfil)[0]?.href ?? "/tareas";
 }

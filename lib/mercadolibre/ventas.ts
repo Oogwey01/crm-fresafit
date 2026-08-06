@@ -88,6 +88,9 @@ type InfoEnvio = {
   estado: EstadoPedido;
   paqueteria: string | null;
   num_guia: string | null;
+  /* Id del shipment: con él se pide la etiqueta PDF a la API para imprimirla
+     desde /pedidos. Solo se guarda en los envíos aún en curso. */
+  envio_id: string | null;
   direccion: DireccionEnvio | null;
   /* Los dos lados de la métrica que decide nuestra exposición: hasta cuándo
      teníamos para entregarle el paquete al transportista, y cuándo salió de
@@ -102,6 +105,7 @@ const SIN_ENVIO: InfoEnvio = {
   estado: "nuevo",
   paqueteria: null,
   num_guia: null,
+  envio_id: null,
   direccion: null,
   limite_despacho: null,
   despachado_en: null,
@@ -195,6 +199,7 @@ async function infoEnvioDeOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<M
           estado: estadoDeEnvio(env),
           paqueteria: env?.tracking_method?.trim() || null,
           num_guia: env?.tracking_number?.trim() || null,
+          envio_id: String(o.shipping!.id!),
           costo_envio: costo,
           limite_despacho:
             env?.shipping_option?.estimated_handling_limit?.date ?? limiteDespacho(env),
@@ -299,6 +304,7 @@ function filasDeOrden(
       estado: envio.estado,
       paqueteria: envio.paqueteria,
       num_guia: envio.num_guia,
+      envio_id: envio.envio_id,
       /* El detalle en el panel de ML se abre por el carrito, no por la orden. */
       url_orden: urlOrdenML(orden.id, orden.pack_id),
       envio_direccion: envio.direccion,
@@ -490,6 +496,10 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
         estado: f.estado,
         paqueteria: f.paqueteria,
         num_guia: f.num_guia,
+        /* El id del envío tiene que viajar por el REFRESCO: los pedidos
+           pendientes de hoy ya están importados y son justo los que necesitan
+           su etiqueta. */
+        envio_id: f.envio_id,
         url_orden: f.url_orden,
         envio_direccion: f.envio_direccion,
         /* Sin esto, la hora real de salida —que aparece horas después de que la

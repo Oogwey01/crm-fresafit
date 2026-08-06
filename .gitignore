@@ -44,6 +44,13 @@ next-env.d.ts
 # --- Fresafit ---
 # Respaldos que descargues desde la app (son datos, no código)
 respaldo-fresafit-crm-*.json
+# Hojas del equipo bajadas para importar: son datos, y con las fotos de los
+# productos pesan megas (la de recepción, nueve).
+*.xlsx
+# Audios y transcripciones de las entrevistas del equipo: datos personales
+flujo de work FF/
+# Configuración local de MCP
+.mcp.json
 # Vercel
 .vercel
 usuarios-fresafit.txt

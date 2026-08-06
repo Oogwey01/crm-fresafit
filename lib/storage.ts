@@ -71,13 +71,16 @@ export async function borrarArchivoYFila(args: {
   return { ok: true };
 }
 
-/* URL firmada temporal (1 h) para ver o descargar un archivo privado. */
+/* URL firmada temporal para ver o descargar un archivo privado. Una hora por
+   defecto; se puede pedir más larga cuando la liga va a viajar fuera del CRM
+   (p. ej. el diseño de un personalizado mandado al proveedor por WhatsApp). */
 export async function urlFirmada(
   supabase: SupabaseClient,
   bucket: string,
   path: string,
+  segundos: number = 60 * 60,
 ): Promise<{ url: string } | { error: string }> {
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60);
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, segundos);
   if (error || !data) return { error: error?.message ?? "No se pudo generar el enlace." };
   return { url: data.signedUrl };
 }

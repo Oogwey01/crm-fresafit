@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { importarInsumos, type FilaRecursoInput } from "@/app/(app)/inventario/bodega/actions";
+import { importarInsumos, type FilaRecursoInput } from "@/app/(app)/bodega/actions";
 import { CATEGORIAS_INSUMO, obtenerCategoriaInsumo } from "@/lib/catalogos";
 import { formatearMXN } from "@/lib/moneda";
 import { norm, parsearCantidad, parsearNumero, parsearTSV } from "@/lib/importar/tsv";

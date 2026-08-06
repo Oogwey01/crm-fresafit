@@ -14,7 +14,7 @@ import {
 import { RangoFechas } from "@/components/compartido/rango-fechas";
 import { ETIQUETA_DELTA, deltaPct, enRango } from "@/lib/metricas";
 import { formatearMXN } from "@/lib/moneda";
-import type { ExpenseConComprobantes, Sale } from "@/lib/types";
+import type { ExpenseConComprobantes } from "@/lib/types";
 import type { SugerenciasGasto } from "@/lib/finanzas/sugerencias";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,13 +41,24 @@ const ETIQUETA_PERIODO: Record<PeriodoId, string> = {
 
 const COLS = "grid-cols-[95px_minmax(180px,1fr)_130px_140px_120px_150px_40px]";
 
+/* La cola de trabajo de administración: gastos a los que todavía se les debe un
+   papel. "Aún no" (`pendiente`) es deuda por recoger; "No" significa que no va
+   a haber —el changarro no factura— y perseguirlo sería perder el tiempo. */
+function faltanPapeles(g: ExpenseConComprobantes): boolean {
+  return g.factura === "pendiente" || g.recibo === "pendiente";
+}
+
 export function PanelFinanzas({
   gastos,
   ventas,
   sugerencias,
 }: {
   gastos: ExpenseConComprobantes[];
-  ventas: Pick<Sale, "fecha" | "monto">[];
+  /* Lo que entró, ya sumado por día en la base (RPC `ingresos_por_dia`).
+     `null` = quien mira no ve los ingresos, y entonces no hay ni «Entradas» ni
+     «Saldo»: este módulo es el de lo que SALE. Un array vacío significaría otra
+     cosa —que no hubo ventas—, y ahí el saldo sí sería un dato. */
+  ventas: { fecha: string; monto: number }[] | null;
   /* Conceptos, proveedores y métodos ya usados, con su número de usos: es lo
      que el diálogo propone al capturar (ver lib/finanzas/sugerencias.ts). */
   sugerencias: SugerenciasGasto;
@@ -57,6 +68,7 @@ export function PanelFinanzas({
   const [desde, setDesde] = useState(() => hoyISO().slice(0, 8) + "01");
   const [hasta, setHasta] = useState(hoyISO);
   const [filtroCategoria, setFiltroCategoria] = useState("todas");
+  const [soloPendientesPapeles, setSoloPendientesPapeles] = useState(false);
   const [dialog, setDialog] = useState<ExpenseConComprobantes | "nuevo" | null>(null);
 
   const rangos = periodo ? rangosDePeriodo(periodo) : rangoPersonalizado(desde, hasta);
@@ -89,15 +101,15 @@ export function PanelFinanzas({
 
   /* Entradas: se derivan de las ventas (nunca se capturan dos veces). */
   const entradas = ventas
-    .filter((v) => enRango(v.fecha, rangos.actual))
-    .reduce((a, v) => a + v.monto, 0);
+    ? ventas.filter((v) => enRango(v.fecha, rangos.actual)).reduce((a, v) => a + v.monto, 0)
+    : null;
   const entradasAnterior = ventas
-    .filter((v) => enRango(v.fecha, rangos.anterior))
-    .reduce((a, v) => a + v.monto, 0);
+    ? ventas.filter((v) => enRango(v.fecha, rangos.anterior)).reduce((a, v) => a + v.monto, 0)
+    : null;
 
   const salidas = gastosPeriodo.reduce((a, g) => a + g.monto, 0);
   const salidasAnterior = gastosAnterior.reduce((a, g) => a + g.monto, 0);
-  const saldo = entradas - salidas;
+  const saldo = entradas === null ? null : entradas - salidas;
 
   const porCategoria = useMemo(() => {
     const sumas = new Map<string, number>();
@@ -107,10 +119,15 @@ export function PanelFinanzas({
       .sort((a, b) => b.valor - a.valor);
   }, [gastosPeriodo]);
 
-  const visibles =
-    filtroCategoria === "todas"
-      ? gastosPeriodo
-      : gastosPeriodo.filter((g) => g.categoria === filtroCategoria);
+  /* Cuántos gastos del periodo siguen debiendo factura o recibo: es la carpeta
+     del mes que administración le entrega a contabilidad. */
+  const pendientesPapeles = gastosPeriodo.filter(faltanPapeles).length;
+
+  const visibles = gastosPeriodo.filter(
+    (g) =>
+      (filtroCategoria === "todas" || g.categoria === filtroCategoria) &&
+      (!soloPendientesPapeles || faltanPapeles(g)),
+  );
 
   const columnasGasto: Columna<(typeof visibles)[number]>[] = [
     { clave: "fecha", label: "Fecha", celda: (g) => <div>{formatearFecha(g.fecha)}</div> },
@@ -225,16 +242,20 @@ export function PanelFinanzas({
         </div>
       </div>
 
-      {/* Entradas / Salidas / Saldo */}
+      {/* Entradas / Salidas / Saldo. Sin ingresos queda solo la del medio, a
+          ancho completo: media tarjeta y dos huecos se leería como que algo
+          falló, y no es que falte el dato, es que no toca. */}
       <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3">
-        <StatCard
-          etiqueta="Entradas (ventas)"
-          valor={formatearMXN(entradas)}
-          icono={ArrowUpCircle}
-          valorClassName="text-green-600"
-          delta={deltaPct(entradas, entradasAnterior)}
-          deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
-        />
+        {entradas !== null && (
+          <StatCard
+            etiqueta="Entradas (ventas)"
+            valor={formatearMXN(entradas)}
+            icono={ArrowUpCircle}
+            valorClassName="text-green-600"
+            delta={deltaPct(entradas, entradasAnterior ?? 0)}
+            deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
+          />
+        )}
         <StatCard
           etiqueta="Salidas (gastos)"
           valor={formatearMXN(salidas)}
@@ -242,14 +263,17 @@ export function PanelFinanzas({
           valorClassName="text-red-600"
           delta={deltaPct(salidas, salidasAnterior)}
           deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
+          className={saldo === null ? "col-span-2 md:col-span-3" : undefined}
         />
-        <StatCard
-          etiqueta="Saldo"
-          valor={formatearMXN(saldo)}
-          icono={Wallet}
-          valorClassName={saldo >= 0 ? "text-green-600" : "text-red-600"}
-          className="col-span-2 md:col-span-1"
-        />
+        {saldo !== null && (
+          <StatCard
+            etiqueta="Saldo"
+            valor={formatearMXN(saldo)}
+            icono={Wallet}
+            valorClassName={saldo >= 0 ? "text-green-600" : "text-red-600"}
+            className="col-span-2 md:col-span-1"
+          />
+        )}
       </div>
 
       {/* Gastos por categoría */}
@@ -266,6 +290,15 @@ export function PanelFinanzas({
           Gastos del periodo
         </h2>
         <div className="flex-1" />
+        {/* La cola de papeles por recoger, a un clic: era el filtro que se hacía
+            a ojo recorriendo la columna «Factura · recibo». */}
+        <Button
+          variant={soloPendientesPapeles ? "default" : "outline"}
+          onClick={() => setSoloPendientesPapeles((v) => !v)}
+          className="h-auto rounded-[10px] px-3.5 py-2 text-[13px] font-semibold"
+        >
+          Faltan papeles{pendientesPapeles > 0 ? ` (${pendientesPapeles})` : ""}
+        </Button>
         <Select value={filtroCategoria} onValueChange={(v) => setFiltroCategoria(v ?? "todas")}>
           <SelectTrigger className="w-[180px] bg-card">
             <SelectValue>
@@ -286,7 +319,11 @@ export function PanelFinanzas({
 
       {visibles.length === 0 ? (
         gastosPeriodo.length > 0 ? (
-          <p className="text-sm italic text-muted-foreground">Ningún gasto en esa categoría.</p>
+          <p className="text-sm italic text-muted-foreground">
+            {soloPendientesPapeles
+              ? "Nada pendiente de factura o recibo con esos filtros. 🎉"
+              : "Ningún gasto en esa categoría."}
+          </p>
         ) : ultimoGasto ? (
           /* Hay gastos capturados, pero no en la ventana elegida. Decir solo
              «no hay gastos» hacía pensar que la importación no había entrado:

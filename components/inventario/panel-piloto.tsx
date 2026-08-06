@@ -1,5 +1,6 @@
 import { CheckCircle2, CircleAlert, FlaskConical, Lock, PenLine } from "lucide-react";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
+import { cortoOrigen } from "@/lib/inventario/origenes";
 import { cn } from "@/lib/utils";
 
 /* ============================================================================
@@ -20,15 +21,10 @@ const NOMBRE_CANAL: Record<string, string> = {
   tiktok: "TikTok Shop",
 };
 
-const ORIGEN_CORTO: Record<string, string> = {
-  manual: "ajuste",
-  venta_ml: "venta ML",
-  venta_tn: "venta TN",
-  venta_tiktok: "venta TikTok",
-  tiendanube_sync: "sync TN",
-  mercadolibre_sync: "sync ML",
-  proveedor: "proveedor",
-};
+/* Las etiquetas cortas salen de lib/inventario/origenes.ts: este panel llegó a
+   tener su propia copia a medias —sin cancelaciones, sin reparaciones, sin
+   TikTok— y mostraba el nombre crudo justo en los movimientos menos habituales,
+   que son los que uno viene a mirar aquí. */
 
 function hora(iso: string): string {
   return new Date(iso).toLocaleString("es-MX", {
@@ -193,7 +189,7 @@ export function PanelPiloto({ estado }: { estado: EstadoPiloto }) {
                   <b>{m.stock_nuevo}</b>
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  ({ORIGEN_CORTO[m.origen] ?? m.origen})
+                  ({cortoOrigen(m.origen)})
                 </span>
                 {m.simulado && <Chip tono="aviso">simulado</Chip>}
               </li>

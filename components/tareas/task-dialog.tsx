@@ -34,8 +34,19 @@ const SIN_ASIGNAR = "none";
    prospección, cobranza), no una tarea sin dueño. */
 const SIN_EMPRESA = "sin-empresa";
 
-/* Diálogo para CREAR una tarea (solo dirección/coordinación). La edición y el
-   detalle rico viven en task-detail.tsx. */
+/* Valores con los que arranca el diálogo cuando lo abre una plantilla ("pedir
+   gráfico para el live"): todo sigue siendo editable antes de guardar. */
+export type TaskInicial = {
+  titulo?: string;
+  descripcion?: string;
+  area?: AreaId;
+  etiquetas?: string[];
+};
+
+/* Diálogo para CREAR una tarea — lo abre cualquiera del equipo de casa, no solo
+   quien coordina. Arranca con uno mismo como responsable, que es el caso de
+   todos los días ("mi pendiente"), y desde ahí se puede pasar a quien sea.
+   La edición y el detalle rico viven en task-detail.tsx. */
 export function TaskDialog({
   equipo,
   currentUserId,
@@ -43,6 +54,7 @@ export function TaskDialog({
   espacio = "fresafit",
   empresas = [],
   empresaInicial = null,
+  inicial,
 }: {
   equipo: Profile[];
   currentUserId: string;
@@ -52,24 +64,27 @@ export function TaskDialog({
   empresas?: { id: string; nombre: string; color: string }[];
   /* Cliente preseleccionado (viene del filtro activo del tablero). */
   empresaInicial?: string | null;
+  /* Prellenado de una plantilla; sin él, el diálogo arranca vacío como siempre. */
+  inicial?: TaskInicial;
 }) {
   const esAgencia = espacio === "agencia";
   const { pending, ejecutar } = useAccionServidor();
-  const [titulo, setTitulo] = useState("");
-  const [descripcion, setDescripcion] = useState("");
+  const [titulo, setTitulo] = useState(inicial?.titulo ?? "");
+  const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? "");
   const [responsable, setResponsable] = useState(currentUserId || SIN_ASIGNAR);
-  /* El área sigue al responsable: arranca con la del responsable inicial. */
+  /* El área sigue al responsable: arranca con la del responsable inicial. Si la
+     plantilla trae área, esa manda y elegir responsable ya no la pisa. */
   const [area, setArea] = useState<AreaId>(
-    equipo.find((p) => p.id === currentUserId)?.area ?? "operaciones",
+    inicial?.area ?? equipo.find((p) => p.id === currentUserId)?.area ?? "operaciones",
   );
-  const [areaManual, setAreaManual] = useState(false);
+  const [areaManual, setAreaManual] = useState(Boolean(inicial?.area));
   const [prioridad, setPrioridad] = useState<PrioridadId>("media");
   const [estado, setEstado] = useState<EstadoId>("por_hacer");
   /* Fecha límite por defecto: hoy (se le pidió en la junta; editable). */
   const [fecha, setFecha] = useState(hoyISO());
   const [recordatorio, setRecordatorio] = useState("");
   const [motivoAtorado, setMotivoAtorado] = useState("");
-  const [etiquetas, setEtiquetas] = useState<string[]>([]);
+  const [etiquetas, setEtiquetas] = useState<string[]>(inicial?.etiquetas ?? []);
   const [coasignados, setCoasignados] = useState<string[]>([]);
   const [empresa, setEmpresa] = useState(empresaInicial ?? SIN_EMPRESA);
 

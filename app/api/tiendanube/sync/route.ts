@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, opcionesReimportacion, respuestaError } from "@/lib/canales/http";
+import {
+  autorizarCron,
+  conActorDePeticion,
+  opcionesReimportacion,
+  respuestaError,
+} from "@/lib/canales/http";
 import { conexionTiendanube, registrarWebhooksTN } from "@/lib/tiendanube/api";
 import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
@@ -25,7 +30,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const resumen = await sincronizacionCompleta(cx);
+    const resumen = await conActorDePeticion(request, () => sincronizacionCompleta(cx));
     // Red de seguridad de ventas: reimporta la ventana reciente por si algún
     // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
     let ventas = null;

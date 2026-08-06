@@ -4,9 +4,11 @@
    Registra en `stock_log` cada cambio de stock: qué producto, de qué valor a
    qué valor, por qué canal se escribió y qué lo originó. Es diagnóstico: nunca
    debe romper el flujo de negocio, así que un fallo solo se loggea en consola.
-   Usa el service role (los webhooks/cron no traen sesión).
+   Usa el service role (los webhooks/cron no traen sesión); el «quién» no sale
+   del cliente por eso mismo, sino del contexto de actor (ver `actor.ts`).
    ============================================================================ */
 
+import { actorActual } from "@/lib/inventario/actor";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /* Dónde impactó la escritura. */
@@ -24,6 +26,8 @@ export type EntradaStockLog = {
   /* Id de la operación que agrupa este renglón con los demás que se escribieron
      en la misma llamada. Casi nunca se pasa: lo asigna `registrarStockLog`. */
   lote?: string;
+  /* Quién lo provocó. Casi nunca se pasa: lo toma del contexto de actor. */
+  created_by?: string | null;
 };
 
 export async function registrarStockLog(entradas: EntradaStockLog[]): Promise<void> {
@@ -37,7 +41,14 @@ export async function registrarStockLog(entradas: EntradaStockLog[]): Promise<vo
     // la pantalla los junta en un bloque. Las entradas que ya traen `lote` lo
     // conservan (por si algún flujo quiere agrupar entre varias llamadas).
     const lote = crypto.randomUUID();
-    const filas = entradas.map((e) => ({ ...e, lote: e.lote ?? lote }));
+    // El actor viaja por contexto, no por parámetro: queda NULL en lo que corre
+    // sin nadie detrás (cron, webhook de venta), que es lo que hay que guardar.
+    const autor = actorActual();
+    const filas = entradas.map((e) => ({
+      ...e,
+      lote: e.lote ?? lote,
+      created_by: e.created_by ?? autor,
+    }));
     const { error } = await admin.from("stock_log").insert(filas);
     if (error) console.error("[stock-log]", error.message);
   } catch (e) {

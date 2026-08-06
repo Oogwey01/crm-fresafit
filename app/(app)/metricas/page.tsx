@@ -1,5 +1,8 @@
 import { Suspense } from "react";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import { veDineroDeCanal } from "@/lib/permisos-dinero";
+import { adjuntarMontos } from "@/lib/supabase/montos";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
 import { carritosAbandonadosTN, saludML, visitasML } from "@/lib/canales/salud";
 import { diasDesdeHoy, hoyISO, rangosDePeriodo } from "@/lib/fecha";
@@ -12,6 +15,7 @@ import type {
   RolId,
   VentaMetricas,
 } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Métricas · Fresafit" };
 
@@ -38,6 +42,7 @@ const DIAS_PLATAFORMAS = 30;
    este trozo aterriza cuando esté. Cada canal que no conteste deja su bloque
    fuera, como antes. */
 async function Canales() {
+  const dinero = await vistaDinero();
   const [visitas, salud, carritos, mlRes] = await Promise.all([
     visitasML(DIAS_PLATAFORMAS),
     saludML(),
@@ -61,14 +66,23 @@ async function Canales() {
       salud={salud}
       carritos={carritos}
       ventasML={(mlRes.data as ResumenMetricas | null)?.kpis.piezas ?? 0}
+      verDineroTN={veDineroDeCanal(dinero, "tienda_nube")}
     />
   );
 }
 
 export default async function MetricasPage() {
+  await exigirModulo("metricas");
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
+
+  /* La pantalla abre en «todas las plataformas», así que el importe solo viaja
+     para quien ve los ingresos del negocio: el permiso de un solo canal no
+     alcanza a la suma. Al cambiar de plataforma, `listarVentas` vuelve a
+     preguntarlo con el canal ya elegido. */
+  const dinero = await vistaDinero();
+  const verDinero = dinero.ingresos;
 
   const rangos = rangosDePeriodo(PERIODO_INICIAL);
   const ventana = { desde: diasDesdeHoy(-(DIAS_GRAFICA - 1)), hasta: hoyISO() };
@@ -119,7 +133,7 @@ export default async function MetricasPage() {
        buscador del diálogo de venta, que ahora los pide al abrirse. */
     supabase
       .from("products")
-      .select("id, nombre, variante, sku, precio, activo")
+      .select("id, nombre, variante, sku, activo")
       .eq("activo", true)
       .order("nombre"),
     /* ¿Hay alguna venta, en cualquier fecha? Es solo para elegir el mensaje
@@ -138,8 +152,10 @@ export default async function MetricasPage() {
   }
 
   const vacio: ResumenMetricas = {
-    kpis: { total: 0, piezas: 0, ventas: 0, ticket: 0 },
+    dinero: verDinero,
+    kpis: { total: verDinero ? 0 : null, piezas: 0, ventas: 0, ticket: verDinero ? 0 : null },
     bruto_por_canal: [],
+    unidades_por_canal: [],
     por_producto: [],
     por_dia: [],
     pagos: { pagos: [], cupones: [], aMeses: 0, conDatoDePago: 0 },
@@ -148,6 +164,14 @@ export default async function MetricasPage() {
 
   const actual = (actualRes.data as ResumenMetricas | null) ?? vacio;
 
+  /* El importe de cada renglón sale de `ventas_montos`, no de la tabla: la
+     columna está fuera del alcance del token (ver 20260902000000). */
+  const ventasIniciales = await adjuntarMontos(
+    supabase,
+    (ventasRes.data ?? []) as unknown as VentaMetricas[],
+    verDinero,
+  );
+
   return (
     <PanelMetricas
       inicial={{
@@ -155,16 +179,17 @@ export default async function MetricasPage() {
         anterior: (anteriorRes.data as ResumenMetricas | null) ?? vacio,
         dias: ((ventanaRes.data as ResumenMetricas | null) ?? vacio).por_dia,
       }}
-      ventasIniciales={(ventasRes.data ?? []) as unknown as VentaMetricas[]}
+      ventasIniciales={ventasIniciales}
       errorResumen={errorResumen}
       hayVentas={(algunaVentaRes.data ?? []).length > 0}
       productos={
         (productosRes.data ?? []) as Pick<
           Product,
-          "id" | "nombre" | "variante" | "sku" | "precio" | "activo"
+          "id" | "nombre" | "variante" | "sku" | "activo"
         >[]
       }
       rol={rol}
+      dinero={dinero}
       tiendanube={tiendanube}
       bloquesCanales={
         <Suspense fallback={<BloquesCanalesCargando />}>

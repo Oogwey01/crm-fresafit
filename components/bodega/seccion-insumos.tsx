@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { ExternalLink, KeyRound, Lock, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
@@ -33,8 +34,9 @@ import {
   guardarInsumo,
   moverInsumo,
   type PresentacionInput,
-} from "@/app/(app)/inventario/bodega/actions";
+} from "@/app/(app)/bodega/actions";
 import { CATEGORIAS_INSUMO, obtenerCategoriaInsumo, puedeAdministrar } from "@/lib/catalogos";
+import { coincide, terminosBusqueda } from "@/lib/busqueda";
 import { formatearFechaHora } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import type {
@@ -89,13 +91,58 @@ export function SeccionInsumos({
   const [moviendo, setMoviendo] = useState<InsumoConPresentaciones | null>(null);
   const [dialogoPermisos, setDialogoPermisos] = useState(false);
   const [filtro, setFiltro] = useState("todas");
+  const [busqueda, setBusqueda] = useState("");
 
   const nombreDe = (id: string | null) => equipo.find((p) => p.id === id)?.nombre ?? "—";
 
-  /* El compilador de React memoiza esto solo. */
-  const visibles =
-    filtro === "todas" ? insumos : insumos.filter((i) => (i.categoria ?? "otro") === filtro);
+  /* La sección y la búsqueda se acumulan. Se busca también por proveedor, medida
+     y presentación porque así es como se pide un insumo en voz alta («las bolsas
+     de Castipack», «la de 20 x 28»). El compilador de React memoiza esto solo. */
+  const terminos = terminosBusqueda(busqueda);
+  const visibles = insumos
+    .filter(
+      (i) =>
+        (filtro === "todas" || (i.categoria ?? "otro") === filtro) &&
+        coincide(
+          terminos,
+          i.nombre,
+          i.empresa,
+          i.dimensiones,
+          i.unidad,
+          i.clave,
+          i.notas,
+          obtenerCategoriaInsumo(i.categoria)?.nombre,
+          ...i.presentaciones.map((p) => p.descripcion),
+        ),
+    )
+    /* Agrupados por sección y, dentro, por nombre: con la fila teñida, el orden
+       alfabético global dejaba los colores salpicados. Así se leen como los
+       bloques de la hoja. El orden de las secciones es el del catálogo, que es
+       el de la hoja; lo que no tiene sección cae al final. */
+    .sort((a, b) => {
+      const orden = (i: InsumoConPresentaciones) => {
+        const n = CATEGORIAS_INSUMO.findIndex((c) => c.id === i.categoria);
+        return n === -1 ? CATEGORIAS_INSUMO.length : n;
+      };
+      return orden(a) - orden(b) || a.nombre.localeCompare(b.nombre);
+    });
   const bajos = insumos.filter((i) => i.activo && i.stock <= i.minimo).length;
+
+  /* Los bloques de colores de la hoja, traídos a la fila: el tinte de la sección
+     de fondo y su color a plena saturación en la barra de la izquierda. Se lee
+     de un vistazo qué es cada renglón sin ir columna por columna, que es como se
+     usa la hoja en el piso. Los insumos sin sección se quedan en blanco. */
+  const tinteSeccion = (i: InsumoConPresentaciones): CSSProperties | undefined => {
+    const cat = obtenerCategoriaInsumo(i.categoria);
+    if (!cat) return undefined;
+    return {
+      backgroundColor: `${cat.color}2E`,
+      /* inset, no border: un borde correría el contenido de la fila 4px y
+         desalinearía las columnas contra el encabezado. La segunda sombra
+         repone la de la tarjeta, que el estilo en línea pisaría. */
+      boxShadow: `inset 4px 0 0 0 ${cat.color}, 0 1px 3px 0 rgb(0 0 0 / 0.08)`,
+    };
+  };
 
   const columnas: Columna<InsumoConPresentaciones>[] = [
     {
@@ -116,8 +163,18 @@ export function SeccionInsumos({
       label: "Sección",
       celda: (i) => {
         const cat = obtenerCategoriaInsumo(i.categoria);
+        /* Sin pastilla: el color ya lo lleva la fila entera, como los bloques de
+           la hoja. Queda el punto —que ata el tinte a un nombre, para quien no
+           distinga los morados entre sí— y el nombre en texto normal: en color
+           pleno sobre su propio tinte se leería peor, sobre todo el ámbar. */
         return cat ? (
-          <Pastilla nombre={cat.nombre} color={cat.color} />
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className="size-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: cat.color }}
+            />
+            <span className="truncate font-medium">{cat.nombre}</span>
+          </span>
         ) : (
           <span className="text-muted-foreground">—</span>
         );
@@ -155,19 +212,23 @@ export function SeccionInsumos({
         </span>
       ),
     },
+    /* Lo que cuesta comprar cada unidad es egreso. Para el resto del equipo la
+       columna se va entera y en su lugar queda cuántas presentaciones hay, que
+       es el dato de bodega: en blanco se leería como un insumo sin precio, y el
+       importe tampoco llegó del servidor. */
     {
       clave: "precio",
-      label: "Por unidad",
+      label: admin ? "Por unidad" : "Presentaciones",
       celda: (i) => {
-        const precio = precioUnitario(i);
-        if (precio == null) return <span className="text-muted-foreground">—</span>;
+        const precio = admin ? precioUnitario(i) : null;
+        const cuantas = `${i.presentaciones.length} ${
+          i.presentaciones.length === 1 ? "presentación" : "presentaciones"
+        }`;
+        if (precio == null) return <span className="text-muted-foreground">{cuantas}</span>;
         return (
           <div className="min-w-0">
             <div className="tabular-nums">{formatearMXN(precio)}</div>
-            <div className="text-[11.5px] text-muted-foreground">
-              {i.presentaciones.length}{" "}
-              {i.presentaciones.length === 1 ? "presentación" : "presentaciones"}
-            </div>
+            <div className="text-[11.5px] text-muted-foreground">{cuantas}</div>
           </div>
         );
       },
@@ -234,13 +295,26 @@ export function SeccionInsumos({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todas">Todas las secciones</SelectItem>
+            {/* El punto de color hace de leyenda: es dónde se aprende qué
+                sección es cada tinte de la tabla. */}
             {CATEGORIAS_INSUMO.map((c) => (
               <SelectItem key={c.id} value={c.id}>
-                {c.nombre}
+                <span className="flex items-center gap-2">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: c.color }}
+                  />
+                  {c.nombre}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        <CampoBusqueda
+          valor={busqueda}
+          onCambio={setBusqueda}
+          placeholder="Buscar insumo, proveedor o medida…"
+        />
         <p className="text-[13.5px] text-muted-foreground">
           {puedeMover
             ? "Puedes registrar entradas y salidas."
@@ -266,11 +340,14 @@ export function SeccionInsumos({
         columnas={columnas}
         datos={visibles}
         filaKey={(i) => i.id}
+        filaStyle={tinteSeccion}
         minW="min-w-[1080px]"
         vacio={
-          admin
-            ? "Sin insumos en esta sección. Da de alta lo que se consume en bodega o pega el bloque de la hoja de recursos."
-            : "Sin insumos dados de alta todavía."
+          busqueda.trim()
+            ? `Ningún insumo coincide con «${busqueda.trim()}»${filtro !== "todas" ? " en esta sección" : ""}.`
+            : admin
+              ? "Sin insumos en esta sección. Da de alta lo que se consume en bodega o pega el bloque de la hoja de recursos."
+              : "Sin insumos dados de alta todavía."
         }
       />
 

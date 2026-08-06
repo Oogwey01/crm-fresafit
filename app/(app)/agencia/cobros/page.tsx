@@ -3,12 +3,14 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelCobros } from "@/components/agencia/panel-cobros";
 import type { AgenciaContrato, AgenciaEmpresa, AgenciaIngresoConEmpresa } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Cobros · Agencia Fresafit" };
 
 /* Lo que la agencia factura: cortes de contrato, migraciones y comisiones por
    referidos, con su ciclo calculado → cobrado → pagado. */
 export default async function CobrosPage() {
+  await exigirModulo("agencia-cobros");
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 

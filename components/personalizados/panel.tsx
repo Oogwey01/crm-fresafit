@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { AlarmClock, ExternalLink, Palette, Plus, Sparkles, Truck } from "lucide-react";
+import { AlarmClock, Copy, ExternalLink, Palette, Plus, Sparkles, Truck } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,7 +19,10 @@ import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { PersonalizadoDialog } from "@/components/personalizados/personalizado-dialog";
 import { ImportarPersonalizados } from "@/components/personalizados/importar-personalizados";
 import { VerDiseno } from "@/components/personalizados/ver-diseno";
-import { cambiarEstadoPersonalizado } from "@/app/(app)/personalizados/actions";
+import {
+  cambiarEstadoPersonalizado,
+  ligaDisenoParaProveedor,
+} from "@/app/(app)/personalizados/actions";
 import {
   ESTADOS_PERSONALIZADO,
   ESTADOS_PERSONALIZADO_ABIERTOS,
@@ -29,9 +33,32 @@ import {
 } from "@/lib/catalogos";
 import { formatearFecha, hoyISO } from "@/lib/fecha";
 import { norm } from "@/lib/importar/tsv";
-import type { EstadoPersonalizadoId, Personalizado } from "@/lib/types";
+import { iniciales } from "@/lib/utils";
+import type { EstadoPersonalizadoId, Personalizado, Profile } from "@/lib/types";
 
 const ABIERTOS: readonly string[] = ESTADOS_PERSONALIZADO_ABIERTOS;
+
+/* El texto que se le manda a Eduardo (el proveedor que borda/imprime) por
+   WhatsApp. Antes se armaba a mano cada vez. La liga del diseño es un enlace
+   FIRMADO a la imagen aprobada del bucket —no el `url` de la ficha, que suele
+   apuntar a la orden en el panel de la tienda y a Eduardo no le abre—; lo que
+   falte se marca en vez de omitirse, para que se vea el hueco. */
+function mensajeParaEduardo(p: Personalizado, ligaDiseno: string | null): string {
+  const modelo = MODELOS_PERSONALIZADO.find((m) => m.id === p.modelo)?.nombre;
+  const tecnica = TIPOS_PERSONALIZADO.find((t) => t.id === p.tipo)?.nombre;
+  return [
+    `Personalizado — ${p.cliente}`,
+    [modelo ?? "modelo por definir", p.talla ? `talla ${p.talla}` : null, tecnica]
+      .filter(Boolean)
+      .join(" · "),
+    ligaDiseno ? `Diseño: ${ligaDiseno}` : "(falta subir el diseño aprobado a la ficha)",
+    ligaDiseno ? "La liga del diseño dura 7 días." : null,
+    p.fecha_limite ? `Se necesita para el ${formatearFecha(p.fecha_limite)}` : null,
+    p.notas ? `Notas: ${p.notas}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 /* Los cinturones personalizados en proceso. Es la hoja «Personalizados FRESA
    FIT» pero sin las columnas que ahí eran de colores: aquí el color lo pone el
@@ -40,10 +67,37 @@ export function PanelPersonalizados({
   personalizados,
   /* ruta del bucket → enlace firmado, para pintar el diseño en la tabla. */
   urlsDiseno,
+  equipo,
 }: {
   personalizados: Personalizado[];
   urlsDiseno: Record<string, string>;
+  equipo: Profile[];
 }) {
+  const porId = new Map(equipo.map((p) => [p.id, p]));
+
+  /* Arma el mensaje para Eduardo y lo deja en el portapapeles. La liga se firma
+     al momento de copiar (7 días desde HOY, no desde que se subió el diseño). */
+  async function copiarMensajeEduardo(p: Personalizado) {
+    let liga: string | null = null;
+    if (p.foto_path) {
+      const r = await ligaDisenoParaProveedor(p.foto_path);
+      if ("error" in r) {
+        toast.error(r.error);
+        return;
+      }
+      liga = r.url;
+    }
+    try {
+      await navigator.clipboard.writeText(mensajeParaEduardo(p, liga));
+      toast.success(
+        liga
+          ? "Mensaje copiado con la liga del diseño (dura 7 días). Pégalo en el chat de Eduardo."
+          : "Mensaje copiado, pero a la ficha le falta el diseño aprobado.",
+      );
+    } catch {
+      toast.error("No se pudo copiar.");
+    }
+  }
   const { pending, ejecutar } = useAccionServidor();
   const [dialogo, setDialogo] = useState<Personalizado | "nuevo" | null>(null);
   const [busqueda, setBusqueda] = useState("");
@@ -90,6 +144,23 @@ export function PanelPersonalizados({
           </div>
         </div>
       ),
+    },
+    {
+      clave: "responsable",
+      label: "Quién",
+      celda: (p) => {
+        const r = p.responsable_id ? porId.get(p.responsable_id) : null;
+        if (!r) return <span className="text-muted-foreground/50">—</span>;
+        return (
+          <span
+            className="flex size-6 items-center justify-center rounded-full text-[10px] font-bold text-white"
+            style={{ backgroundColor: r.color }}
+            title={r.nombre}
+          >
+            {iniciales(r.nombre)}
+          </span>
+        );
+      },
     },
     {
       clave: "venta",
@@ -184,6 +255,20 @@ export function PanelPersonalizados({
               <ExternalLink className="size-4" />
             </a>
           )}
+          {/* El mensaje para el proveedor, listo para pegarse en WhatsApp: era
+              lo que se redactaba a mano en cada pedido. */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void copiarMensajeEduardo(p);
+            }}
+            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            title="Copiar mensaje para Eduardo (specs + liga del diseño)"
+            aria-label="Copiar mensaje para Eduardo"
+          >
+            <Copy className="size-4" />
+          </button>
           <Button variant="outline" size="sm" onClick={() => setDialogo(p)}>
             Editar
           </Button>
@@ -272,11 +357,11 @@ export function PanelPersonalizados({
         /* El diseño se lleva la columna más ancha de la tabla a propósito: es lo
            que distingue un pedido de otro. Las fechas y el nº de venta se
            aprietan para pagarla. */
-        cols="grid-cols-[minmax(170px,1fr)_140px_105px_105px_360px_170px_125px]"
+        cols="grid-cols-[minmax(170px,1fr)_48px_140px_105px_105px_360px_170px_150px]"
         columnas={columnas}
         datos={visibles}
         filaKey={(p) => p.id}
-        minW="min-w-[1300px]"
+        minW="min-w-[1380px]"
         vacio="Sin personalizados. Da de alta el primero o pega el bloque de la hoja."
         onRowClick={setDialogo}
       />
@@ -284,6 +369,12 @@ export function PanelPersonalizados({
       {dialogo && (
         <PersonalizadoDialog
           personalizado={dialogo === "nuevo" ? null : dialogo}
+          equipo={equipo}
+          urlDiseno={
+            dialogo !== "nuevo" && dialogo.foto_path
+              ? (urlsDiseno[dialogo.foto_path] ?? null)
+              : null
+          }
           onClose={() => setDialogo(null)}
         />
       )}

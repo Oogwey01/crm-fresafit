@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { textoONulo } from "@/lib/validacion";
 import { obtenerTierInfluencer } from "@/lib/catalogos";
 import type { EtapaInfluencerId, TierInfluencerId } from "@/lib/types";
@@ -65,8 +66,16 @@ export async function guardarInfluencer(
     notas: textoONulo(input.notas),
   };
 
+  /* Quien no ve los egresos tampoco recibió el crédito al abrir la ficha, así
+     que el formulario lo manda vacío: dejarlo pasar lo pondría en nulo sin que
+     nadie lo pidiera. Se conserva el que ya tenía. Al dar de alta sí va —ahí el
+     número lo pone quien captura—. Los PORCENTAJES no entran aquí: son las
+     condiciones que el coordinador negocia, y sí las ve. */
+  const cambios: Record<string, unknown> = { ...fila };
+  if (!(await vistaDinero()).egresos) delete cambios.credito_mensual;
+
   const { error } = id
-    ? await cx.supabase.from("influencers").update(fila).eq("id", id)
+    ? await cx.supabase.from("influencers").update(cambios).eq("id", id)
     : await cx.supabase.from("influencers").insert({ ...fila, created_by: cx.user.id });
 
   if (error) return { error: mensajeDeCodigo(error) };
@@ -194,22 +203,27 @@ export async function guardarEvaluacion(input: EvaluacionInput): Promise<Resulta
   const periodo = `${input.periodo.slice(0, 7)}-01`;
 
   /* Upsert por (persona, mes): volver a evaluar el mismo mes corrige la fila en
-     vez de duplicarla, que es lo que pasaba en la hoja de cálculo. */
-  const { error } = await cx.supabase.from("influencer_evaluaciones").upsert(
-    {
-      influencer_id: input.influencer_id,
-      periodo,
-      usos_codigo: input.usos_codigo,
-      ventas_monto: input.ventas_monto,
-      videos: input.videos,
-      stories: input.stories,
-      participaciones: input.participaciones,
-      contenido_organico: input.contenido_organico,
-      observaciones: textoONulo(input.observaciones),
-      created_by: cx.user.id,
-    },
-    { onConflict: "influencer_id,periodo" },
-  );
+     vez de duplicarla, que es lo que pasaba en la hoja de cálculo. Y por eso hay
+     que cuidar `ventas_monto`: quien no ve los ingresos no lo recibió al abrir
+     el formulario, así que reevaluar el mes lo dejaría en nulo. Omitirlo del
+     upsert conserva el que hubiera —el ON CONFLICT solo pisa lo que va listado—. */
+  const filaEval: Record<string, unknown> = {
+    influencer_id: input.influencer_id,
+    periodo,
+    usos_codigo: input.usos_codigo,
+    ventas_monto: input.ventas_monto,
+    videos: input.videos,
+    stories: input.stories,
+    participaciones: input.participaciones,
+    contenido_organico: input.contenido_organico,
+    observaciones: textoONulo(input.observaciones),
+    created_by: cx.user.id,
+  };
+  if (!(await vistaDinero()).ingresos) delete filaEval.ventas_monto;
+
+  const { error } = await cx.supabase
+    .from("influencer_evaluaciones")
+    .upsert(filaEval, { onConflict: "influencer_id,periodo" });
 
   if (error) return { error: error.message };
   revalidatePath(RUTA);

@@ -19,7 +19,7 @@ export const usuarioActual = cache(async () => {
   }
   const { data: perfil } = await supabase
     .from("profiles")
-    .select("id, nombre, rol, area, color")
+    .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos")
     .eq("id", user.id)
     .single();
   return {
@@ -31,12 +31,8 @@ export const usuarioActual = cache(async () => {
 });
 
 /* ¿El rol pertenece al equipo interno? (todo menos `externo`). Espejo de
-   public.es_interno() en la base de datos. */
-export function esInterno(rol: string | null | undefined) {
-  return (
-    rol === "direccion" ||
-    rol === "administracion" ||
-    rol === "coordinador" ||
-    rol === "miembro"
-  );
-}
+   public.es_interno() en la base de datos.
+   La definición vive en lib/catalogos.ts —donde están los demás ayudantes de
+   rol y de donde la leen también los componentes de cliente— y se reexporta
+   aquí para no romper a quien ya la importaba de este módulo. */
+export { esInterno } from "@/lib/catalogos";

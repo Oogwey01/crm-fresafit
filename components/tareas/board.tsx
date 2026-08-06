@@ -12,9 +12,9 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { AlertTriangle, ChevronDown, Clock, Info, List, LayoutGrid, Calendar as CalendarIcon, Plus } from "lucide-react";
+import { AlertTriangle, ChevronDown, Clapperboard, Clock, Info, List, LayoutGrid, Calendar as CalendarIcon, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { ESTADOS, AREAS, ROLES, esGestor } from "@/lib/catalogos";
+import { ESTADOS, AREAS, ROLES, esGestor, esInterno } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
 import {
   moverTarea,
@@ -24,6 +24,7 @@ import {
 } from "@/app/(app)/tareas/actions";
 import {
   trabajaLaTarea,
+  mandaEnLaTarea,
   type TaskConResponsable,
   type Profile,
   type EstadoId,
@@ -44,8 +45,26 @@ import { cn } from "@/lib/utils";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { Column } from "@/components/tareas/column";
 import { TaskCard } from "@/components/tareas/task-card";
-import { TaskDialog } from "@/components/tareas/task-dialog";
+import { TaskDialog, type TaskInicial } from "@/components/tareas/task-dialog";
+
+/* Plantilla "pedir gráfico para el live": lo que el encargado de TikTok le
+   encarga a diseño antes de cada live. La descripción es el checklist de lo que
+   el diseñador necesita saber para no ir y venir preguntando; se llena antes de
+   guardar y todo sigue siendo editable. */
+const PLANTILLA_GRAFICO_LIVE: TaskInicial = {
+  titulo: "Gráfico para el live de TikTok",
+  descripcion: [
+    "Qué se anuncia (producto u oferta flash): ",
+    "Texto que lleva (precio, descuento, gancho): ",
+    "Dónde se usa (overlay del live, fondo, aviso en redes): ",
+    "Cuándo es el live: ",
+    "Referencias o assets: ",
+  ].join("\n"),
+  area: "diseno",
+  etiquetas: ["grafico", "live"],
+};
 import { TaskFilters } from "@/components/tareas/task-filters";
+import { FiltroEtiquetas } from "@/components/tareas/filtro-etiquetas";
 import { CargaPersonas } from "@/components/tareas/carga-personas";
 import { ExportButton } from "@/components/tareas/export-button";
 import { VistaTabla } from "@/components/tareas/vista-tabla";
@@ -99,9 +118,17 @@ export function Board({
 }) {
   const gestor = esGestor(rol);
   const esAgencia = espacio === "agencia";
+  /* Abrir tareas es de todo el equipo de casa; `externo` solo ve lo que se le
+     comparte y no tiene nada que crear. */
+  const puedeCrear = esInterno(rol);
+  /* ¿Manda sobre ESTA tarea? Gestor en todo el tablero, o quien la creó sobre
+     la suya. Se pasa como función a las vistas para no repartirles el rol. */
+  const manda = (t: TaskConResponsable) => mandaEnLaTarea(t, rol, currentUserId);
 
-  /* "Delegadas por mí" solo tiene sentido para quien delega (gestor). */
-  const opcionesAlcance: [Alcance, string][] = gestor
+  /* "Delegadas por mí" es para quien delega — que ahora es cualquiera del
+     equipo, no solo quien coordina: si un miembro abre una tarea y se la pasa a
+     otro, ese es justo el filtro con el que le da seguimiento. */
+  const opcionesAlcance: [Alcance, string][] = puedeCrear
     ? [
         ["mis", "Mis tareas"],
         ["delegadas", "Delegadas por mí"],
@@ -142,11 +169,16 @@ export function Board({
   const [filtroEmpresa, setFiltroEmpresa] = useState("todas");
   /* "Quién te puso la tarea" (created_by). Aplica en cualquier alcance. */
   const [filtroAsignador, setFiltroAsignador] = useState("todos");
+  /* Etiquetas marcadas (vacío = no filtra). Vive aquí, y no dentro de cada
+     vista, para que valga igual en tabla, tablero, calendario y teléfono. */
+  const [filtroEtiquetas, setFiltroEtiquetas] = useState<string[]>([]);
   const [soloVencidas, setSoloVencidas] = useState(false);
   const [ordenActividad, setOrdenActividad] = useState(false);
   const [, startTransition] = useTransition();
 
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
+  /* Prellenado de la tarea nueva cuando se abre desde una plantilla. */
+  const [plantilla, setPlantilla] = useState<TaskInicial | null>(null);
   /* Abrir una tarea NAVEGA a su página. Antes era un pop-up montado aquí; se
      cambió porque Armando quería "abrir la tarea y que no sea un pop-up", y de
      paso la tarea gana una URL propia que se puede compartir y a la que pueden
@@ -205,8 +237,8 @@ export function Board({
   function reasignar(id: string, responsableId: string | null) {
     const actual = tareas.find((t) => t.id === id);
     if (!actual || actual.responsable_id === responsableId) return;
-    if (!gestor) {
-      toast.error("Solo dirección o coordinación puede reasignar tareas.");
+    if (!manda(actual)) {
+      toast.error("Solo dirección, coordinación o quien creó la tarea puede reasignarla.");
       return;
     }
     const perfil = responsableId
@@ -233,8 +265,8 @@ export function Board({
   function cambiarEmpresa(id: string, empresaId: string | null) {
     const actual = tareas.find((t) => t.id === id);
     if (!actual || (actual.empresa_id ?? null) === empresaId) return;
-    if (!gestor) {
-      toast.error("Solo dirección, administración o coordinación puede cambiar de cliente una tarea.");
+    if (!manda(actual)) {
+      toast.error("Solo dirección, coordinación o quien creó la tarea puede cambiarla de cliente.");
       return;
     }
     const empresa = empresaId ? (empresas.find((e) => e.id === empresaId) ?? null) : null;
@@ -317,12 +349,20 @@ export function Board({
   /* El cliente filtra en CUALQUIER alcance, igual que el asignador: «de mis
      tareas, enséñame solo las de Bart Jerseys» es la consulta más común de quien
      atiende a dos cuentas a la vez. */
-  const base =
+  const porEmpresa =
     filtroEmpresa === "todas"
       ? porAsignador
       : porAsignador.filter((t) =>
           filtroEmpresa === SIN_EMPRESA ? !t.empresa_id : t.empresa_id === filtroEmpresa,
         );
+
+  /* Etiquetas: la tarea entra si tiene ALGUNA de las marcadas (ver
+     FiltroEtiquetas). También sirve en cualquier alcance — «de mis tareas,
+     enséñame solo las de Bodega» es exactamente para lo que se pidió. */
+  const base =
+    filtroEtiquetas.length === 0
+      ? porEmpresa
+      : porEmpresa.filter((t) => (t.etiquetas ?? []).some((e) => filtroEtiquetas.includes(e)));
 
   /* Contador de vencidas sobre lo mostrado (antes del filtro "solo vencidas"). */
   const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
@@ -403,14 +443,19 @@ export function Board({
         <VistaMovil
           tareas={tareas}
           currentUserId={currentUserId}
-          gestor={gestor}
+          puedeCrear={puedeCrear}
           rol={rol}
           alcance={alcance}
           setAlcance={setAlcance}
           soloVencidas={soloVencidas}
           setSoloVencidas={setSoloVencidas}
+          filtroEtiquetas={filtroEtiquetas}
+          setFiltroEtiquetas={setFiltroEtiquetas}
           onAbrir={abrirTarea}
-          onNueva={() => setNuevaAbierta(true)}
+          onNueva={() => {
+            setPlantilla(null);
+            setNuevaAbierta(true);
+          }}
           checklistPorTarea={checklistPorTarea}
           titulo={esAgencia ? "Tareas de la Agencia" : undefined}
           empresas={esAgencia ? empresas : undefined}
@@ -444,10 +489,32 @@ export function Board({
               }
             />
           )}
-          {gestor && <Papelera borradas={borradas} />}
-          {gestor && (
+          {/* La papelera la ve todo el equipo: RLS ya la acota a las tareas de
+              cada quien, y ahora que un miembro puede borrar las suyas también
+              necesita poder sacarlas de ahí. */}
+          {puedeCrear && <Papelera borradas={borradas} />}
+          {/* Atajo pedido por TikTok: la tarea de "gráfico para el live" nace ya
+              armada (área diseño, etiquetas, checklist en la descripción). */}
+          {puedeCrear && !esAgencia && (
             <Button
-              onClick={() => setNuevaAbierta(true)}
+              variant="outline"
+              onClick={() => {
+                setPlantilla(PLANTILLA_GRAFICO_LIVE);
+                setNuevaAbierta(true);
+              }}
+              className="h-auto gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold"
+              title="Crea la tarea ya armada para pedirle a diseño un gráfico del live"
+            >
+              <Clapperboard className="size-4" strokeWidth={2.1} />
+              Gráfico para live
+            </Button>
+          )}
+          {puedeCrear && (
+            <Button
+              onClick={() => {
+                setPlantilla(null);
+                setNuevaAbierta(true);
+              }}
               className="h-auto gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)]"
             >
               <Plus className="size-4" strokeWidth={2.1} />
@@ -597,6 +664,15 @@ export function Board({
           </Select>
         )}
 
+        {/* Filtro por ETIQUETA — sirve en cualquier alcance y en las tres vistas.
+            Cuenta sobre `porEmpresa` (todo lo demás ya aplicado, esto todavía
+            no) para que los números de cada etiqueta digan lo que se ve. */}
+        <FiltroEtiquetas
+          tareas={porEmpresa}
+          seleccionadas={filtroEtiquetas}
+          onCambiar={setFiltroEtiquetas}
+        />
+
         {/* Orden por movimiento reciente. */}
         <button
           type="button"
@@ -643,6 +719,7 @@ export function Board({
           tareas={filtradas}
           currentUserId={currentUserId}
           gestor={gestor}
+          puedeEditar={manda}
           onAbrir={abrirTarea}
           onMoverEstado={mover}
           onCambiarPrioridad={cambiarPrio}
@@ -662,7 +739,9 @@ export function Board({
           <>
             {filtradas.length === 0 && (
               <p className="mb-3 text-sm italic text-muted-foreground">
-                No tienes tareas asignadas por ahora.
+                {filtroEtiquetas.length > 0
+                  ? "Ninguna de tus tareas lleva esas etiquetas."
+                  : "No tienes tareas asignadas por ahora."}
               </p>
             )}
             {/* Móvil: carril horizontal con snap (columnas lado a lado). Escritorio: grid. */}
@@ -780,7 +859,11 @@ export function Board({
               ? filtroEmpresa
               : null
           }
-          onClose={() => setNuevaAbierta(false)}
+          inicial={plantilla ?? undefined}
+          onClose={() => {
+            setNuevaAbierta(false);
+            setPlantilla(null);
+          }}
         />
       )}
 

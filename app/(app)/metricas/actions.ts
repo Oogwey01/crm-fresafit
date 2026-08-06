@@ -6,10 +6,13 @@ import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
 import { COLUMNAS_VENTA_METRICAS, VENTAS_POR_PAGINA } from "@/lib/metricas";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import { adjuntarMontos } from "@/lib/supabase/montos";
+import { veDineroDeCanal } from "@/lib/permisos-dinero";
 import type {
   CanalId,
   Customer,
-  Product,
+  ProductoParaVenta,
   ResumenMetricas,
   VentaMetricas,
 } from "@/lib/types";
@@ -90,10 +93,19 @@ export async function editarVenta(id: string, input: VentaInput): Promise<Result
   if (errLeer) return { error: errLeer.message };
 
   const esImportada = actual?.origen === "api";
+
+  /* Quien no ve los ingresos tampoco recibió el monto al abrir la venta, así que
+     el formulario lo manda vacío: dejarlo pasar la pondría en cero sin que nadie
+     lo pidiera. Se conserva el que ya tenía. Registrar una venta nueva sí lleva
+     monto —eso es capturar, no revelar—; lo que no puede es reescribir a ciegas
+     uno que no ha visto. Mismo mecanismo que la regla de arriba. */
+  const fila: Partial<ReturnType<typeof filaDeVenta>> = filaDeVenta(input);
+  if (!(await vistaDinero()).ingresos) delete fila.monto;
+
   const cambios =
     esImportada && cx.rol !== "direccion"
       ? { cliente_id: input.cliente_id, notas: textoONulo(input.notas) }
-      : filaDeVenta(input);
+      : fila;
 
   const { error } = await cx.supabase.from("sales").update(cambios).eq("id", id);
   if (error) return { error: error.message };
@@ -169,6 +181,12 @@ export async function listarVentas(
   const cx = await exigirRol("interno", "Solo el equipo interno puede ver las métricas.");
   if ("error" in cx) return cx;
 
+  const c = canalONulo(canal);
+  /* El MISMO booleano que calcula la página en su primera carga: si las dos
+     páginas de la tabla no coinciden en si traen monto, la tabla cambia de forma
+     a mitad del scroll. */
+  const conMonto = veDineroDeCanal(await vistaDinero(), c as CanalId | null);
+
   let q = cx.supabase
     .from("sales")
     .select(COLUMNAS_VENTA_METRICAS)
@@ -176,7 +194,6 @@ export async function listarVentas(
     .lte("fecha", rango.hasta)
     .or("estado.is.null,estado.neq.cancelado"); // igual que el resumen
 
-  const c = canalONulo(canal);
   if (c) q = q.eq("canal", c);
 
   const { data, error } = await q
@@ -186,7 +203,12 @@ export async function listarVentas(
     .range(desplazamiento, desplazamiento + VENTAS_POR_PAGINA - 1);
 
   if (error) return { error: error.message };
-  return { ok: true, ventas: (data ?? []) as unknown as VentaMetricas[] };
+  const ventas = await adjuntarMontos(
+    cx.supabase,
+    (data ?? []) as unknown as VentaMetricas[],
+    conMonto,
+  );
+  return { ok: true, ventas };
 }
 
 /* Catálogo y clientes para los dos buscadores del diálogo de venta.
@@ -198,7 +220,7 @@ export async function listarVentas(
 export async function catalogoVenta(): Promise<
   | {
       ok: true;
-      productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
+      productos: ProductoParaVenta[];
       clientes: Pick<Customer, "id" | "nombre" | "correo" | "telefono">[];
     }
   | { error: string }
@@ -206,10 +228,17 @@ export async function catalogoVenta(): Promise<
   const cx = await exigirRol("interno", "Solo el equipo interno puede registrar ventas.");
   if ("error" in cx) return cx;
 
+  /* El `precio` viaja solo para quien ve los ingresos: es la lista de precios
+     del catálogo entero servida por una action de nivel `interno`, o sea la
+     puerta de atrás más ancha del módulo. Sin él el diálogo deja de
+     autorrellenar el importe y se teclea, que es lo que ya se hace con las
+     ventas de productos fuera de catálogo. */
+  const conPrecio = (await vistaDinero()).ingresos;
+
   const [productosRes, clientesRes] = await Promise.all([
     cx.supabase
       .from("products")
-      .select("id, nombre, variante, sku, precio, activo")
+      .select(`id, nombre, variante, sku, activo${conPrecio ? ", precio" : ""}`)
       .eq("activo", true)
       .order("nombre"),
     cx.supabase.from("customers").select("id, nombre, correo, telefono").order("nombre"),
@@ -220,10 +249,7 @@ export async function catalogoVenta(): Promise<
 
   return {
     ok: true,
-    productos: (productosRes.data ?? []) as Pick<
-      Product,
-      "id" | "nombre" | "variante" | "sku" | "precio" | "activo"
-    >[],
+    productos: (productosRes.data ?? []) as unknown as ProductoParaVenta[],
     clientes: (clientesRes.data ?? []) as Pick<
       Customer,
       "id" | "nombre" | "correo" | "telefono"

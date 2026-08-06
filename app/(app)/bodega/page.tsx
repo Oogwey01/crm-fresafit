@@ -1,8 +1,10 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { PanelBodega } from "@/components/bodega/panel";
 import type {
+  ConjuntoArmado,
   ConjuntoConComponentes,
   EnvioFullConCajas,
   InsumoConPresentaciones,
@@ -14,18 +16,35 @@ import type {
   RecepcionConItems,
   RecepcionItem,
 } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Bodega · Fresafit" };
+
+const COLUMNAS_ARMADO =
+  "id, conjunto_id, sku_conjunto, producto_id, tipo, cantidad, lote, detalle, nota," +
+  " revierte_a, subido_en, subido_por, created_by, created_at";
 
 /* El cuaderno de bodega: recibir mercancía, armar conjuntos, seguir los
    personalizados, preparar los envíos full y llevar los insumos.
 
    Es de TODO el equipo interno (los de bodega son rol miembro): la RLS ya lo
-   acota y no hay corte de rol aquí. Va en subruta y no como otra pestaña de
-   inventario porque se usa en el piso, desde el celular, y no necesita el
-   catálogo completo ni los 90 días de ventas que carga /inventario. */
+   acota y no hay corte de rol aquí. Es módulo propio y no una pestaña de
+   inventario —antes colgaba de /inventario/bodega— porque se usa en el piso,
+   desde el celular, y no necesita el catálogo completo ni los 90 días de ventas
+   que carga /inventario. */
 export default async function BodegaPage() {
+  await exigirModulo("bodega");
   const { supabase, user, rol } = await usuarioActual();
+
+  /* El precio de cada presentación es lo que CUESTA comprarla: egreso, así que
+     solo viaja para quien lleva la administración. Lo demás de bodega —qué hay,
+     cuánto queda, qué falta— es de todo el equipo. */
+  const dinero = await vistaDinero();
+  const columnasInsumo: string =
+    "id, nombre, unidad, stock, minimo, notas, activo, categoria, empresa," +
+    " dimensiones, reserva, pedido, maximo, link, clave, created_by, created_at, updated_at," +
+    " presentaciones:insumo_presentaciones(id, insumo_id, descripcion, unidades," +
+    ` reserva, pedido, link, clave, created_at${dinero.egresos ? ", precio" : ""})`;
 
   /* Cada árbol (conjunto → componentes, envío → cajas → renglones, insumo →
      presentaciones) se pide ya anidado: PostgREST lo arma en la misma consulta.
@@ -39,6 +58,8 @@ export default async function BodegaPage() {
   const [
     recepcionesRes,
     conjuntos,
+    armadosRes,
+    pendientesRes,
     enviosRes,
     insumosCrudos,
     movimientosRes,
@@ -58,11 +79,26 @@ export default async function BodegaPage() {
       supabase
         .from("conjuntos")
         .select(
-          "id, sku, titulo, categoria, talla, activo, notas, created_by, created_at, updated_at, componentes:conjunto_componentes(id, conjunto_id, producto_id, sku_componente, rol, cantidad)",
+          "id, sku, titulo, categoria, talla, producto_id, activo, notas, created_by, created_at, updated_at, componentes:conjunto_componentes(id, conjunto_id, producto_id, sku_componente, rol, cantidad)",
         )
         .order("sku")
         .range(desde, hasta),
     ),
+    /* Lo que se armó en bodega. Acotado como los demás historiales del módulo:
+       la pantalla enseña los últimos por conjunto, no la historia entera. */
+    supabase
+      .from("conjunto_armados")
+      .select(COLUMNAS_ARMADO)
+      .order("created_at", { ascending: false })
+      .limit(200),
+    /* Y aparte, TODO lo que sigue pendiente de capturar en los canales, sin
+       tope: un armado de hace meses que nadie subió tiene que seguir dando la
+       lata aunque ya no quepa en los últimos 200. */
+    supabase
+      .from("conjunto_armados")
+      .select(COLUMNAS_ARMADO)
+      .is("subido_en", null)
+      .order("created_at", { ascending: false }),
     /* Las cajas y sus renglones se pedían sin filtro y sin paginar mientras los
        envíos sí estaban acotados a 50: PostgREST los cortaba en 1000 y en
        pantalla faltaban cajas enteras sin que nadie se enterara. Colgados de su
@@ -71,18 +107,19 @@ export default async function BodegaPage() {
     supabase
       .from("envios_full")
       .select(
-        "id, destino, nombre, estado, fecha_envio, notas, created_by, created_at, updated_at, cajas:envio_full_cajas(id, envio_id, numero, dimensiones, peso_kg, items:envio_full_items(id, caja_id, producto_id, sku, asin, cantidad, empaquetado, cancelado, descontado))",
+        "id, destino, nombre, estado, fecha_envio, id_plataforma, paqueteria, tipo_envio, num_guia, fecha_llegada_estimada, notas, created_by, created_at, updated_at, cajas:envio_full_cajas(id, envio_id, numero, largo_cm, ancho_cm, alto_cm, peso_kg, items:envio_full_items(id, caja_id, producto_id, sku, asin, cantidad, empaquetado, cancelado, descontado))",
       )
       .order("created_at", { ascending: false })
       .limit(50),
     traerTodo<InsumoConPresentaciones>((desde, hasta) =>
       supabase
         .from("insumos")
-        .select(
-          "id, nombre, unidad, stock, minimo, notas, activo, categoria, empresa, dimensiones, reserva, pedido, maximo, link, clave, created_by, created_at, updated_at, presentaciones:insumo_presentaciones(id, insumo_id, descripcion, unidades, precio, reserva, pedido, link, clave, created_at)",
-        )
+        .select(columnasInsumo)
         .order("nombre")
-        .range(desde, hasta),
+        .range(desde, hasta) as unknown as PromiseLike<{
+        data: InsumoConPresentaciones[] | null;
+        error: { message: string } | null;
+      }>,
     ),
     supabase
       .from("insumo_movimientos")
@@ -119,6 +156,38 @@ export default async function BodegaPage() {
           .range(desde, hasta),
       )
     : [];
+
+  /* Los últimos 200 más los pendientes de siempre, sin repetir: las dos listas
+     se solapan en cuanto hay pendientes recientes. */
+  const armados: ConjuntoArmado[] = [
+    ...new Map(
+      [
+        ...((armadosRes.data ?? []) as unknown as ConjuntoArmado[]),
+        ...((pendientesRes.data ?? []) as unknown as ConjuntoArmado[]),
+      ].map((a) => [a.id, a]),
+    ).values(),
+  ];
+
+  /* En qué canales está publicada la ficha de cada conjunto. Va aparte y no
+     como tres columnas más del catálogo ligero: son a lo sumo 84 fichas contra
+     las 1126 del catálogo, y ese payload lo carga toda la pantalla de bodega. */
+  const idsFicha = [...new Set(conjuntos.map((c) => c.producto_id).filter((id): id is string => !!id))];
+  const canalesRes = idsFicha.length
+    ? await supabase
+        .from("products")
+        .select("id, tiendanube_product_id, meli_item_id, tiktok_product_id")
+        .in("id", idsFicha)
+    : { data: [] };
+  const canalesFicha: CanalesFicha = Object.fromEntries(
+    (canalesRes.data ?? []).map((p) => [
+      p.id as string,
+      {
+        tienda_nube: !!p.tiendanube_product_id,
+        mercado_libre: !!p.meli_item_id,
+        tiktok_shop: !!p.tiktok_product_id,
+      },
+    ]),
+  );
 
   const porCarga = new Map<string, RecepcionItem[]>();
   for (const i of items) {
@@ -157,6 +226,8 @@ export default async function BodegaPage() {
     <PanelBodega
       recepciones={recepciones}
       conjuntos={conjuntos}
+      armados={armados}
+      canalesFicha={canalesFicha}
       envios={envios}
       insumos={insumos}
       movimientos={(movimientosRes.data ?? []) as InsumoMovimiento[]}
@@ -173,4 +244,11 @@ export default async function BodegaPage() {
 export type ProductoLigeroFila = Pick<
   Product,
   "id" | "nombre" | "variante" | "sku" | "stock" | "activo"
+>;
+
+/* Dónde está publicada la ficha de cada conjunto, por id de producto. Sirve
+   para decir en qué tiendas hay que capturar a mano lo que se armó. */
+export type CanalesFicha = Record<
+  string,
+  { tienda_nube: boolean; mercado_libre: boolean; tiktok_shop: boolean }
 >;

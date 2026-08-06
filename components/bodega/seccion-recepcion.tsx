@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { ClipboardPaste, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -22,8 +22,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { SelectorProducto } from "@/components/compartido/selector-producto";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
+  agregarItemRecepcion,
   cambiarEstadoItem,
   cerrarRecepcion,
   descontarChecados,
@@ -32,12 +35,14 @@ import {
   borrarItemRecepcion,
   borrarRecepcion,
   type RecepcionItemInput,
-} from "@/app/(app)/inventario/bodega/actions";
+} from "@/app/(app)/bodega/actions";
 import { ESTADOS_RECEPCION, obtenerEstadoRecepcion, obtenerCanal } from "@/lib/catalogos";
-import { matchProductoPorSku, parsearCantidad, parsearTSV } from "@/lib/importar/tsv";
+import { coincide, terminosBusqueda } from "@/lib/busqueda";
+import { matchProductoPorSku, normalizarSku, parsearCantidad, parsearTSV } from "@/lib/importar/tsv";
+import { tallaDeVariante } from "@/lib/talla";
 import { formatearFecha } from "@/lib/fecha";
 import { cn } from "@/lib/utils";
-import type { ProductoLigeroFila } from "@/app/(app)/inventario/bodega/page";
+import type { ProductoLigeroFila } from "@/app/(app)/bodega/page";
 import type { EstadoRecepcionId, RecepcionConItems, RecepcionItem } from "@/lib/types";
 
 const ENCABEZADOS = [
@@ -49,6 +54,10 @@ const ENCABEZADOS = [
   "PRODUCTO",
   "TALLA",
 ];
+
+/* Las cuatro de los cinturones, que es casi todo lo que entra por bodega. Es un
+   datalist, no una lista cerrada: hay mercancía que viene por número. */
+const TALLAS_SUGERIDAS = ["CH", "M", "G", "EG"];
 
 /* Recepción de mercancía: la carga abierta con sus renglones, tal como la
    plantilla del Sheet, pero con los estados como botones en vez de fórmulas. */
@@ -63,6 +72,7 @@ export function SeccionRecepcion({
   const [seleccionadaId, setSeleccionadaId] = useState<string | null>(recepciones[0]?.id ?? null);
   const [dialogoNueva, setDialogoNueva] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
 
   const seleccionada =
     recepciones.find((r) => r.id === seleccionadaId) ?? recepciones[0] ?? null;
@@ -101,6 +111,12 @@ export function SeccionRecepcion({
           </SelectContent>
         </Select>
 
+        <CampoBusqueda
+          valor={busqueda}
+          onCambio={setBusqueda}
+          placeholder="Buscar SKU, producto o talla…"
+        />
+
         <div className="flex-1" />
 
         <Button variant="outline" onClick={() => setImportando(true)} disabled={!seleccionada}>
@@ -115,6 +131,8 @@ export function SeccionRecepcion({
         <DetalleCarga
           carga={seleccionada}
           productos={productos}
+          busqueda={busqueda}
+          onLimpiarBusqueda={() => setBusqueda("")}
           pending={pending}
           onCambiarEstado={(item, estado) =>
             ejecutar(() => cambiarEstadoItem(item.id, estado), {
@@ -176,6 +194,8 @@ export function SeccionRecepcion({
 function DetalleCarga({
   carga,
   productos,
+  busqueda,
+  onLimpiarBusqueda,
   pending,
   onCambiarEstado,
   onBorrarItem,
@@ -185,6 +205,8 @@ function DetalleCarga({
 }: {
   carga: RecepcionConItems;
   productos: ProductoLigeroFila[];
+  busqueda: string;
+  onLimpiarBusqueda: () => void;
   pending: boolean;
   onCambiarEstado: (item: RecepcionItem, estado: EstadoRecepcionId) => void;
   onBorrarItem: (item: RecepcionItem) => void;
@@ -208,8 +230,29 @@ function DetalleCarga({
     n: carga.items.filter((i) => i.estado === e.id).length,
   }));
   const canal = obtenerCanal(carga.canal);
+
+  /* Por id y no recorriendo el catálogo por renglón: una carga pasa de mil
+     renglones y el catálogo de mil fichas, y el nombre se pide dos veces por
+     renglón (al buscar y al pintarlo). */
+  const nombresPorId = useMemo(() => new Map(productos.map((p) => [p.id, p.nombre])), [productos]);
   const nombreProducto = (i: RecepcionItem) =>
-    productos.find((p) => p.id === i.producto_id)?.nombre ?? i.producto_nombre ?? "—";
+    (i.producto_id ? nombresPorId.get(i.producto_id) : null) ?? i.producto_nombre ?? "—";
+
+  /* La búsqueda recorta lo que se PINTA, no la carga: el avance por estado y la
+     cantidad consolidada siguen contando los renglones completos, que es lo que
+     dice si la carga ya está lista. */
+  const terminos = terminosBusqueda(busqueda);
+  const visibles = carga.items.filter((i) =>
+    coincide(
+      terminos,
+      i.sku,
+      i.sku_consolidado,
+      nombreProducto(i),
+      i.producto_nombre,
+      i.talla,
+      i.categoria,
+    ),
+  );
 
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
@@ -221,8 +264,10 @@ function DetalleCarga({
             {carga.estado === "cerrada" && <Pastilla nombre="Cerrada" color="#94a3b8" />}
           </div>
           <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-            {carga.items.length} {carga.items.length === 1 ? "renglón" : "renglones"} ·{" "}
-            {formatearFecha(carga.created_at.slice(0, 10))}
+            {busqueda.trim()
+              ? `${visibles.length} de ${carga.items.length} renglones`
+              : `${carga.items.length} ${carga.items.length === 1 ? "renglón" : "renglones"}`}{" "}
+            · {formatearFecha(carga.created_at.slice(0, 10))}
           </p>
         </div>
 
@@ -254,7 +299,12 @@ function DetalleCarga({
 
       {carga.items.length === 0 ? (
         <p className="px-5 py-8 text-center text-sm text-muted-foreground">
-          Sin renglones todavía. Pega la plantilla de la hoja con «Pegar renglones».
+          Sin renglones todavía. Pega la plantilla de la hoja con «Pegar renglones», o captura aquí
+          abajo los que hagan falta.
+        </p>
+      ) : visibles.length === 0 ? (
+        <p className="px-5 py-8 text-center text-sm text-muted-foreground">
+          Ningún renglón de esta carga coincide con «{busqueda.trim()}».
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -271,7 +321,7 @@ function DetalleCarga({
               </tr>
             </thead>
             <tbody>
-              {carga.items.map((i) => {
+              {visibles.map((i) => {
                 const estado = obtenerEstadoRecepcion(i.estado);
                 return (
                   <tr key={i.id} className="border-t">
@@ -330,6 +380,147 @@ function DetalleCarga({
           </table>
         </div>
       )}
+
+      <AltaRenglon
+        carga={carga}
+        productos={productos}
+        onAgregado={(fila) => {
+          /* Si el filtro puesto esconde justo lo que se acaba de capturar, se
+             quita: agregar un renglón y no verlo aparecer se lee como que no se
+             guardó. Mientras el nuevo sí coincida, la búsqueda se respeta. */
+          if (!coincide(terminos, fila.sku, fila.talla, fila.producto_nombre)) onLimpiarBusqueda();
+        }}
+      />
+    </div>
+  );
+}
+
+/* --- Capturar un renglón a mano -------------------------------------------
+   El pegado cubre la carga completa, pero no todo llega por la hoja: un SKU que
+   no venía en la plantilla, unas piezas que mandó el proveedor de más, o una
+   carga chica que no vale un Excel. El SKU se elige del catálogo mientras se
+   escribe —así el renglón nace ligado a su ficha y al descontarlo sí mueve
+   stock—, aunque se acepta texto libre: hay mercancía que todavía no tiene
+   ficha, y eso la pantalla ya lo marca como «sin ficha». */
+function AltaRenglon({
+  carga,
+  productos,
+  onAgregado,
+}: {
+  carga: RecepcionConItems;
+  productos: ProductoLigeroFila[];
+  onAgregado: (fila: RecepcionItemInput) => void;
+}) {
+  const { pending, ejecutar } = useAccionServidor();
+  const idTallas = useId();
+  /* Remonta el selector para devolverle el foco tras cada alta: en el piso se
+     capturan varios seguidos. En el primer montaje no, que robaría el foco al
+     abrir la pantalla. */
+  const [llave, setLlave] = useState(0);
+  const [sku, setSku] = useState("");
+  const [productoId, setProductoId] = useState<string | null>(null);
+  const [talla, setTalla] = useState("");
+  const [unidades, setUnidades] = useState("1");
+
+  const cantidad = Number(unidades);
+  const listo = sku.trim() !== "" && Number.isFinite(cantidad) && cantidad > 0;
+
+  function agregar() {
+    if (!listo) return;
+    const limpio = sku.trim().toUpperCase();
+    const t = talla.trim().toUpperCase();
+
+    /* El SKU de la hoja es base + talla (SBD002 + CH), y la columna
+       «Consolidado» suma por esa base. Se deriva quitando la talla del final en
+       vez de pedir otro campo: es lo que se haría a mano, siempre igual. */
+    const consolidado =
+      t && normalizarSku(limpio).endsWith(normalizarSku(t)) && limpio.length > t.length
+        ? limpio.slice(0, limpio.length - t.length)
+        : null;
+
+    /* La categoría (POWERLIFT, HEBILLA…) no se captura: se hereda del hermano
+       que ya esté en la carga, que es de donde salió al pegar la hoja. */
+    const hermano = consolidado
+      ? carga.items.find((i) => (i.sku_consolidado || i.sku) === consolidado)
+      : undefined;
+    const producto = productos.find((p) => p.id === productoId);
+
+    const fila: RecepcionItemInput = {
+      sku: limpio,
+      producto_id: productoId ?? matchProductoPorSku(limpio, productos).producto?.id ?? null,
+      unidades_no_procesadas: Math.trunc(cantidad),
+      sku_consolidado: consolidado,
+      categoria: hermano?.categoria ?? null,
+      producto_nombre: producto?.nombre ?? hermano?.producto_nombre ?? null,
+      talla: t || null,
+    };
+
+    ejecutar(() => agregarItemRecepcion(carga.id, fila), {
+      error: "No se pudo agregar el renglón. Revisa tu conexión.",
+      alExito: () => {
+        toast.success(`${fila.sku}: ${fila.unidades_no_procesadas} al renglón de la carga.`);
+        setSku("");
+        setProductoId(null);
+        setTalla("");
+        setUnidades("1");
+        setLlave((n) => n + 1);
+        onAgregado(fila);
+      },
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-start gap-2 border-t px-5 py-3">
+      <SelectorProducto
+        key={llave}
+        valor={sku}
+        productoId={productoId}
+        productos={productos}
+        autoFocus={llave > 0}
+        className="min-w-[200px] basis-[260px]"
+        placeholder="SKU o nombre del producto…"
+        onCambio={(nuevoSku, id) => {
+          setSku(nuevoSku);
+          setProductoId(id);
+          /* Al elegir del catálogo, la talla ya viene en la variante de la
+             ficha («Rosa / M»): se rellena sola si no se escribió otra. */
+          if (id && !talla.trim()) {
+            const elegido = productos.find((p) => p.id === id);
+            setTalla(tallaDeVariante(elegido?.variante) ?? "");
+          }
+        }}
+      />
+      <Input
+        list={idTallas}
+        aria-label="Talla"
+        placeholder="Talla"
+        className="w-[88px] uppercase"
+        value={talla}
+        onChange={(e) => setTalla(e.target.value.toUpperCase())}
+      />
+      <datalist id={idTallas}>
+        {TALLAS_SUGERIDAS.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+      <Input
+        type="number"
+        min="1"
+        step="1"
+        aria-label="Unidades"
+        className="w-[88px]"
+        value={unidades}
+        onChange={(e) => setUnidades(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            agregar();
+          }
+        }}
+      />
+      <Button variant="outline" disabled={pending || !listo} onClick={agregar}>
+        <Plus className="size-4" /> {pending ? "Agregando…" : "Agregar renglón"}
+      </Button>
     </div>
   );
 }

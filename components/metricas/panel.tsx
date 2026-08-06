@@ -15,6 +15,7 @@ import {
 import { RangoFechas } from "@/components/compartido/rango-fechas";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { formatearMXN } from "@/lib/moneda";
+import { veDineroDeCanal, type VistaDinero } from "@/lib/permisos-dinero";
 import { tallaDeVariante, compararTallas } from "@/lib/talla";
 import { ETIQUETA_DELTA as ETIQUETA_DELTA_BASE, deltaPct } from "@/lib/metricas";
 import { nombreVenta } from "@/lib/ventas";
@@ -57,7 +58,11 @@ const ETIQUETA_DELTA: Record<PeriodoId, string> = {
   "": "vs. periodo anterior",
 };
 
+/* Dos rejillas literales y no una construida al vuelo: Tailwind compila las
+   clases leyendo el código fuente, así que un `grid-cols-[…]` armado por
+   concatenación no existiría en la hoja de estilos. */
 const COLS_VENTAS = "grid-cols-[90px_130px_minmax(220px,1fr)_70px_120px_110px]";
+const COLS_VENTAS_SIN_DINERO = "grid-cols-[90px_130px_minmax(220px,1fr)_70px_110px]";
 
 /* Días de la gráfica de barras. Ventana fija: no sigue al periodo elegido (sí a
    la plataforma). Tiene que coincidir con el de la página, que trae la primera
@@ -78,6 +83,7 @@ export function PanelMetricas({
   hayVentas,
   productos,
   rol,
+  dinero,
   tiendanube,
   bloquesCanales,
 }: {
@@ -92,8 +98,12 @@ export function PanelMetricas({
   hayVentas: boolean;
   /* Catálogo activo, solo para la lista de «productos sin movimiento». Los
      buscadores del diálogo de venta piden lo suyo por su cuenta al abrirse. */
-  productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "precio" | "activo">[];
+  productos: Pick<Product, "id" | "nombre" | "variante" | "sku" | "activo">[];
   rol: RolId;
+  /* Qué puede ver de dinero quien mira. Aquí llega la vista completa —y no un
+     booleano— porque esta pantalla cambia de plataforma sin recargar: el
+     encargado de un canal ve los importes de SU canal y no los de «todas». */
+  dinero: VistaDinero;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
   /* Lo que se lee en vivo de los canales, ya renderizado en el servidor dentro
      de un <Suspense>: son tres llamadas a APIs ajenas que tardan segundos, y
@@ -199,6 +209,12 @@ export function PanelMetricas({
   const actual = datos.actual;
   const numVentas = actual.kpis.ventas;
 
+  /* Los importes de este panel dependen de la plataforma elegida: el encargado
+     de un canal ve lo suyo, y en «todas las plataformas» no ve nada, porque la
+     suma incluiría los canales ajenos. La base decide lo mismo por su cuenta
+     (los importes llegan en null); esto es para saber qué pintar en su lugar. */
+  const verDinero = veDineroDeCanal(dinero, canal === "todas" ? null : canal);
+
   /* --- Números clave ---
      `total` (suma de renglones) es lo que se vendió en PRODUCTO. Lo que reportan
      los paneles de los canales es el bruto de la orden, que además lleva envío y
@@ -213,6 +229,14 @@ export function PanelMetricas({
   function sumarBruto(lista: { bruto: number }[]): number {
     return lista.reduce((a, c) => a + Number(c.bruto), 0);
   }
+  /* Piezas por venta hace de ticket cuando no hay importes: es la misma
+     pregunta —cuánto se lleva cada quien— medida en lo que sí se puede ver. */
+  const piezasPorVentaTexto =
+    piezasPorVenta > 0
+      ? `${piezasPorVenta.toFixed(piezasPorVenta % 1 === 0 ? 0 : 1)} ${
+          piezasPorVenta === 1 ? "pieza" : "piezas"
+        } por venta`
+      : "Sin ventas en el periodo";
   const brutoCanalActual = useMemo(
     () => new Map(actual.bruto_por_canal.map((b) => [b.canal, Number(b.bruto)])),
     [actual.bruto_por_canal],
@@ -222,7 +246,7 @@ export function PanelMetricas({
   /* Cuánto del bruto NO es producto (envío menos descuentos). Se muestra para
      que la diferencia contra la suma de renglones sea explicable de un vistazo
      y no vuelva a parecer un error del CRM. */
-  const extras = bruto - total;
+  const extras = bruto - (total ?? 0);
 
   /* --- Ventas por día (últimos 14 días, fijo; respeta la plataforma) ---
      La base devuelve solo los días CON ventas; aquí se rellenan los huecos para
@@ -232,7 +256,7 @@ export function PanelMetricas({
     return Array.from({ length: DIAS_GRAFICA }, (_, i) => {
       const iso = diasDesdeHoy(-(DIAS_GRAFICA - 1 - i));
       const d = porDia.get(iso);
-      return { iso, total: Number(d?.total ?? 0), ventas: d?.ventas ?? 0 };
+      return { iso, total: d?.total == null ? null : Number(d.total), ventas: d?.ventas ?? 0 };
     });
   }, [datos.dias]);
 
@@ -242,11 +266,20 @@ export function PanelMetricas({
   /* Exactamente el mismo desglose que alimenta la tarjeta «Ventas», para que las
      partes sumen el total de arriba. Sin memo: recorrer unos pocos canales es
      más barato que la comparación de dependencias. */
-  const porCanal = CANALES.filter((c) => c.id !== "otro" || brutoCanalActual.has(c.id))
+  /* Sin importes, las mismas barras contadas en PIEZAS. La pregunta que contesta
+     esta tarjeta —por dónde se está moviendo la mercancía— sigue en pie sin
+     decir cuánto deja cada canal, y dejarla vacía habría quitado de la pantalla
+     una lectura que el equipo sí necesita. */
+  const piezasCanalActual = useMemo(
+    () => new Map(actual.unidades_por_canal.map((u) => [u.canal, Number(u.piezas)])),
+    [actual.unidades_por_canal],
+  );
+  const conDato = verDinero ? brutoCanalActual : piezasCanalActual;
+  const porCanal = CANALES.filter((c) => c.id !== "otro" || conDato.has(c.id))
     .map((c) => ({
       id: c.id,
       nombre: c.nombre,
-      valor: brutoCanalActual.get(c.id) ?? 0,
+      valor: conDato.get(c.id) ?? 0,
       color: c.color,
     }))
     .sort((a, b) => b.valor - a.valor);
@@ -272,7 +305,9 @@ export function PanelMetricas({
     }
     return [...s].sort(compararTallas);
   }, [ventasCategoria]);
-  /* Ya acotado por categoría Y talla → top de productos. */
+  /* Ya acotado por categoría Y talla → top de productos. Sin importes el ranking
+     es por piezas: «estrella» pasa a querer decir el que más sale, que es otra
+     pregunta legítima y la única que se puede contestar sin dinero. */
   const topProductos = useMemo(() => {
     const filtradas =
       tallaEstrella === "todas"
@@ -285,12 +320,12 @@ export function PanelMetricas({
           producto: v.nombre ? { nombre: v.nombre, variante: v.variante } : null,
           descripcion: v.descripcion,
         }),
-        valor: Number(v.monto),
-        detalle: `${v.piezas} pzas`,
+        valor: verDinero ? Number(v.monto) : v.piezas,
+        detalle: verDinero ? `${v.piezas} pzas` : undefined,
       }))
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 5);
-  }, [ventasCategoria, tallaEstrella]);
+  }, [ventasCategoria, tallaEstrella, verDinero]);
   /* Ranking de tallas más vendidas (por piezas) en la categoría elegida. */
   const tallasMasVendidas = useMemo(() => {
     const m = new Map<string, number>();
@@ -371,11 +406,20 @@ export function PanelMetricas({
       label: "Cant.",
       celda: (v) => <div className="text-[13.5px] tabular-nums">{v.cantidad}</div>,
     },
-    {
-      clave: "total",
-      label: "Total",
-      celda: (v) => <div className="text-[13.5px] font-bold tabular-nums">{formatearMXN(v.monto)}</div>,
-    },
+    /* La columna del importe se quita entera, no se pinta en blanco: una columna
+       vacía se lee como un dato que falta. El monto tampoco llegó del servidor
+       (ver `columnasVentaMetricas`). */
+    ...(verDinero
+      ? ([
+          {
+            clave: "total",
+            label: "Total",
+            celda: (v) => (
+              <div className="text-[13.5px] font-bold tabular-nums">{formatearMXN(v.monto)}</div>
+            ),
+          },
+        ] satisfies Columna<VentaMetricas>[])
+      : []),
     {
       clave: "origen",
       label: "Origen",
@@ -501,28 +545,37 @@ export function PanelMetricas({
             "actualizando…"
           ) : (
             <>
-              {numVentas} {numVentas === 1 ? "venta" : "ventas"} ·{" "}
-              {formatearMXN(totalListado)} en producto
+              {numVentas} {numVentas === 1 ? "venta" : "ventas"}
+              {verDinero ? <> · {formatearMXN(totalListado)} en producto</> : <> · {piezas} pzas</>}
             </>
           )}
         </span>
       </div>
 
-      {/* Números clave */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
-        <StatCard
-          etiqueta="Ventas"
-          valor={formatearMXN(bruto)}
-          delta={deltaPct(bruto, brutoAnterior)}
-          deltaEtiqueta={ETIQUETA_DELTA[periodo]}
-          /* Solo se desglosa cuando hay algo que desglosar: con extras en cero
-             (o en negativo por devoluciones) la frase confundiría más que ayuda. */
-          nota={
-            extras >= 1
-              ? `${formatearMXN(total)} en producto + ${formatearMXN(extras)} de envío y ajustes`
-              : "producto, envío y ajustes"
-          }
-        />
+      {/* Números clave. Sin importes quedan dos tarjetas —las que se cuentan en
+          unidades— y la rejilla se ajusta a dos columnas: cuatro huecos con dos
+          llenos se leería como que la pantalla se rompió. */}
+      <div
+        className={cn(
+          "mb-4 grid grid-cols-2 gap-3.5",
+          verDinero ? "md:grid-cols-4" : "md:grid-cols-2",
+        )}
+      >
+        {verDinero && (
+          <StatCard
+            etiqueta="Ventas"
+            valor={formatearMXN(bruto)}
+            delta={deltaPct(bruto, brutoAnterior)}
+            deltaEtiqueta={ETIQUETA_DELTA[periodo]}
+            /* Solo se desglosa cuando hay algo que desglosar: con extras en cero
+               (o en negativo por devoluciones) la frase confundiría más que ayuda. */
+            nota={
+              extras >= 1
+                ? `${formatearMXN(total)} en producto + ${formatearMXN(extras)} de envío y ajustes`
+                : "producto, envío y ajustes"
+            }
+          />
+        )}
         <StatCard
           etiqueta="Nº de ventas"
           valor={String(numVentas)}
@@ -532,15 +585,17 @@ export function PanelMetricas({
         <StatCard
           etiqueta="Piezas vendidas"
           valor={String(piezas)}
-          nota={
-            piezasPorVenta > 0
-              ? `${piezasPorVenta.toFixed(piezasPorVenta % 1 === 0 ? 0 : 1)} ${
-                  piezasPorVenta === 1 ? "pieza" : "piezas"
-                } por venta`
-              : "Sin ventas en el periodo"
-          }
+          nota={piezasPorVentaTexto}
+          delta={verDinero ? undefined : deltaPct(piezas, datos.anterior.kpis.piezas)}
+          deltaEtiqueta={ETIQUETA_DELTA[periodo]}
         />
-        <StatCard etiqueta="Ticket promedio" valor={formatearMXN(ticket)} nota="por transacción" />
+        {verDinero && (
+          <StatCard
+            etiqueta="Ticket promedio"
+            valor={formatearMXN(ticket)}
+            nota="por transacción"
+          />
+        )}
       </div>
 
       {/* Ventas por día — 7 barras en móvil (sin astillas), 14 en escritorio */}
@@ -556,7 +611,9 @@ export function PanelMetricas({
           <GraficaVentasDia dias={dias} />
         </div>
         <p className="mt-3 text-[11.5px] text-muted-foreground">
-          Arriba de cada barra, cuánto se vendió ese día; debajo, cuántas ventas fueron.
+          {verDinero
+            ? "Arriba de cada barra, cuánto se vendió ese día; debajo, cuántas ventas fueron."
+            : "La altura de cada barra son las ventas de ese día."}
         </p>
       </div>
 
@@ -564,11 +621,16 @@ export function PanelMetricas({
       <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className={cn(TARJETA, "px-6")}>
           <h2 className={cn(ROTULO, "mb-4")}>Por canal</h2>
-          <ListaBarras items={porCanal} formatear={formatearMXN} punto altoBarra={26} />
+          <ListaBarras
+            items={porCanal}
+            formatear={verDinero ? formatearMXN : (n) => `${n} pzas`}
+            punto
+            altoBarra={26}
+          />
         </div>
         <div className={cn(TARJETA, "px-6")}>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className={ROTULO}>Productos estrella</h2>
+            <h2 className={ROTULO}>{verDinero ? "Productos estrella" : "Los que más salen"}</h2>
             <div className="flex items-center gap-1.5">
               <Select
                 value={catEstrella}
@@ -611,7 +673,7 @@ export function PanelMetricas({
           </div>
           <ListaBarras
             items={topProductos}
-            formatear={formatearMXN}
+            formatear={verDinero ? formatearMXN : (n) => `${n} pzas`}
             anchoEtiqueta={190}
             vacio="Sin ventas con estos filtros en el periodo."
           />
@@ -681,12 +743,13 @@ export function PanelMetricas({
       ) : (
         <>
           <TablaSimple
-            cols={COLS_VENTAS}
+            cols={verDinero ? COLS_VENTAS : COLS_VENTAS_SIN_DINERO}
             titulo={
               <>
-                Ventas del periodo · {numVentas}{" "}
-                {numVentas === 1 ? "venta" : "ventas"} ·{" "}
-                <span className="text-foreground">{formatearMXN(totalListado)}</span>
+                Ventas del periodo · {numVentas} {numVentas === 1 ? "venta" : "ventas"} ·{" "}
+                <span className="text-foreground">
+                  {verDinero ? formatearMXN(totalListado) : `${piezas} pzas`}
+                </span>
               </>
             }
             columnas={columnasVenta}
@@ -720,6 +783,9 @@ export function PanelMetricas({
           venta={ventaDialog === "nueva" ? null : ventaDialog}
           gestor={gestor}
           direccion={rol === "direccion"}
+          /* La venta que se abre puede ser de cualquier canal, no del que esté
+             filtrado: aquí manda el permiso global, no el del canal en pantalla. */
+          verDinero={dinero.ingresos}
           onClose={cerrarDialogoVenta}
         />
       )}

@@ -39,7 +39,7 @@ const CANALES: {
     etiquetaConectar: "Conectar Tienda Nube",
     icono: Store,
     confirmacion:
-      "Sincronizar Tienda Nube: se vuelven a leer el catálogo y las ventas. Puede tardar unos minutos. ¿Seguir?",
+      "Sincronizar Tienda Nube: se vuelve a leer el catálogo (productos, precios y stock). Las ventas se importan solas con la pasada diaria. Puede tardar unos minutos. ¿Seguir?",
     sincronizar: sincronizarTiendanube,
   },
   {
@@ -48,7 +48,7 @@ const CANALES: {
     etiquetaConectar: "Conectar Mercado Libre",
     icono: ShoppingCart,
     confirmacion:
-      "Sincronizar Mercado Libre: se vuelven a leer las publicaciones y las ventas. Puede tardar unos minutos. ¿Seguir?",
+      "Sincronizar Mercado Libre: se vuelven a leer las publicaciones (catálogo, precios y stock). Las ventas se importan solas con la pasada diaria. Puede tardar unos minutos. ¿Seguir?",
     sincronizar: sincronizarMercadolibre,
   },
   {
@@ -57,7 +57,7 @@ const CANALES: {
     etiquetaConectar: "Conectar TikTok Shop",
     icono: Music2,
     confirmacion:
-      "Sincronizar TikTok Shop: se vuelven a leer el catálogo y las ventas. Puede tardar unos minutos. ¿Seguir?",
+      "Sincronizar TikTok Shop: se vuelve a leer el catálogo (fichas, fotos y el stock que reporta TikTok). Las ventas se importan solas con la pasada diaria. Puede tardar unos minutos. ¿Seguir?",
     sincronizar: sincronizarTiktok,
   },
 ];

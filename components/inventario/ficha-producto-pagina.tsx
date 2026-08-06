@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ProductoVista } from "@/components/inventario/producto-vista";
 import { ProductoDialog } from "@/components/inventario/producto-dialog";
 import type { GrupoReorden } from "@/lib/inventario/reabastecimiento";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import type { ProductConProveedor, Supplier } from "@/lib/types";
 
 /* Envoltura cliente de /inventario/producto/[id]: la ficha en modo página, con
@@ -18,9 +19,9 @@ export function FichaProductoPagina({
   ventanaDias,
   proveedores,
   gestor,
-  esDireccion,
+  dinero,
   escrituraCanales,
-  sugerido,
+  dominioTiendaNube,
 }: {
   producto: ProductConProveedor;
   hermanas: ProductConProveedor[];
@@ -28,11 +29,11 @@ export function FichaProductoPagina({
   ventanaDias: number;
   proveedores: Supplier[];
   gestor: boolean;
-  /* El pedido a proveedor es de dirección: lleva costos de compra. */
-  esDireccion: boolean;
+  /* Qué puede ver de dinero quien mira: precio (ingreso) y costo (egreso). */
+  dinero: VistaDinero;
   escrituraCanales: boolean;
-  /* Cuántas piezas propone el reorden, para prellenar el pedido. */
-  sugerido: number;
+  /* Subdominio del admin de Tienda Nube, para el enlace «Ver en Tienda Nube». */
+  dominioTiendaNube: string | null;
 }) {
   const router = useRouter();
   const [editar, setEditar] = useState(false);
@@ -44,18 +45,12 @@ export function FichaProductoPagina({
         hermanas={hermanas}
         grupo={grupo}
         ventanaDias={ventanaDias}
+        dinero={dinero}
         escrituraCanales={escrituraCanales}
         onVerHermana={(id) => router.push(`/inventario/producto/${id}`)}
         onEditar={() => setEditar(true)}
-        onGenerarPedido={
-          esDireccion
-            ? () =>
-                router.push(
-                  `/proveedores?producto=${producto.id}&cantidad=${sugerido || 1}`,
-                )
-            : undefined
-        }
         onVolver={() => router.push("/inventario")}
+        dominioTiendaNube={dominioTiendaNube}
       />
 
       {editar && (
@@ -63,6 +58,7 @@ export function FichaProductoPagina({
           producto={producto}
           proveedores={proveedores}
           gestor={gestor}
+          dinero={dinero}
           escrituraCanales={escrituraCanales}
           onClose={() => setEditar(false)}
         />

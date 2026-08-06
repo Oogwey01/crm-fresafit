@@ -4,17 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CircleDollarSign, Factory, Package, Plus, Truck } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { StatCard } from "@/components/compartido/stat-card";
-import { ControlSegmentado } from "@/components/compartido/control-segmentado";
+import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TablaProveedores } from "@/components/proveedores/tabla-proveedores";
 import { ProveedorDialog } from "@/components/proveedores/proveedor-dialog";
 import { TablaPedidosProv } from "@/components/proveedores/tabla-pedidos-prov";
@@ -152,6 +145,8 @@ export function PanelProveedores({
         </div>
       </div>
 
+      <TabsSeccion opciones={PESTANAS} valor={pestana} onCambio={setPestana} className="mb-4" />
+
       <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
         <StatCard etiqueta="Proveedores" valor={String(proveedores.length)} icono={Factory} />
         <StatCard etiqueta="Pedidos abiertos" valor={String(abiertos.length)} icono={Package} />
@@ -168,29 +163,6 @@ export function PanelProveedores({
           icono={CircleDollarSign}
           nota="pedido y no recibido"
           notaClassName="hidden md:block"
-        />
-      </div>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select value={pestana} onValueChange={(v) => v && setPestana(v as Pestana)}>
-          <SelectTrigger className="w-full bg-card md:hidden">
-            <SelectValue>
-              {(v: string) => PESTANAS.find(([id]) => id === v)?.[1] ?? "Sección"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {PESTANAS.map(([id, label]) => (
-              <SelectItem key={id} value={id}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <ControlSegmentado
-          opciones={PESTANAS}
-          valor={pestana}
-          onCambio={setPestana}
-          className="hidden md:inline-flex"
         />
       </div>
 

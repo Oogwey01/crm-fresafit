@@ -15,7 +15,9 @@ import type {
 /* Bodega la opera todo el equipo interno (los de piso son rol miembro); borrar
    queda en gestores. El stock de insumos tiene su propia jerarquía, en la RPC
    mover_insumo(). La BD lo refuerza con RLS. */
-const RUTAS = ["/inventario/bodega", "/inventario"];
+/* Bodega y el catálogo se revalidan juntos: descontar una carga o mover un
+   insumo cambia el stock que pinta /inventario. */
+const RUTAS = ["/bodega", "/inventario"];
 
 function revalidar() {
   for (const r of RUTAS) revalidatePath(r);
@@ -91,6 +93,22 @@ export type RecepcionItemInput = {
   talla: string | null;
 };
 
+/* La fila tal como la guarda la tabla. La comparten el pegado en bloque y el
+   alta de uno en uno para que un renglón capturado a mano quede idéntico a uno
+   pegado: mismo recorte, mismo SKU en mayúsculas, mismas unidades enteras. */
+function filaRecepcion(recepcionId: string, f: RecepcionItemInput) {
+  return {
+    recepcion_id: recepcionId,
+    sku: f.sku.trim().toUpperCase(),
+    producto_id: f.producto_id,
+    unidades_no_procesadas: Math.max(0, Math.trunc(f.unidades_no_procesadas)),
+    sku_consolidado: textoONulo(f.sku_consolidado ?? ""),
+    categoria: textoONulo(f.categoria ?? ""),
+    producto_nombre: textoONulo(f.producto_nombre ?? ""),
+    talla: textoONulo(f.talla ?? ""),
+  };
+}
+
 /* Alta en lote de los renglones pegados desde la plantilla de la hoja. */
 export async function importarItemsRecepcion(
   recepcionId: string,
@@ -103,22 +121,36 @@ export async function importarItemsRecepcion(
   const utiles = filas.filter((f) => f.sku.trim());
   if (!utiles.length) return { error: "No hay renglones con SKU para importar." };
 
-  const { error } = await cx.supabase.from("recepcion_items").insert(
-    utiles.map((f) => ({
-      recepcion_id: recepcionId,
-      sku: f.sku.trim(),
-      producto_id: f.producto_id,
-      unidades_no_procesadas: Math.max(0, Math.trunc(f.unidades_no_procesadas)),
-      sku_consolidado: f.sku_consolidado,
-      categoria: f.categoria,
-      producto_nombre: f.producto_nombre,
-      talla: f.talla,
-    })),
-  );
+  const { error } = await cx.supabase
+    .from("recepcion_items")
+    .insert(utiles.map((f) => filaRecepcion(recepcionId, f)));
 
   if (error) return { error: error.message };
   revalidar();
   return { ok: true, datos: { creados: utiles.length } };
+}
+
+/* Un renglón capturado a mano. Existe además del pegado porque la hoja no
+   siempre alcanza: llega un SKU que no venía en la plantilla, o hay que
+   registrar lo que trajo el proveedor de más. Nace en «traer», como los
+   pegados: el estado lo mueve el piso. */
+export async function agregarItemRecepcion(
+  recepcionId: string,
+  input: RecepcionItemInput,
+): Promise<Resultado> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+  if (!recepcionId) return { error: "Falta la carga a la que pertenece el renglón." };
+  if (!input.sku.trim()) return { error: "El renglón necesita su SKU." };
+  if (!Number.isFinite(input.unidades_no_procesadas) || input.unidades_no_procesadas <= 0)
+    return { error: "Las unidades tienen que ser más de cero." };
+
+  const { error } = await cx.supabase
+    .from("recepcion_items")
+    .insert(filaRecepcion(recepcionId, input));
+  if (error) return { error: error.message };
+  revalidar();
+  return { ok: true };
 }
 
 /* Mover un renglón por los estados de la hoja. «descontado» no se escribe a
@@ -179,6 +211,9 @@ export type ConjuntoInput = {
   titulo: string;
   categoria: string | null;
   talla: string | null;
+  /* La ficha del catálogo donde se acredita lo armado. Sin ella el conjunto se
+     puede capturar y editar, pero no armar. */
+  producto_id: string | null;
   componentes: {
     sku_componente: string;
     producto_id: string | null;
@@ -200,6 +235,7 @@ export async function guardarConjunto(id: string | null, input: ConjuntoInput): 
     titulo: input.titulo.trim(),
     categoria: input.categoria,
     talla: input.talla,
+    producto_id: input.producto_id,
   };
 
   const { data, error } = id
@@ -272,6 +308,7 @@ export async function importarConjuntos(
         titulo: f.titulo.trim(),
         categoria: f.categoria,
         talla: f.talla,
+        producto_id: f.producto_id,
         created_by: cx.user.id,
       })),
     )
@@ -302,6 +339,123 @@ export async function importarConjuntos(
   return { ok: true, datos: { creados: nuevos.length, omitidos } };
 }
 
+/* ---------------------------- Ligar componentes ---------------------------
+   La hoja de bodega escribía las piezas por nombre de diseño («Akatsuki»), no
+   por SKU, y un nombre así resuelve a varias fichas del catálogo: el importador
+   prefirió no adivinar y dejó 200 renglones sin ligar. Esto los resuelve por
+   NOMBRE y no por renglón: un mismo texto aparece en decenas de conjuntos, así
+   que ligarlo una vez los arregla todos.
+
+   Se escribe SOLO `producto_id`. Reescribir además `sku_componente` al SKU real
+   rompería el unique (conjunto_id, sku_componente) en cuanto dos piezas del
+   mismo conjunto resolvieran a la misma ficha —y quemaría de dónde salió el
+   renglón, que es lo único que queda de la hoja—. */
+export type LigaComponentes = { producto_id: string; componente_ids: string[] };
+
+export async function ligarComponentes(
+  ligas: LigaComponentes[],
+): Promise<Resultado<{ nombres: number; renglones: number }>> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+
+  const utiles = ligas.filter((l) => l.producto_id && l.componente_ids.length);
+  if (!utiles.length) return { error: "No elegiste ninguna ficha que ligar." };
+
+  /* Va por id de renglón y no por texto: el cliente ya tiene los componentes
+     cargados y agrupó ahí, así que el servidor no tiene que replicar el criterio
+     ni arriesgarse a tocar renglones que el usuario nunca vio. */
+  let renglones = 0;
+  for (const liga of utiles) {
+    for (let i = 0; i < liga.componente_ids.length; i += 100) {
+      const trozo = liga.componente_ids.slice(i, i + 100);
+      const { error, count } = await cx.supabase
+        .from("conjunto_componentes")
+        .update({ producto_id: liga.producto_id }, { count: "exact" })
+        .in("id", trozo);
+      if (error) return { error: error.message };
+      renglones += count ?? trozo.length;
+    }
+  }
+
+  revalidar();
+  return { ok: true, datos: { nombres: utiles.length, renglones } };
+}
+
+/* Ligar el conjunto a su ficha del catálogo, sin pasar por el formulario
+   completo: es un solo dato y se resuelve desde la propia tabla. */
+export async function ligarFichaConjunto(
+  id: string,
+  productoId: string | null,
+): Promise<Resultado> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+
+  const { error } = await cx.supabase
+    .from("conjuntos")
+    .update({ producto_id: productoId })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidar();
+  return { ok: true };
+}
+
+/* ------------------------------- Armar -----------------------------------
+   El asiento doble —bajan las piezas, sube la ficha del conjunto— vive entero
+   en la RPC: plpgsql es una transacción, así que o se mueve todo o no se mueve
+   nada. Aquí solo se traduce el resultado.
+
+   No se llama a propagarStock: con el candado de solo lectura puesto es un
+   no-op, y lo que sí hace falta —acordarse de capturarlo a mano en los
+   canales— lo lleva `conjunto_armados.subido_en`. */
+export async function armarConjunto(
+  conjuntoId: string,
+  cantidad: number,
+  nota?: string,
+): Promise<Resultado<{ armadoId: string }>> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+  if (!Number.isInteger(cantidad) || cantidad <= 0) {
+    return { error: "Di cuántos conjuntos armaste (tiene que ser un número entero mayor que cero)." };
+  }
+
+  const { data, error } = await cx.supabase.rpc("armar_conjunto", {
+    cid: conjuntoId,
+    n: cantidad,
+    p_nota: textoONulo(nota ?? ""),
+  });
+  if (error) return { error: error.message };
+
+  revalidar();
+  return { ok: true, datos: { armadoId: String(data) } };
+}
+
+export async function desarmarConjunto(armadoId: string): Promise<Resultado> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+
+  const { error } = await cx.supabase.rpc("desarmar_conjunto", { aid: armadoId });
+  if (error) return { error: error.message };
+
+  revalidar();
+  return { ok: true };
+}
+
+/* El CRM no escribe stock en Tienda Nube, Mercado Libre ni TikTok, así que lo
+   armado se captura a mano allá. Esto salda esa cuenta. */
+export async function marcarConjuntoSubido(
+  conjuntoId: string,
+): Promise<Resultado<{ marcados: number }>> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+
+  const { data, error } = await cx.supabase.rpc("marcar_conjunto_subido", { cid: conjuntoId });
+  if (error) return { error: error.message };
+
+  revalidar();
+  return { ok: true, datos: { marcados: Number(data ?? 0) } };
+}
+
 /* ============================ Envíos full ================================= */
 
 export type EnvioFullInput = {
@@ -309,6 +463,12 @@ export type EnvioFullInput = {
   nombre: string;
   estado: EstadoEnvioFullId;
   fecha_envio: string | null;
+  /* La guía: todo captura manual, tal como venía en la hoja. */
+  id_plataforma: string;
+  paqueteria: string;
+  tipo_envio: string;
+  num_guia: string;
+  fecha_llegada_estimada: string | null;
   notas: string;
 };
 
@@ -325,6 +485,11 @@ export async function guardarEnvioFull(
     nombre: input.nombre.trim(),
     estado: input.estado,
     fecha_envio: input.fecha_envio,
+    id_plataforma: textoONulo(input.id_plataforma),
+    paqueteria: textoONulo(input.paqueteria),
+    tipo_envio: textoONulo(input.tipo_envio),
+    num_guia: textoONulo(input.num_guia),
+    fecha_llegada_estimada: input.fecha_llegada_estimada,
     notas: textoONulo(input.notas),
   };
 
@@ -366,16 +531,39 @@ export async function agregarCajaFull(envioId: string): Promise<Resultado> {
   return { ok: true };
 }
 
+/* Las medidas de la caja, cada una por su lado y en centímetros. Null = todavía
+   no se mide; el cero es un valor válido (nadie lo va a capturar, pero si lo
+   hace no hay razón para convertirlo en "sin dato"). */
+export type MedidasCajaInput = {
+  largo_cm: number | null;
+  ancho_cm: number | null;
+  alto_cm: number | null;
+  peso_kg: number | null;
+};
+
 export async function guardarCajaFull(
   id: string,
-  dimensiones: string,
-  pesoKg: number | null,
+  medidas: MedidasCajaInput,
 ): Promise<Resultado> {
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;
+
+  /* La BD las declara numeric(6,2) con check >= 0: se atajan aquí para que un
+     dedazo devuelva una frase y no el error crudo de Postgres. */
+  const valores = [medidas.largo_cm, medidas.ancho_cm, medidas.alto_cm, medidas.peso_kg];
+  if (valores.some((v) => v !== null && (!Number.isFinite(v) || v < 0)))
+    return { error: "Las medidas y el peso no pueden ir en negativo." };
+  if (valores.some((v) => v !== null && v > 9999.99))
+    return { error: "Revisa la medida: no cabe en el campo (máximo 9999.99)." };
+
   const { error } = await cx.supabase
     .from("envio_full_cajas")
-    .update({ dimensiones: textoONulo(dimensiones), peso_kg: pesoKg })
+    .update({
+      largo_cm: medidas.largo_cm,
+      ancho_cm: medidas.ancho_cm,
+      alto_cm: medidas.alto_cm,
+      peso_kg: medidas.peso_kg,
+    })
     .eq("id", id);
   if (error) return { error: error.message };
   revalidar();

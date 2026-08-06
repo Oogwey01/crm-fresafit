@@ -1,5 +1,7 @@
 import { Suspense } from "react";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import { esGestor } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { PanelClientes } from "@/components/clientes/panel";
@@ -13,17 +15,20 @@ import type {
   InfluencerEvaluacion,
   RolId,
 } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Clientes · Fresafit" };
 
 /* Fila de la RPC stats_por_cliente() (agregado en la base; mismo criterio que
    el cálculo en JS que sustituye: ventas con cliente y no canceladas). */
-type StatCliente = { cliente_id: string; compras: number; total: number; ultima: string | null };
+type StatCliente = { cliente_id: string; compras: number; total: number | null; ultima: string | null };
 
 export default async function ClientesPage() {
+  await exigirModulo("clientes");
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
+  const dinero = await vistaDinero();
 
   const [clientes, statsRes] = await Promise.all([
     /* Paginado: sin esto PostgREST cortaba en 1000 filas SIN avisar y la
@@ -80,7 +85,9 @@ export default async function ClientesPage() {
     return {
       ...c,
       compras: s?.compras ?? 0,
-      total: s?.total ?? 0,
+      /* Null —no cero— cuando no se puede ver: la RPC ya decide por su cuenta y
+         un cero se leería como un cliente que nunca ha comprado. */
+      total: s?.total == null ? null : Number(s.total),
       ultimaCompra: s?.ultima ?? null,
       recurrente: (s?.compras ?? 0) >= 2,
     };
@@ -90,6 +97,7 @@ export default async function ClientesPage() {
     <PanelClientes
       clientes={conStats}
       rol={rol}
+      dinero={dinero}
       programa={
         gestor ? (
           <Suspense fallback={<p className="text-sm italic text-muted-foreground">Cargando el programa…</p>}>
@@ -104,13 +112,15 @@ export default async function ClientesPage() {
 /* Las cuatro tablas del programa, ya pintadas. */
 async function Influencers() {
   const { supabase } = await usuarioActual();
-  const programa = await traerPrograma(supabase);
+  const dinero = await vistaDinero();
+  const programa = await traerPrograma(supabase, dinero);
   return (
     <PanelInfluencers
       influencers={programa.influencers}
       entregas={programa.entregas}
       evaluaciones={programa.evaluaciones}
       productos={programa.productos}
+      dinero={dinero}
       embebido
     />
   );
@@ -127,41 +137,56 @@ export type ProgramaInfluencers = {
 
 type ClienteSupabase = Awaited<ReturnType<typeof usuarioActual>>["supabase"];
 
-async function traerPrograma(supabase: ClienteSupabase): Promise<ProgramaInfluencers> {
+async function traerPrograma(
+  supabase: ClienteSupabase,
+  dinero: VistaDinero,
+): Promise<ProgramaInfluencers> {
+  /* Los PORCENTAJES del trato (descuento, comisión) se quedan: son las
+     condiciones que el coordinador negocia y sin ellas no puede trabajar. Lo que
+     se va son los pesos —el crédito al mes, el valor de lo entregado y lo que
+     vendió su código—, que son dinero del negocio. */
+  const columnasInfluencer: string =
+    "id, nombre, correo, celular, ig_usuario, ig_seguidores, tiktok_usuario," +
+    " tiktok_seguidores, tipo_contenido, etapa, tier, codigo, descuento_pct," +
+    " comision_pct, inicio_prueba, notas, created_by, created_at, updated_at" +
+    (dinero.egresos ? ", credito_mensual" : "");
+  const columnasEntrega: string =
+    "id, influencer_id, fecha, producto_id, descripcion, talla, cantidad, notas," +
+    " created_by, created_at" +
+    (dinero.egresos ? ", valor" : "");
+  const columnasEvaluacion: string =
+    "id, influencer_id, periodo, usos_codigo, videos, stories, participaciones," +
+    " contenido_organico, observaciones, created_by, created_at" +
+    (dinero.ingresos ? ", ventas_monto" : "");
+
   const [influencersRes, entregasRes, evaluacionesRes, productosRes] = await Promise.all([
     supabase
       .from("influencers")
-      .select(
-        "id, nombre, correo, celular, ig_usuario, ig_seguidores, tiktok_usuario, tiktok_seguidores, tipo_contenido, etapa, tier, codigo, descuento_pct, comision_pct, credito_mensual, inicio_prueba, notas, created_by, created_at, updated_at",
-      )
+      .select(columnasInfluencer)
       .order("nombre"),
     supabase
       .from("influencer_entregas")
-      .select(
-        "id, influencer_id, fecha, producto_id, descripcion, talla, cantidad, valor, notas, created_by, created_at",
-      )
+      .select(columnasEntrega)
       .order("fecha", { ascending: false })
       .limit(500),
     supabase
       .from("influencer_evaluaciones")
-      .select(
-        "id, influencer_id, periodo, usos_codigo, ventas_monto, videos, stories, participaciones, contenido_organico, observaciones, created_by, created_at",
-      )
+      .select(columnasEvaluacion)
       .order("periodo", { ascending: false })
       .limit(500),
     /* Catálogo liviano solo para elegir qué se entregó (nombre + SKU). */
     supabase
       .from("products")
-      .select("id, nombre, variante, sku, precio")
+      .select(`id, nombre, variante, sku${dinero.ingresos ? ", precio" : ""}`)
       .eq("activo", true)
       .order("nombre")
       .limit(1000),
   ]);
 
   return {
-    influencers: (influencersRes.data ?? []) as Influencer[],
-    entregas: (entregasRes.data ?? []) as InfluencerEntrega[],
-    evaluaciones: (evaluacionesRes.data ?? []) as InfluencerEvaluacion[],
-    productos: (productosRes.data ?? []) as ProductoLigero[],
+    influencers: (influencersRes.data ?? []) as unknown as Influencer[],
+    entregas: (entregasRes.data ?? []) as unknown as InfluencerEntrega[],
+    evaluaciones: (evaluacionesRes.data ?? []) as unknown as InfluencerEvaluacion[],
+    productos: (productosRes.data ?? []) as unknown as ProductoLigero[],
   };
 }

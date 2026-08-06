@@ -35,6 +35,7 @@ export function TablaProductosAgrupada({
   filtrosActivos,
   onLimpiarFiltros,
   escrituraCanales,
+  verPrecio,
   onAbrir,
 }: {
   productos: ProductConProveedor[];
@@ -45,6 +46,9 @@ export function TablaProductosAgrupada({
   filtrosActivos: string[];
   onLimpiarFiltros: () => void;
   escrituraCanales: boolean;
+  /* El precio de lista es ingreso: sin permiso la columna se va entera, igual
+     que en la vista desglosada. */
+  verPrecio: boolean;
   onAbrir: (p: ProductConProveedor) => void;
 }) {
   const { cambiarStock, tituloAjuste } = useAjusteStock(escrituraCanales);
@@ -113,10 +117,15 @@ export function TablaProductosAgrupada({
       </p>
       <div className="overflow-hidden rounded-xl border">
         {/* Cabecera (solo escritorio: en móvil cada fila ya se explica sola) */}
-        <div className="hidden grid-cols-[1fr_130px_110px_150px] gap-3 border-b bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground md:grid">
+        <div
+          className={cn(
+            "hidden gap-3 border-b bg-muted/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground md:grid",
+            verPrecio ? "grid-cols-[1fr_130px_110px_150px]" : "grid-cols-[1fr_130px_150px]",
+          )}
+        >
           <div>Producto</div>
           <div>Tipo</div>
-          <div>Precio</div>
+          {verPrecio && <div>Precio</div>}
           <div>Stock total</div>
         </div>
 
@@ -138,7 +147,10 @@ export function TablaProductosAgrupada({
               {/* Fila del producto */}
               <div
                 className={cn(
-                  "grid grid-cols-1 items-center gap-2 px-3 py-2.5 md:grid-cols-[1fr_130px_110px_150px] md:gap-3",
+                  "grid grid-cols-1 items-center gap-2 px-3 py-2.5 md:gap-3",
+                  verPrecio
+                    ? "md:grid-cols-[1fr_130px_110px_150px]"
+                    : "md:grid-cols-[1fr_130px_150px]",
                   abierta && "bg-muted/30",
                 )}
               >
@@ -156,7 +168,7 @@ export function TablaProductosAgrupada({
                       {abierta ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                     </button>
                   )}
-                  <Miniatura src={portadaProducto(principal)} alt={f.nombre} tam="size-12" />
+                  <Miniatura src={portadaProducto(principal)} alt={f.nombre} tam="size-14 md:size-24" />
                   <div className="min-w-0">
                     <button
                       type="button"
@@ -185,7 +197,9 @@ export function TablaProductosAgrupada({
                 <div className="hidden md:block">
                   <PastillaTipo tipo={principal.tipo} />
                 </div>
-                <div className="hidden text-[13.5px] tabular-nums md:block">{precio}</div>
+                {verPrecio && (
+                  <div className="hidden text-[13.5px] tabular-nums md:block">{precio}</div>
+                )}
 
                 {/* Con una sola variante se puede ajustar aquí mismo; con varias,
                     el total es de solo lectura (no se sabe a qué talla sumarle). */}
@@ -216,7 +230,12 @@ export function TablaProductosAgrupada({
                     return (
                       <div
                         key={p.id}
-                        className="grid grid-cols-1 items-center gap-2 border-b border-border/50 px-3 py-2 pl-10 last:border-b-0 md:grid-cols-[1fr_130px_110px_150px] md:gap-3"
+                        className={cn(
+                          "grid grid-cols-1 items-center gap-2 border-b border-border/50 px-3 py-2 pl-10 last:border-b-0 md:gap-3",
+                          verPrecio
+                            ? "md:grid-cols-[1fr_130px_110px_150px]"
+                            : "md:grid-cols-[1fr_130px_150px]",
+                        )}
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <button
@@ -238,9 +257,11 @@ export function TablaProductosAgrupada({
                           <MarcasProducto p={p} />
                         </div>
                         <div className="hidden md:block" />
-                        <div className="hidden text-[13px] tabular-nums text-muted-foreground md:block">
-                          {formatearMXN(p.precio)}
-                        </div>
+                        {verPrecio && (
+                          <div className="hidden text-[13px] tabular-nums text-muted-foreground md:block">
+                            {formatearMXN(p.precio)}
+                          </div>
+                        )}
                         <ControlStock p={p} onCambiar={cambiarStock} titulo={tituloAjuste} />
                       </div>
                     );

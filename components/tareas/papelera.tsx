@@ -14,8 +14,11 @@ import { AREAS } from "@/lib/catalogos";
 import { restaurarTarea, eliminarDefinitivo } from "@/app/(app)/tareas/actions";
 import type { TaskConResponsable } from "@/lib/types";
 
-/* Papelera (solo gestor): tareas con borrado suave. Restaurar o eliminar
-   definitivo. Las `borradas` llegan ya cargadas desde la página. */
+/* Papelera: tareas con borrado suave. Restaurar o eliminar definitivo.
+   Las `borradas` llegan ya cargadas desde la página, donde RLS ya acotó cuáles
+   ve cada quien: un gestor las de todo el tablero, y los demás las suyas.
+   Restaurar y eliminar los sigue gobernando el server action (gestor o quien
+   creó la tarea). */
 export function Papelera({ borradas }: { borradas: TaskConResponsable[] }) {
   const [abierto, setAbierto] = useState(false);
   const [pending, startTransition] = useTransition();

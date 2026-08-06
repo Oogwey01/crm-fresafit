@@ -8,12 +8,14 @@ import type {
   NominaPagoConEmpleado,
   Profile,
 } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Nómina de la Agencia · Fresafit" };
 
 /* Lo que cuesta atender a los clientes de la agencia: solo quien tiene una
    empresa asignada. La nómina de la marca vive en /nomina. */
 export default async function NominaAgenciaPage() {
+  await exigirModulo("agencia-nomina");
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 

@@ -20,7 +20,16 @@ import type { CarritosTN } from "@/lib/canales/salud";
 /* El bloque de carritos se pinta aparte porque su dato viene de una llamada a
    Tienda Nube que tarda: la página se manda completa sin él y este trozo llega
    después (ver el <Suspense> de la page). */
-export function BloqueCarritos({ carritos }: { carritos: CarritosTN | null }) {
+export function BloqueCarritos({
+  carritos,
+  verDinero = true,
+}: {
+  carritos: CarritosTN | null;
+  /* Lo que hay en los carritos viene de la API de Tienda Nube, no de la base:
+     ninguna función de allá lo tapa y se decide aquí. Cuántos son y cuántos
+     dejaron correo —lo accionable— lo ve todo el equipo. */
+  verDinero?: boolean;
+}) {
   if (!carritos) {
     return (
       <Bloque titulo="Lo que se quedó en el carrito" icono={ShoppingCart}>
@@ -40,22 +49,32 @@ export function BloqueCarritos({ carritos }: { carritos: CarritosTN | null }) {
         "Compras que llegaron hasta el final y no se pagaron. Las que dejaron correo se pueden recuperar con un mensaje."
       }
     >
-      <div className="grid grid-cols-3 gap-3">
+      <div className={verDinero ? "grid grid-cols-3 gap-3" : "grid grid-cols-2 gap-3"}>
         <Dato etiqueta="Carritos" valor={`${carritos.cantidad}${carritos.truncado ? "+" : ""}`} />
-        <Dato
-          etiqueta="En juego"
-          valor={formatearMXN(carritos.monto)}
-          className="text-amber-600"
-        />
-        <Dato
-          etiqueta="Ticket promedio"
-          valor={formatearMXN(carritos.cantidad > 0 ? carritos.monto / carritos.cantidad : 0)}
-          detalle={
-            carritos.conContacto === carritos.cantidad
-              ? "todos dejaron correo"
-              : `${carritos.conContacto} con correo`
-          }
-        />
+        {verDinero ? (
+          <>
+            <Dato
+              etiqueta="En juego"
+              valor={formatearMXN(carritos.monto)}
+              className="text-amber-600"
+            />
+            <Dato
+              etiqueta="Ticket promedio"
+              valor={formatearMXN(carritos.cantidad > 0 ? carritos.monto / carritos.cantidad : 0)}
+              detalle={
+                carritos.conContacto === carritos.cantidad
+                  ? "todos dejaron correo"
+                  : `${carritos.conContacto} con correo`
+              }
+            />
+          </>
+        ) : (
+          <Dato
+            etiqueta="Con correo"
+            valor={String(carritos.conContacto)}
+            detalle="se pueden recuperar"
+          />
+        )}
       </div>
     </Bloque>
   );
@@ -89,7 +108,10 @@ export function PanelTiendaNube({
   ultimaSync: string | null;
   /* El bloque de carritos ya envuelto en su <Suspense>. */
   slotCarritos: React.ReactNode;
-  pagos: ResumenPagos;
+  /* Null = quien mira no ve el dinero de este canal (o la base aún no tiene la
+     función). Los dos bloques de abajo son importes de arriba abajo, así que
+     simplemente no se pintan. */
+  pagos: ResumenPagos | null;
   dias: number;
 }) {
   if (!conectada) return <SinConexion nombre="Tienda Nube" />;
@@ -106,7 +128,7 @@ export function PanelTiendaNube({
         {slotCarritos}
 
         {/* --- Cómo paga la gente --- */}
-        {pagos.pagos.length > 0 && (
+        {pagos && pagos.pagos.length > 0 && (
           <Bloque
             titulo="Cómo paga la gente"
             icono={CreditCard}
@@ -140,7 +162,7 @@ export function PanelTiendaNube({
         )}
 
         {/* --- Cupones --- */}
-        {pagos.cupones.length > 0 && (
+        {pagos && pagos.cupones.length > 0 && (
           <Bloque
             titulo="Cupones usados"
             icono={Ticket}

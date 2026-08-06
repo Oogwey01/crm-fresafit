@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Image from "next/image";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -37,6 +38,7 @@ import type {
   EstadoPersonalizadoId,
   ModeloPersonalizadoId,
   Personalizado,
+  Profile,
   TipoPersonalizadoId,
 } from "@/lib/types";
 
@@ -46,13 +48,25 @@ const SIN_VALOR = "sin_valor";
    incluida la foto del diseño que el cliente aprobó. */
 export function PersonalizadoDialog({
   personalizado,
+  equipo,
+  urlDiseno = null,
   onClose,
 }: {
   personalizado: Personalizado | null;
+  equipo: Profile[];
+  /* Enlace firmado del diseño ya subido, para verlo aquí mismo al editar. */
+  urlDiseno?: string | null;
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
   const fotoRef = useRef<HTMLInputElement>(null);
+  /* Vista previa del archivo recién elegido, antes de guardar: sin ella no se
+     sabía qué imagen quedó seleccionada hasta reabrir la ficha. */
+  const [previewLocal, setPreviewLocal] = useState<string | null>(null);
+
+  /* Los personalizados los llevan los del área de diseño (Manuel, Ulises y
+     Juanpi): ofrecer a todo el equipo solo metía ruido. */
+  const disenadores = equipo.filter((p) => p.area === "diseno");
 
   const [cliente, setCliente] = useState(personalizado?.cliente ?? "");
   const [tipo, setTipo] = useState<TipoPersonalizadoId | null>(personalizado?.tipo ?? null);
@@ -66,6 +80,9 @@ export function PersonalizadoDialog({
   const [url, setUrl] = useState(personalizado?.url ?? "");
   const [estado, setEstado] = useState<EstadoPersonalizadoId>(personalizado?.estado ?? "recibido");
   const [notas, setNotas] = useState(personalizado?.notas ?? "");
+  const [responsable, setResponsable] = useState<string | null>(
+    personalizado?.responsable_id ?? null,
+  );
 
   function guardar() {
     ejecutar(
@@ -83,6 +100,7 @@ export function PersonalizadoDialog({
           url,
           estado,
           notas,
+          responsable_id: responsable,
         }),
       {
         error: "No se pudo guardar. Revisa tu conexión.",
@@ -255,26 +273,86 @@ export function PersonalizadoDialog({
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pz-url">Link (diseño, conversación, publicación…)</Label>
-            <Input
-              id="pz-url"
-              placeholder="https://…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="flex flex-col gap-1.5">
+              <Label>Quién lo lleva</Label>
+              <Select
+                value={responsable ?? SIN_VALOR}
+                onValueChange={(v) => setResponsable(v === SIN_VALOR ? null : v)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string) =>
+                      v === SIN_VALOR
+                        ? "Sin asignar"
+                        : (equipo.find((p) => p.id === v)?.nombre ?? "Persona")
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SIN_VALOR}>Sin asignar</SelectItem>
+                  {disenadores.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.nombre}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label htmlFor="pz-url">Link (diseño, conversación, publicación…)</Label>
+              <Input
+                id="pz-url"
+                placeholder="https://…"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <input ref={fotoRef} type="file" accept="image/*" className="hidden" />
-            <Button variant="outline" size="sm" onClick={() => fotoRef.current?.click()}>
-              <Upload className="size-3.5" />
-              {personalizado?.foto_path ? "Reemplazar diseño" : "Subir diseño aprobado"}
-            </Button>
-            <span className="text-[12.5px] text-muted-foreground">
-              La imagen del diseño que el cliente aprobó (la sube quien diseña).
-            </span>
-            {personalizado?.foto_path && <Pastilla nombre="Ya tiene imagen" color="#22c55e" />}
+          <div className="flex flex-col gap-2">
+            {/* El diseño se ve aquí mismo: antes solo decía "ya tiene imagen" y
+                para verla había que cerrar y buscar la fila en la tabla. Con un
+                archivo recién elegido se enseña ESE, aún sin guardar. */}
+            {(previewLocal ?? urlDiseno) && (
+              <div className="flex h-20 w-full items-center justify-start rounded-lg border bg-muted/40 px-2">
+                <Image
+                  src={previewLocal ?? urlDiseno!}
+                  alt={`Diseño de ${cliente || "personalizado"}`}
+                  width={760}
+                  height={80}
+                  unoptimized
+                  className="max-h-full w-auto max-w-full rounded object-contain"
+                />
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fotoRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  setPreviewLocal((prev) => {
+                    if (prev) URL.revokeObjectURL(prev);
+                    return f ? URL.createObjectURL(f) : null;
+                  });
+                }}
+              />
+              <Button variant="outline" size="sm" onClick={() => fotoRef.current?.click()}>
+                <Upload className="size-3.5" />
+                {personalizado?.foto_path ? "Reemplazar diseño" : "Subir diseño aprobado"}
+              </Button>
+              <span className="text-[12.5px] text-muted-foreground">
+                La imagen del diseño que el cliente aprobó (la sube quien diseña).
+              </span>
+              {previewLocal ? (
+                <Pastilla nombre="Se sube al guardar" color="#f59e0b" />
+              ) : (
+                personalizado?.foto_path && <Pastilla nombre="Ya tiene imagen" color="#22c55e" />
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col gap-1.5">

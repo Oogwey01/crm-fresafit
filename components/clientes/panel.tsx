@@ -8,6 +8,7 @@ import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { esGestor, obtenerCanal } from "@/lib/catalogos";
 import { formatearFecha } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import type { CustomerConStats, RolId, SaleConProducto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
-import { ControlSegmentado } from "@/components/compartido/control-segmentado";
+import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { ClienteDialog } from "@/components/clientes/cliente-dialog";
 import { ClienteDetalle } from "@/components/clientes/cliente-detalle";
@@ -35,7 +36,10 @@ const ORDENES: [Orden, string][] = [
   ["nombre", "Nombre"],
 ];
 
+/* Dos rejillas literales: Tailwind lee las clases del fuente y una armada por
+   concatenación no llegaría a la hoja de estilos. */
 const COLS = "grid-cols-[minmax(180px,1fr)_140px_130px_90px_120px_110px]";
+const COLS_SIN_TOTAL = "grid-cols-[minmax(180px,1fr)_140px_130px_90px_110px]";
 
 /* Las dos mitades del módulo: quién nos compra y quién nos trae compradores.
    La segunda solo existe para gestores. */
@@ -49,10 +53,14 @@ const VISTAS = [
 export function PanelClientes({
   clientes,
   rol,
+  dinero,
   programa,
 }: {
   clientes: CustomerConStats[];
   rol: RolId;
+  /* Cuánto ha gastado cada quien es ingreso: sin permiso, ni la columna ni la
+     tarjeta ni el orden «Más gastan». */
+  dinero: VistaDinero;
   /* El programa de influencers, ya renderizado en el servidor dentro de un
      <Suspense>: son cuatro tablas más que solo se miran al cambiar de pestaña, y
      esperarlas retrasaba la lista de clientes, que es a lo que se entra.
@@ -60,16 +68,23 @@ export function PanelClientes({
   programa: React.ReactNode | null;
 }) {
   const gestor = esGestor(rol);
+  const verDinero = dinero.ingresos;
+  /* «Más gastan» no se puede ordenar sin los importes, así que ni se ofrece. */
+  const ordenes = verDinero ? ORDENES : ORDENES.filter(([id]) => id !== "total");
   const [vista, setVista] = useState<Vista>("clientes");
   const [busqueda, setBusqueda] = useState("");
-  const [orden, setOrden] = useState<Orden>("total");
+  /* Sin importes el orden por defecto es por número de compras: «Más gastan» no
+     se puede calcular y tampoco se ofrece. */
+  const [orden, setOrden] = useState<Orden>(verDinero ? "total" : "compras");
   const [editar, setEditar] = useState<CustomerConStats | "nuevo" | null>(null);
   const [detalle, setDetalle] = useState<CustomerConStats | null>(null);
 
   const recurrentes = clientes.filter((c) => c.recurrente).length;
   const conCompras = clientes.filter((c) => c.compras > 0).length;
   const nuevos = conCompras - recurrentes;
-  const totalVendido = clientes.reduce((a, c) => a + c.total, 0);
+  const totalVendido = verDinero
+    ? clientes.reduce((a, c) => a + (c.total ?? 0), 0)
+    : null;
 
   const visibles = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -83,7 +98,7 @@ export function PanelClientes({
       : clientes;
     const copia = [...filtrados];
     copia.sort((a, b) => {
-      if (orden === "total") return b.total - a.total;
+      if (orden === "total") return (b.total ?? 0) - (a.total ?? 0);
       if (orden === "compras") return b.compras - a.compras;
       if (orden === "reciente") return (b.ultimaCompra ?? "").localeCompare(a.ultimaCompra ?? "");
       return a.nombre.localeCompare(b.nombre, "es");
@@ -149,11 +164,17 @@ export function PanelClientes({
       },
     },
     { clave: "compras", label: "Compras", celda: (c) => <div className="tabular-nums">{c.compras}</div> },
-    {
-      clave: "total",
-      label: "Total gastado",
-      celda: (c) => <div className="font-semibold tabular-nums">{formatearMXN(c.total)}</div>,
-    },
+    /* La columna se va entera —no en blanco—: vacía se leería como un cliente
+       que no ha gastado nada, y el dato tampoco llegó del servidor. */
+    ...(verDinero
+      ? ([
+          {
+            clave: "total",
+            label: "Total gastado",
+            celda: (c) => <div className="font-semibold tabular-nums">{formatearMXN(c.total)}</div>,
+          },
+        ] satisfies Columna<CustomerConStats>[])
+      : []),
     {
       clave: "ultima",
       label: "Última compra",
@@ -190,9 +211,7 @@ export function PanelClientes({
 
       {/* Solo hay dos mitades si esta persona puede ver el programa. */}
       {programa && (
-        <div className="mb-4">
-          <ControlSegmentado opciones={VISTAS} valor={vista} onCambio={setVista} />
-        </div>
+        <TabsSeccion opciones={VISTAS} valor={vista} onCambio={setVista} className="mb-4" />
       )}
 
       {programa && vista === "influencers" ? (
@@ -204,7 +223,9 @@ export function PanelClientes({
         <StatCard etiqueta="Clientes" valor={String(clientes.length)} icono={Users} />
         <StatCard etiqueta="Recurrentes" valor={String(recurrentes)} icono={Repeat} />
         <StatCard etiqueta="Compraron una vez" valor={String(Math.max(0, nuevos))} icono={UserPlus} />
-        <StatCard etiqueta="Total vendido" valor={formatearMXN(totalVendido)} />
+        {totalVendido !== null && (
+          <StatCard etiqueta="Total vendido" valor={formatearMXN(totalVendido)} />
+        )}
       </div>
 
       {/* Búsqueda + orden */}
@@ -224,13 +245,13 @@ export function PanelClientes({
           <SelectTrigger className="w-full bg-card md:hidden">
             <SelectValue>
               {(v: string) => {
-                const label = ORDENES.find(([id]) => id === v)?.[1] ?? "Ordenar";
+                const label = ordenes.find(([id]) => id === v)?.[1] ?? "Ordenar";
                 return `Orden: ${label}`;
               }}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {ORDENES.map(([id, label]) => (
+            {ordenes.map(([id, label]) => (
               <SelectItem key={id} value={id}>
                 {label}
               </SelectItem>
@@ -238,7 +259,7 @@ export function PanelClientes({
           </SelectContent>
         </Select>
         <div className="hidden rounded-xl bg-muted p-[3px] md:inline-flex">
-          {ORDENES.map(([id, label]) => (
+          {ordenes.map(([id, label]) => (
             <button
               key={id}
               onClick={() => setOrden(id)}
@@ -263,7 +284,7 @@ export function PanelClientes({
         </p>
       ) : (
         <TablaSimple
-          cols={COLS}
+          cols={verDinero ? COLS : COLS_SIN_TOTAL}
           columnas={columnas}
           datos={visibles}
           filaKey={(c) => c.id}

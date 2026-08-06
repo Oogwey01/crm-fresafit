@@ -8,20 +8,23 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { esGestor } from "@/lib/catalogos";
 import type { Resultado } from "@/lib/acciones";
-import { exigirRol } from "@/lib/supabase/guardia";
+import { exigirRol, type ContextoRol } from "@/lib/supabase/guardia";
 import {
   archivoDeFormData,
   rutaParaArchivo,
   subirYRegistrar,
   borrarArchivoYFila,
   urlFirmada,
+  urlesFirmadas,
 } from "@/lib/storage";
 import { textoONulo } from "@/lib/validacion";
+import { esImagenAdjunto } from "@/lib/types";
 import type {
   AreaId,
   EspacioId,
   EstadoId,
   PrioridadId,
+  TaskAttachment,
   TaskDetalle,
 } from "@/lib/types";
 
@@ -133,6 +136,30 @@ function motivoParaEstado(estado: EstadoId, motivo: string | null | undefined): 
   return estado === "atorado" ? textoONulo(motivo) : null;
 }
 
+/* Portero de lo que cambia la tarea en sí (su meta, su prioridad, la papelera):
+   manda un gestor —que manda en todo el tablero— o quien la creó, que manda
+   sobre la suya. Desde que cualquiera del equipo puede abrir tareas, exigir
+   gestor aquí dejaba a la gente sin poder corregir ni borrar lo que ella misma
+   puso.
+
+   La BD aplica exactamente lo mismo (policy "tareas: editar" + el trigger
+   `restringir_update_tarea`); esto es defensa en profundidad y, sobre todo, el
+   mensaje con palabras que ve la persona en vez de un error de RLS. */
+async function exigirMandoTarea(id: string, mensaje: string): Promise<ContextoRol> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+  if (esGestor(cx.rol)) return cx;
+
+  const { data, error } = await cx.supabase
+    .from("tasks")
+    .select("created_by")
+    .eq("id", id)
+    .single();
+  if (error) return { error: error.message };
+  if (data?.created_by !== cx.user.id) return { error: mensaje };
+  return cx;
+}
+
 /* Registra una línea en el historial de actividad de la tarea.
    Los cambios de estado / comentarios / adjuntos ya los registran triggers en la BD;
    esto cubre los que NO tienen trigger (checklist, enlaces, etiquetas). Es informativo:
@@ -159,8 +186,21 @@ function empresaParaEspacio(
 
 /* ============================ Tareas ====================================== */
 
+/* Crear tarea: TODO el equipo de casa, no solo quien coordina. Un miembro abre
+   sus propios pendientes —que antes vivían en una libreta— y puede asignárselos
+   a quien toque; el aviso al responsable lo dispara `notificar_asignacion`.
+   `externo` queda fuera: ese rol solo ve lo que se le comparte.
+
+   OJO con el `.select("id")` de aquí abajo: hace que el alta sea un
+   INSERT … RETURNING, y en una tabla con RLS eso pasa TAMBIÉN por la política
+   de lectura, aplicada a la fila recién nacida. Si esa política sale a buscar
+   la fila en vez de mirar sus columnas, no la encuentra —no está en el
+   snapshot de la sentencia— y el alta falla con un error que parece de
+   permisos de escritura. Ya pasó una vez; lo cuenta entero
+   20260907000000_ver_tareas_por_columna.sql. El id se necesita para sumar a los
+   acompañantes, así que el RETURNING se queda. */
 export async function crearTarea(input: TaskInput): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede crear tareas.");
+  const cx = await exigirRol("interno", "Solo el equipo de Fresafit puede crear tareas.");
   if ("error" in cx) return cx;
 
   const titulo = input.titulo.trim();
@@ -202,7 +242,10 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
 }
 
 export async function editarTarea(id: string, input: TaskInput): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede editar los datos de la tarea.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede editar sus datos.",
+  );
   if ("error" in cx) return cx;
 
   const titulo = input.titulo.trim();
@@ -227,6 +270,9 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
       prioridad: input.prioridad,
       estado: input.estado,
       fecha_limite: input.fecha_limite || null,
+      /* Reprogramarlo lo vuelve a armar solo: el trigger
+         `tasks_rearmar_recordatorio` pone `recordatorio_enviado` en false
+         cuando la fecha cambia (20260728000000_tareas_org_notificaciones.sql). */
       recordatorio_at: input.recordatorio_at || null,
       motivo_atorado: motivoParaEstado(input.estado, input.motivo_atorado),
       etiquetas: input.etiquetas ?? [],
@@ -269,9 +315,12 @@ export async function moverTarea(
   return { ok: true };
 }
 
-/* Cambiar prioridad rápido desde una celda (meta → solo gestor). */
+/* Cambiar prioridad rápido desde una celda (gestor o quien creó la tarea). */
 export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar la prioridad.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede cambiar su prioridad.",
+  );
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("tasks").update({ prioridad }).eq("id", id);
   if (error) return { error: error.message };
@@ -279,11 +328,15 @@ export async function cambiarPrioridad(id: string, prioridad: PrioridadId): Prom
   return { ok: true };
 }
 
-/* Reasignar responsable (meta → solo gestor). El aviso al nuevo responsable lo
-   dispara el trigger `notificar_asignacion` en la BD, así que cubre también el
-   arrastre entre carriles de persona y la edición desde el detalle. */
+/* Reasignar responsable (gestor o quien creó la tarea). El aviso al nuevo
+   responsable lo dispara el trigger `notificar_asignacion` en la BD, así que
+   cubre también el arrastre entre carriles de persona y la edición desde el
+   detalle. */
 export async function reasignarTarea(id: string, responsableId: string | null): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede reasignar tareas.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede reasignarla.",
+  );
   if ("error" in cx) return cx;
   /* Al reasignar, el área sigue al nuevo responsable (si tiene perfil con área).
      Sin responsable se conserva el área actual de la tarea. */
@@ -320,7 +373,10 @@ export async function reasignarEmpresa(
   id: string,
   empresaId: string | null,
 ): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección, administración o coordinación puede cambiar de cliente una tarea.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede cambiarla de cliente.",
+  );
   if ("error" in cx) return cx;
 
   const { data, error: errLeer } = await cx.supabase
@@ -352,7 +408,10 @@ export async function reasignarEmpresa(
 /* Cambiar el equipo de apoyo de una tarea sin tocar nada más (el selector de
    personas del detalle). El principal se administra con `reasignarTarea`. */
 export async function guardarCoasignados(id: string, userIds: string[]): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar el equipo de una tarea.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede cambiar su equipo.",
+  );
   if ("error" in cx) return cx;
 
   const { data, error } = await cx.supabase
@@ -370,9 +429,13 @@ export async function guardarCoasignados(id: string, userIds: string[]): Promise
   return { ok: true };
 }
 
-/* Borrado SUAVE: manda la tarea a la papelera (se puede restaurar). */
+/* Borrado SUAVE: manda la tarea a la papelera (se puede restaurar).
+   Gestor o quien la creó: lo que uno abre por error, uno lo puede tirar. */
 export async function borrarTarea(id: string): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar tareas.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede borrarla.",
+  );
   if ("error" in cx) return cx;
 
   const { error } = await cx.supabase
@@ -386,7 +449,10 @@ export async function borrarTarea(id: string): Promise<Resultado> {
 
 /* Sacar de la papelera. */
 export async function restaurarTarea(id: string): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede restaurar tareas.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede restaurarla.",
+  );
   if ("error" in cx) return cx;
 
   const { error } = await cx.supabase.from("tasks").update({ deleted_at: null }).eq("id", id);
@@ -397,7 +463,10 @@ export async function restaurarTarea(id: string): Promise<Resultado> {
 
 /* Eliminar DEFINITIVO (borrado real, sin vuelta atrás). */
 export async function eliminarDefinitivo(id: string): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede eliminar tareas.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede eliminarla.",
+  );
   if ("error" in cx) return cx;
 
   const { error } = await cx.supabase.from("tasks").delete().eq("id", id);
@@ -406,9 +475,12 @@ export async function eliminarDefinitivo(id: string): Promise<Resultado> {
   return { ok: true };
 }
 
-/* Cambiar las etiquetas de una tarea (meta → gestor). */
+/* Cambiar las etiquetas de una tarea (gestor o quien la creó). */
 export async function guardarEtiquetas(id: string, etiquetas: string[]): Promise<Resultado> {
-  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar etiquetas.");
+  const cx = await exigirMandoTarea(
+    id,
+    "Solo dirección, coordinación o quien creó la tarea puede cambiar sus etiquetas.",
+  );
   if ("error" in cx) return cx;
   const { error } = await cx.supabase.from("tasks").update({ etiquetas }).eq("id", id);
   if (error) return { error: error.message };
@@ -434,12 +506,28 @@ export async function cargarDetalle(taskId: string): Promise<TaskDetalle> {
   ]);
   const fallo = [c, ch, l, a, act].find((r) => r.error);
   if (fallo?.error) throw new Error(fallo.error.message);
+
+  /* Las fotos se ven DENTRO de la tarea, no se descargan una por una: el bucket
+     es privado, así que aquí se firma una miniatura por cada adjunto que sea
+     imagen. Van redimensionadas a una caja de 320 (el doble de lo que miden en
+     pantalla, para que se vean nítidas en retina): las fotos del celular pesan
+     varios MB y una tarea con cinco sería una descarga absurda para un
+     recuadro. La original se sigue pidiendo aparte, solo al ampliar una. */
+  const adjuntos = (a.data ?? []) as TaskAttachment[];
+  const miniaturas = await urlesFirmadas(
+    cx.supabase,
+    "adjuntos",
+    adjuntos.filter(esImagenAdjunto).map((x) => x.storage_path),
+    { ancho: 320, alto: 320 },
+  );
+
   return {
     comentarios: c.data ?? [],
     checklist: ch.data ?? [],
     enlaces: l.data ?? [],
-    adjuntos: a.data ?? [],
+    adjuntos,
     actividad: act.data ?? [],
+    miniaturas,
   };
 }
 

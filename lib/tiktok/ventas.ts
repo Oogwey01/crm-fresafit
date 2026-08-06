@@ -41,10 +41,42 @@ export type ResumenVentasTikTok = {
   existentes: number;
   retiradas: number;
   clientes: number;
+  descontadas: number; // fichas a las que la venta les bajó el inventario de TikTok
+  devueltas: number; // fichas a las que una cancelación se lo regresó
+  /* Fichas que viven en TikTok Y en otro canal pero de las que TikTok todavía no
+     ha reportado su propio número: no hay de dónde restar sin inventar un dato.
+     Se resuelven solas en la siguiente pasada de catálogo. */
+  sin_dato: number;
 };
 
 const DIAS_PRIMERA_VEZ = 90;
 const DIAS_TRASLAPE = 7;
+
+/* Apagable desde Vercel sin tocar código: STOCK_TIKTOK_VENTAS=off.
+   Encendido por defecto, a diferencia del hub de bodega: esto no compite con
+   ningún otro escritor —el inventario de TikTok solo lo mueve TikTok— y la
+   pasada nocturna reescribe el número absoluto, así que un error se corrige
+   solo en menos de un día. */
+const DESCUENTO_TIKTOK_ACTIVO = process.env.STOCK_TIKTOK_VENTAS !== "off";
+
+/* Lo que devuelve mover_stock_tiktok (ver 20260908000000_stock_tiktok_ventas.sql). */
+type MovimientoTikTok = {
+  producto: string;
+  sku: string | null;
+  almacen: "stock" | "tiktok_stock" | "sin_dato";
+  anterior: number | null;
+  nuevo: number | null;
+  movido: number;
+};
+
+/* Renglones de venta → lo que espera la RPC. */
+function itemsDeStock(
+  filas: { producto_id: string | null; cantidad: number }[],
+): { producto_id: string; cantidad: number }[] {
+  return filas
+    .filter((r) => r.producto_id)
+    .map((r) => ({ producto_id: r.producto_id as string, cantidad: r.cantidad }));
+}
 
 /* UNPAID no es venta todavía; CANCELLED se retira. El resto (ON_HOLD,
    AWAITING_*, IN_TRANSIT, DELIVERED, COMPLETED) son órdenes pagadas. */
@@ -227,7 +259,12 @@ async function sincronizarClientes(ordenes: OrdenTikTok[]): Promise<Map<string, 
 }
 
 /* Inserta renglones nuevos, refresca estado y retira los de canceladas. */
-async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikTok> {
+/* `selloEspejo` es el momento de la última pasada de CATÁLOGO (no la de ventas):
+   ver la nota de `descontarVentas`. En milisegundos, o null si nunca corrió. */
+async function aplicarOrdenes(
+  ordenes: OrdenTikTok[],
+  selloEspejo: number | null,
+): Promise<ResumenVentasTikTok> {
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
 
@@ -248,13 +285,22 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes));
   let insertadas = 0;
   let actualizadas = 0;
+  let descontadas = 0;
+  let devueltas = 0;
+  let sinDato = 0;
   if (filas.length > 0) {
     const { data, error } = await admin
       .from("sales")
       .upsert(filas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
-      .select("id");
+      .select("id, producto_id, cantidad, referencia_externa");
     if (error) throw new Error(error.message);
     insertadas = data?.length ?? 0;
+
+    /* Con `ignoreDuplicates`, `data` son SOLO las ventas nuevas: un reintento de
+       webhook o el traslape del cron no vuelven a descontar. */
+    const movidas = await descontarVentas(admin, data ?? [], vendibles, selloEspejo);
+    descontadas = movidas.movidas;
+    sinDato = movidas.sinDato;
 
     // Backfill de cliente_id en ventas ya importadas sin cliente.
     const porCliente = new Map<string, string[]>();
@@ -306,16 +352,53 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
     .flatMap((o) => (o.line_items ?? []).map((li) => refLinea(o.id, li.id)));
   let retiradas = 0;
   if (refsCanceladas.length > 0) {
+    const borrados: { producto_id: string | null; cantidad: number }[] = [];
     for (let i = 0; i < refsCanceladas.length; i += 200) {
       const { data, error } = await admin
         .from("sales")
         .delete()
         .eq("canal", "tiktok_shop")
         .in("referencia_externa", refsCanceladas.slice(i, i + 200))
-        .select("id");
+        .select("id, producto_id, cantidad");
       if (error) throw new Error(error.message);
       retiradas += data?.length ?? 0;
+      for (const r of data ?? []) {
+        borrados.push({ producto_id: r.producto_id as string | null, cantidad: r.cantidad as number });
+      }
     }
+
+    /* Solo se devuelve lo que EXISTÍA y se acaba de borrar, así que un segundo
+       aviso de la misma cancelación no encuentra nada y no devuelve dos veces.
+       Se llama una sola vez con todo lo acumulado —no una por tanda— para que el
+       historial lo muestre como una operación y no como N sueltas.
+
+       Aquí NO se aplica el filtro del espejo que sí lleva el descuento: una
+       cancelación puede ser posterior a la última pasada de catálogo, y devolver
+       de más se corrige en la siguiente. */
+    if (DESCUENTO_TIKTOK_ACTIVO && borrados.length > 0) {
+      try {
+        const items = itemsDeStock(borrados);
+        if (items.length > 0) {
+          const { data: movs, error: errDev } = await admin.rpc("devolver_stock_tiktok", {
+            items,
+            p_origen: "cancelacion_tiktok",
+          });
+          if (errDev) throw new Error(errDev.message);
+          for (const m of (movs ?? []) as MovimientoTikTok[]) {
+            if (m.almacen === "sin_dato") sinDato++;
+            else devueltas++;
+          }
+        }
+      } catch (e) {
+        console.error("[tiktok] devolución de stock por cancelación:", e);
+      }
+    }
+  }
+
+  if (sinDato > 0) {
+    console.warn(
+      `[tiktok] ${sinDato} ficha(s) sin número propio de TikTok todavía: su venta no movió nada. Se resuelven con la próxima sync de catálogo.`,
+    );
   }
 
   return {
@@ -325,7 +408,75 @@ async function aplicarOrdenes(ordenes: OrdenTikTok[]): Promise<ResumenVentasTikT
     existentes: filas.length - insertadas,
     retiradas,
     clientes: clientes.size,
+    descontadas,
+    devueltas,
+    sin_dato: sinDato,
   };
+}
+
+/* ----------------------------------------------------------------------------
+   Descuento por venta
+   ----------------------------------------------------------------------------
+   Una venta de TikTok baja el inventario de TikTok y NUNCA el de bodega; de
+   repartirlo entre `stock` y `tiktok_stock` según la ficha se encarga la RPC
+   (ver supabase/migrations/20260908000000_stock_tiktok_ventas.sql).
+
+   Va sin el candado del hub de ventas (`HUB_VENTAS_ACTIVO` / la lista blanca del
+   piloto) a propósito: ese candado existe para que el CRM no gobierne el stock
+   de BODEGA mientras Tienda Nube también lo gobierna, y para frenar las
+   escrituras HACIA los canales. Aquí no ocurre ninguna de las dos cosas —no se
+   toca bodega y no se llama a `propagarStock`: TikTok ya descontó lo suyo al
+   vender—.
+
+   EL FILTRO DEL ESPEJO. El cron de TikTok corre catálogo y DESPUÉS ventas en la
+   misma petición. El catálogo escribe el número absoluto que reporta TikTok, que
+   YA trae las ventas de la noche descontadas; si acto seguido se restaran esas
+   mismas ventas (porque su webhook se perdió y llegan como nuevas), se restarían
+   dos veces, todos los días. Por eso solo se descuentan las órdenes que TikTok
+   creó DESPUÉS de la última pasada de catálogo: si el espejo es más reciente que
+   la venta, el número local ya la incluye. Saltarse el descuento nunca deja el
+   dato peor de como está hoy —«tan fresco como la última pasada»—, mientras que
+   restar de más inventa unidades que no existen. */
+async function descontarVentas(
+  admin: ReturnType<typeof createAdminClient>,
+  nuevas: { producto_id: string | null; cantidad: number; referencia_externa: string }[],
+  vendibles: OrdenTikTok[],
+  selloEspejo: number | null,
+): Promise<{ movidas: number; sinDato: number }> {
+  if (!DESCUENTO_TIKTOK_ACTIVO || nuevas.length === 0) return { movidas: 0, sinDato: 0 };
+
+  let candidatas = nuevas;
+  if (selloEspejo !== null) {
+    const posteriores = new Set<string>();
+    for (const o of vendibles) {
+      if ((o.create_time ?? 0) * 1000 <= selloEspejo) continue;
+      for (const li of o.line_items ?? []) posteriores.add(refLinea(o.id, li.id));
+    }
+    candidatas = nuevas.filter((r) => posteriores.has(r.referencia_externa));
+  }
+
+  const items = itemsDeStock(candidatas);
+  if (items.length === 0) return { movidas: 0, sinDato: 0 };
+
+  /* Diagnóstico, no flujo de negocio: si el stock falla, la venta ya quedó
+     registrada y eso es lo que no se puede perder (mismo criterio que TN y ML). */
+  try {
+    const { data: movs, error } = await admin.rpc("descontar_stock_tiktok", {
+      items,
+      p_origen: "venta_tiktok",
+    });
+    if (error) throw new Error(error.message);
+    let movidas = 0;
+    let sinDato = 0;
+    for (const m of (movs ?? []) as MovimientoTikTok[]) {
+      if (m.almacen === "sin_dato") sinDato++;
+      else movidas++;
+    }
+    return { movidas, sinDato };
+  } catch (e) {
+    console.error("[tiktok] descuento de stock por venta:", e);
+    return { movidas: 0, sinDato: 0 };
+  }
 }
 
 /* Importación por ventana de fechas (cron / botón). */
@@ -345,11 +496,21 @@ export async function importarVentasTikTok(
   );
 
   const ordenes = await listarOrdenesTikTok(cx, desdeUnix);
-  const resumen = await aplicarOrdenes(ordenes);
+  /* `ultima_sync` es la pasada de CATÁLOGO, no la de ventas: es el momento en
+     que el CRM copió por última vez los números de TikTok. Ver `descontarVentas`. */
+  const resumen = await aplicarOrdenes(ordenes, selloEspejoDe(datos));
 
   await mezclarDatosIntegracion("tiktok", { ventas_ultima_sync: new Date().toISOString() }, datos);
 
   return resumen;
+}
+
+/* Cuándo copió el CRM por última vez los números que reporta TikTok. */
+function selloEspejoDe(datos: Record<string, unknown>): number | null {
+  const iso = typeof datos.ultima_sync === "string" ? datos.ultima_sync : null;
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 /* Procesa UNA orden avisada por webhook. */
@@ -358,5 +519,7 @@ export async function procesarOrdenTikTok(orderId: string): Promise<void> {
   if (!cx) return;
   const orden = await obtenerOrdenTikTok(cx, orderId);
   if (!orden) return;
-  await aplicarOrdenes([orden]);
+  /* Una consulta de más en un webhook es irrelevante, y es la que evita que una
+     venta ya reflejada por la pasada de catálogo se descuente dos veces. */
+  await aplicarOrdenes([orden], selloEspejoDe(await leerDatosIntegracion("tiktok")));
 }

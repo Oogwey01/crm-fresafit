@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, respuestaError } from "@/lib/canales/http";
+import { autorizarCron, conActorDePeticion, respuestaError } from "@/lib/canales/http";
 import { tomarFotoCanales } from "@/lib/inventario/foto-canales";
 import { repararDesviaciones } from "@/lib/inventario/reparacion";
 
@@ -24,7 +24,9 @@ export async function GET(request: Request) {
        foto —que es el dato— ya está guardada y no debe perderse por ello. */
     let reparacion;
     try {
-      reparacion = await repararDesviaciones(estables);
+      /* La corrección la decide el algoritmo, pero si alguien disparó la ruta a
+         mano queda su nombre en el historial: es quien la pidió. */
+      reparacion = await conActorDePeticion(request, () => repararDesviaciones(estables));
       for (const i of reparacion.incidencias) console.warn("[inventario] descuadre:", i);
     } catch (e) {
       console.error("[inventario] reparación:", e);

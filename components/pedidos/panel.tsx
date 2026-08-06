@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, Clock, ExternalLink, PackageCheck, Search, Send, Truck } from "lucide-react";
+import { AlertTriangle, Clock, ExternalLink, PackageCheck, Printer, Search, Send, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { CANALES, ESTADOS_PEDIDO, esGestor, obtenerCanal, obtenerEstadoPedido } from "@/lib/catalogos";
-import { esPedidoAtrasado, formatearFecha } from "@/lib/fecha";
+import { esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
+import { SITUACION, situacionDespacho } from "@/lib/mercadolibre/desempeno";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
 import { cambiarEstadoPedido } from "@/app/(app)/pedidos/actions";
@@ -33,13 +34,55 @@ const FILTROS: [Filtro, string][] = [
 
 /* La última columna llevaba 60 px y el envío ("Estafeta MX 905590979741C70…")
    salía cortado sin remedio; ahora es la más ancha de la fila, que es lo que
-   corresponde a la información con la que uno trabaja al empacar. */
-const COLS = "grid-cols-[88px_minmax(170px,1fr)_130px_120px_118px_minmax(215px,250px)]";
+   corresponde a la información con la que uno trabaja al empacar. La primera
+   creció de 88 a 112 px para que quepa la pastilla del plazo de despacho. */
+const COLS = "grid-cols-[112px_minmax(170px,1fr)_130px_120px_118px_minmax(215px,250px)]";
 
 /* `referencia_externa` es por RENGLÓN ("<orden>:<línea>"); lo que identifica al
    pedido de cara al cliente es la parte de la orden. */
 function numeroOrden(ref: string): string {
   return ref.split(":")[0];
+}
+
+/* A dónde va el botón de imprimir la guía, mientras el pedido da trabajo.
+   Mercado Libre entrega el PDF directo (ruta interna con el id del envío que
+   deja la sync); Tienda Nube y TikTok no exponen la etiqueta por liga, así que
+   se abre la orden en su panel, que es donde se imprime. */
+function urlImpresionGuia(
+  p: PedidoEnvio,
+  dominioTN?: string | null,
+): { url: string; titulo: string } | null {
+  if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
+  if (p.canal === "mercado_libre" && p.envio_id) {
+    return {
+      url: `/api/mercadolibre/etiqueta?envio=${encodeURIComponent(p.envio_id)}`,
+      titulo: "Imprimir la guía (PDF directo de Mercado Libre)",
+    };
+  }
+  const ref = p.referencia_externa ? numeroOrden(p.referencia_externa) : "";
+  /* Tienda Nube: la ruta intenta el PDF de la etiqueta por API y, si la orden
+     aún no lo tiene, redirige a la orden en el admin. */
+  if (p.canal === "tienda_nube" && /^\d+$/.test(ref)) {
+    return {
+      url: `/api/tiendanube/etiqueta?orden=${encodeURIComponent(ref)}`,
+      titulo: "Imprimir la guía (PDF si Tienda Nube lo entrega; si no, abre la orden en el panel)",
+    };
+  }
+  const url = urlOrdenCanal(p.canal, ref, dominioTN, p.url_orden);
+  if (!url) return null;
+  return {
+    url,
+    titulo: `Imprimir la guía desde el panel de ${obtenerCanal(p.canal)?.nombre ?? "la plataforma"}`,
+  };
+}
+
+/* Plazo de despacho de Mercado Libre (la sync lo deja en la venta): solo avisa
+   mientras el pedido da trabajo —nuevo o preparando— y solo cuando urge. Ya
+   enviado, "se pasó el plazo" es ruido; en plazo holgado, también. */
+function plazoUrgente(p: PedidoEnvio, ahora: number): "vencido" | "por_vencer" | null {
+  if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
+  const s = situacionDespacho(p.envio_limite_despacho, p.envio_despachado_en, ahora);
+  return s === "vencido" || s === "por_vencer" ? s : null;
 }
 
 function PastillaEstado({ estado }: { estado: string }) {
@@ -52,12 +95,17 @@ export function PanelPedidos({
   pedidos,
   rol,
   dominioTiendaNube,
+  ahora,
 }: {
   pedidos: PedidoEnvio[];
   rol: RolId;
   /* Subdominio del panel de la tienda; sin él no se puede enlazar la orden de
      Tienda Nube (cada tienda tiene el suyo). Ver app/(app)/pedidos/page.tsx. */
   dominioTiendaNube?: string | null;
+  /* Un solo "ahora" tomado por request en el servidor: dos pedidos con el mismo
+     plazo de despacho deben clasificar igual (mismo criterio que el tablero de
+     ML, ver instanteDeCorte). */
+  ahora: number;
 }) {
   const gestor = esGestor(rol);
   const [filtro, setFiltro] = useState<Filtro>("pendientes");
@@ -127,13 +175,30 @@ export function PanelPedidos({
       label: "Fecha",
       celda: (p) => {
         const atrasado = esPedidoAtrasado(p.fecha, p.estado);
+        const plazo = plazoUrgente(p, ahora);
         return (
-          <span
-            className={cn("inline-flex items-center gap-1", atrasado && "font-semibold text-red-600")}
-          >
-            {atrasado && <AlertTriangle className="size-3.5" aria-label="Atrasado" />}
-            {formatearFecha(p.fecha)}
-          </span>
+          <div className="min-w-0">
+            <span
+              className={cn("inline-flex items-center gap-1", atrasado && "font-semibold text-red-600")}
+            >
+              {atrasado && <AlertTriangle className="size-3.5" aria-label="Atrasado" />}
+              {formatearFecha(p.fecha)}
+            </span>
+            {/* Semáforo del plazo de despacho de ML: es el dato por el que se
+                decide qué empacar primero, y vivía solo en el panel del canal. */}
+            {plazo && (
+              <span
+                className="block"
+                title={`Plazo de despacho de Mercado Libre: ${formatearFechaHora(p.envio_limite_despacho!)}`}
+              >
+                <Pastilla
+                  nombre={SITUACION[plazo].nombre}
+                  color={SITUACION[plazo].color}
+                  className="mt-1 whitespace-nowrap px-1.5 py-0.5 text-[10.5px]"
+                />
+              </span>
+            )}
+          </div>
         );
       },
     },
@@ -218,6 +283,7 @@ export function PanelPedidos({
       cardAncho: true,
       celda: (p) => {
         const rastreo = urlRastreo(p.paqueteria, p.num_guia, p.url_rastreo);
+        const impresion = urlImpresionGuia(p, dominioTiendaNube);
         return (
           <div className="flex min-w-0 items-center gap-1.5">
             <button
@@ -247,6 +313,22 @@ export function PanelPedidos({
                 </span>
               )}
             </button>
+            {/* La etiqueta lista para imprimir: en ML sale el PDF directo de su
+                API; en los demás canales abre la orden en el panel, que es donde
+                se imprime. Solo mientras el pedido está por empacar. */}
+            {impresion && (
+              <a
+                href={impresion.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={impresion.titulo}
+                aria-label={impresion.titulo}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <Printer className="size-3.5" />
+              </a>
+            )}
             {/* Atajo al rastreo de la paquetería: evita copiar la guía a mano en
                 el sitio del transportista para saber dónde va el paquete. */}
             {rastreo && (
@@ -350,7 +432,11 @@ export function PanelPedidos({
         filaKey={(p) => p.id}
         minW="min-w-[900px]"
         onRowClick={(p) => setEnvio(p)}
-        filaClassName={(p) => (esPedidoAtrasado(p.fecha, p.estado) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
+        filaClassName={(p) =>
+          esPedidoAtrasado(p.fecha, p.estado) || plazoUrgente(p, ahora) === "vencido"
+            ? "bg-red-50/50 dark:bg-red-950/20"
+            : ""
+        }
         vacio={
           filtro === "pendientes"
             ? "No hay pedidos pendientes. Todo al día. 🎉"

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
+import { adjuntarMontos } from "@/lib/supabase/montos";
 import { textoONulo } from "@/lib/validacion";
 import type { CanalId, Customer, SaleConProducto } from "@/lib/types";
 
@@ -59,17 +61,30 @@ export async function borrarCliente(id: string): Promise<Resultado> {
 export async function ventasDeCliente(
   clienteId: string,
 ): Promise<{ ok: true; ventas: SaleConProducto[] } | { error: string }> {
-  const cx = await exigirRol("autenticado");
+  /* Sube de «autenticado» a «interno»: devuelve el historial de compras de una
+     persona, que no es algo que deba poder pedir cualquiera con sesión. */
+  const cx = await exigirRol("interno", "Solo el equipo interno puede ver el historial.");
   if ("error" in cx) return cx;
 
+  /* Qué compró y cuándo es operación —sirve para atenderlo—; cuánto pagó es
+     ingreso, sale de `ventas_montos` y solo para quien puede verlo. */
   const { data, error } = await cx.supabase
     .from("sales")
-    .select("id, fecha, cantidad, monto, descripcion, cliente_id, producto:products!producto_id(id, nombre, variante)")
+    .select(
+      "id, fecha, cantidad, descripcion, cliente_id," +
+        " producto:products!producto_id(id, nombre, variante)",
+    )
     .eq("cliente_id", clienteId)
     .or("estado.is.null,estado.neq.cancelado")
     .order("fecha", { ascending: false });
   if (error) return { error: error.message };
-  return { ok: true, ventas: (data ?? []) as unknown as SaleConProducto[] };
+
+  const ventas = await adjuntarMontos(
+    cx.supabase,
+    (data ?? []) as unknown as SaleConProducto[],
+    (await vistaDinero()).ingresos,
+  );
+  return { ok: true, ventas };
 }
 
 /* Alta rápida desde el diálogo de venta: solo el nombre. Devuelve el cliente

@@ -27,11 +27,14 @@ import { cn } from "@/lib/utils";
    ============================================================================ */
 
 export type PesoCanal = {
-  monto: number;
+  /* Null = quien mira no ve el dinero de este canal. */
+  monto: number | null;
   piezas: number;
   renglones: number;
-  /* Qué porcentaje del negocio entró por aquí en el periodo. */
-  participacion: number;
+  /* Qué porcentaje del negocio entró por aquí en el periodo. Null también para
+     el encargado del canal: es una división entre el total de TODOS, así que
+     enseñarla junto al vendido de TikTok deja despejar la venta de los demás. */
+  participacion: number | null;
   dias: number;
 };
 
@@ -112,7 +115,11 @@ export function PanelTikTok({
 }) {
   if (!conectada) return <SinConexion nombre="TikTok Shop" />;
 
-  const ticket = peso.renglones > 0 ? peso.monto / peso.renglones : 0;
+  /* El importe del canal es la señal: llega en null exactamente cuando quien
+     mira no puede ver el dinero de TikTok, y ese mismo permiso gobierna los
+     precios y las liquidaciones. Una prop aparte diría lo mismo dos veces. */
+  const verDinero = peso.monto !== null;
+  const ticket = verDinero && peso.renglones > 0 ? peso.monto! / peso.renglones : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -121,37 +128,60 @@ export function PanelTikTok({
         <UltimaSync ultimaSync={ultimaSync} />
       </div>
 
-      {/* --- Cuánto pesa el canal --- */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {/* --- Cuánto pesa el canal. Sin importes quedan dos tarjetas, así que la
+              rejilla baja a dos columnas en vez de dejar la fila a medias. --- */}
+      <div
+        className={cn(
+          "grid gap-3 sm:grid-cols-2",
+          peso.monto !== null ? "lg:grid-cols-4" : "lg:grid-cols-2",
+        )}
+      >
         <StatCard
           etiqueta="Vendido en TikTok"
-          valor={formatearMXN(peso.monto)}
+          valor={
+            peso.monto !== null
+              ? formatearMXN(peso.monto)
+              : `${peso.piezas.toLocaleString("es-MX")} pzas`
+          }
           icono={TrendingUp}
-          nota={`${peso.piezas.toLocaleString("es-MX")} piezas`}
-        />
-        <StatCard
-          etiqueta="Del negocio"
-          valor={`${peso.participacion.toFixed(0)}%`}
-          icono={TrendingUp}
-          nota="de la venta total del periodo"
-        />
-        <StatCard
-          etiqueta="Ticket promedio"
-          valor={formatearMXN(ticket)}
-          icono={Tag}
-          nota="por renglón vendido"
-        />
-        <StatCard
-          etiqueta="Precios que no cuadran"
-          valor={String(salud.preciosDispares.length)}
-          icono={AlertTriangle}
-          valorClassName={salud.masBaratosEnTikTok > 0 ? "text-red-600" : undefined}
           nota={
-            salud.masBaratosEnTikTok > 0
-              ? `${salud.masBaratosEnTikTok} más baratos en TikTok`
-              : "todos coinciden"
+            peso.monto !== null
+              ? `${peso.piezas.toLocaleString("es-MX")} piezas`
+              : `${peso.renglones.toLocaleString("es-MX")} ventas`
           }
         />
+        {peso.participacion !== null && (
+          <StatCard
+            etiqueta="Del negocio"
+            valor={`${peso.participacion.toFixed(0)}%`}
+            icono={TrendingUp}
+            nota="de la venta total del periodo"
+          />
+        )}
+        {ticket !== null && (
+          <StatCard
+            etiqueta="Ticket promedio"
+            valor={formatearMXN(ticket)}
+            icono={Tag}
+            nota="por renglón vendido"
+          />
+        )}
+        {/* La comparativa de precios se apoya en `products.precio`, que tampoco
+            viaja sin permiso: sin él la cuenta daría cero y la nota diría «todos
+            coinciden», que es afirmar algo que no se sabe. */}
+        {verDinero && (
+          <StatCard
+            etiqueta="Precios que no cuadran"
+            valor={String(salud.preciosDispares.length)}
+            icono={AlertTriangle}
+            valorClassName={salud.masBaratosEnTikTok > 0 ? "text-red-600" : undefined}
+            nota={
+              salud.masBaratosEnTikTok > 0
+                ? `${salud.masBaratosEnTikTok} más baratos en TikTok`
+                : "todos coinciden"
+            }
+          />
+        )}
       </div>
 
       {/* --- Lo que la plataforma se queda --- */}
@@ -214,6 +244,7 @@ export function PanelTikTok({
       </p>
 
       {/* --- Precios dispares: lo que cuesta dinero hoy --- */}
+      {verDinero && (
       <section>
         <h2 className="mb-1 text-[17px] font-bold tracking-[-0.3px]">
           El mismo producto a dos precios
@@ -244,6 +275,7 @@ export function PanelTikTok({
           </>
         )}
       </section>
+      )}
 
       {/* --- La causa de fondo --- */}
       <section>

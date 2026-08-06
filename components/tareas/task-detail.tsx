@@ -26,10 +26,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react";
-import { ESTADOS, PRIORIDADES, AREAS, esGestor, obtenerArea } from "@/lib/catalogos";
+import { AlertTriangle, ArrowLeft, CalendarDays, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react";
+import {
+  ESTADOS,
+  PRIORIDADES,
+  AREAS,
+  esGestor,
+  obtenerArea,
+  obtenerEstado,
+  obtenerPrioridad,
+} from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
-import { isoALocalInput, localInputAIso, formatearFecha } from "@/lib/fecha";
+import { ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";
+import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
+import { isoALocalInput, localInputAIso, formatearFecha, esVencida } from "@/lib/fecha";
 import {
   editarTarea,
   moverTarea,
@@ -55,10 +65,11 @@ import type {
   AreaId,
   EstadoId,
   PrioridadId,
+  TaskAttachment,
   TaskDetalle,
 } from "@/lib/types";
-import { trabajaLaTarea } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { trabajaLaTarea, mandaEnLaTarea, esImagenAdjunto } from "@/lib/types";
+import { cn, iniciales } from "@/lib/utils";
 import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
 import { DatePicker } from "@/components/compartido/date-picker";
@@ -117,10 +128,15 @@ function Envoltorio({
   children: React.ReactNode;
 }) {
   if (comoPagina) {
+    /* Ancho de trabajo, no de lectura. La página era una columna de 768 px
+       centrada en pantallas de 1600: la tarea entera cabía en un canal estrecho
+       con medio monitor en blanco a los lados, y para ver un comentario había
+       que bajar por debajo de subtareas, enlaces y adjuntos. Ahora el contenido
+       se reparte y cada bloque trae su propia tarjeta, así que la caja única
+       desaparece. */
     return (
-      <div className="mx-auto w-full max-w-3xl md:rounded-2xl md:border md:bg-card md:p-6 md:shadow-sm">
+      <div className="mx-auto w-full max-w-6xl">
         {barraSuperior}
-        <h1 className="hidden text-[22px] font-bold tracking-tight md:mb-4 md:block">{titulo}</h1>
         {children}
         {barraInferior}
       </div>
@@ -135,6 +151,42 @@ function Envoltorio({
         {children}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* Cada bloque del detalle es una tarjeta. En el pop-up —que sigue siendo una
+   columna estrecha— se quedan sin marco para no anidar cajas dentro de la caja
+   del diálogo. */
+function Tarjeta({
+  children,
+  className,
+  conMarco = true,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  conMarco?: boolean;
+}) {
+  return (
+    <section
+      className={cn(
+        conMarco && "rounded-2xl border bg-card p-4 shadow-sm md:p-5",
+        className,
+      )}
+    >
+      {children}
+    </section>
+  );
+}
+
+/* Rótulo de un dato de la ficha: etiqueta arriba en versalitas, valor debajo. */
+function Dato({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <div className="text-[13.5px]">{children}</div>
+    </div>
   );
 }
 
@@ -172,14 +224,23 @@ export function TaskDetail({
   onClose: () => void;
 }) {
   const gestor = esGestor(rol);
+  /* Quien manda en ESTA tarea: un gestor, o quien la creó. Desde que cualquiera
+     del equipo puede abrir tareas, el dueño de la suya tiene que poder
+     corregirla y borrarla; `gestor` a secas se queda para lo que es del tablero
+     entero (borrar comentarios o adjuntos ajenos). */
+  const manda = mandaEnLaTarea(tarea, rol, currentUserId);
   /* Quien acompaña la tarea tiene los mismos permisos que la responsable: si se
      le pidió el trabajo, tiene que poder moverla y comentarla. */
   const esResponsable = trabajaLaTarea(tarea, currentUserId);
-  const puedeContribuir = gestor || esResponsable;
-  const puedeMover = gestor || esResponsable;
+  const puedeContribuir = manda || esResponsable;
+  const puedeMover = manda || esResponsable;
 
   const nombrePorId = (id: string | null) =>
     id ? (equipo.find((p) => p.id === id)?.nombre ?? "?") : "?";
+  /* El color del avatar sale del perfil; sin él, el gris de siempre. Lo usa el
+     hilo de comentarios para que se distinga quién habla sin leer el nombre. */
+  const colorPorId = (id: string | null) =>
+    (id ? equipo.find((p) => p.id === id)?.color : null) ?? "#94a3b8";
 
   /* El detalle (comentarios, checklist, adjuntos, actividad) se carga aparte
      al abrir la tarea y se refresca tras cada mutación. */
@@ -191,7 +252,7 @@ export function TaskDetail({
   } = useDetalleRemoto<TaskDetalle>(() => cargarDetalle(tarea.id), tarea.id);
   const { ejecutar } = useAccionServidor();
 
-  // Campos de meta (edición para gestor).
+  // Campos de meta (los edita quien manda en la tarea).
   const [titulo, setTitulo] = useState(tarea.titulo);
   const [descripcion, setDescripcion] = useState(tarea.descripcion ?? "");
   const [responsable, setResponsable] = useState(tarea.responsable_id ?? SIN_ASIGNAR);
@@ -249,7 +310,7 @@ export function TaskDetail({
     ejecutar(fn, { ok: okMsg, alExito: recargar });
   }
 
-  /* --- Meta (gestor) --- */
+  /* --- Meta (gestor o quien creó la tarea) --- */
   function guardarMeta() {
     if (!titulo.trim()) {
       toast.error("La tarea necesita un título.");
@@ -305,6 +366,15 @@ export function TaskDetail({
     });
   }
 
+  function agregarSubtarea() {
+    const texto = nuevaSubtarea.trim();
+    if (!texto) return;
+    accion(() => agregarChecklist(tarea.id, texto));
+    setNuevaSubtarea("");
+  }
+
+  /* Abrir la foto/archivo en grande: la miniatura de la tarjeta va
+     redimensionada, así que el original se firma aquí, solo cuando se pide. */
   async function verAdjunto(path: string) {
     const r = await urlAdjunto(path);
     if ("error" in r) return toast.error(r.error);
@@ -320,9 +390,25 @@ export function TaskDetail({
     if (fileRef.current) fileRef.current.value = "";
   }
 
+  /* Lo que enseña la cabecera: mientras se edita, lo del formulario —aún sin
+     guardar—; si solo se mira, lo que hay en la tarea. */
+  const fechaCabecera = manda ? (fecha || null) : tarea.fecha_limite;
+  const etiquetasCabecera = manda ? etiquetas : (tarea.etiquetas ?? []);
+
   const checklist = detalle?.checklist ?? [];
   const hechos = checklist.filter((c) => c.hecho).length;
-  const tituloPantalla = gestor ? "Editar tarea" : "Detalle de la tarea";
+
+  /* Los adjuntos se parten en dos: los que se pueden VER (foto con su miniatura
+     ya firmada) y el resto —PDFs, hojas de cálculo, y también una imagen cuya
+     miniatura no se pudo firmar—, que siguen como renglón con su nombre. */
+  const fotos: { a: TaskAttachment; url: string }[] = [];
+  const archivos: TaskAttachment[] = [];
+  for (const a of detalle?.adjuntos ?? []) {
+    const url = esImagenAdjunto(a) ? detalle?.miniaturas?.[a.storage_path] : undefined;
+    if (url) fotos.push({ a, url });
+    else archivos.push(a);
+  }
+  const tituloPantalla = manda ? "Editar tarea" : "Detalle de la tarea";
 
   /* Barra superior del teléfono. Va por DEBAJO del header de navegación, que ya
      es sticky con z-40 y 3.5rem de alto: de ahí el top-14 y el z-30. El -mx-4
@@ -338,7 +424,7 @@ export function TaskDetail({
         <ArrowLeft className="size-5" strokeWidth={2} aria-hidden="true" />
       </button>
       <span className="truncate text-[15px] font-bold tracking-tight">{tituloPantalla}</span>
-      {gestor && (
+      {manda && (
         <DropdownMenu>
           <DropdownMenuTrigger
             aria-label="Más acciones"
@@ -361,7 +447,7 @@ export function TaskDetail({
      medio, el pie de escritorio quedaba a varias pantallas de scroll. Solo tiene
      sentido para quien edita la meta; a un miembro el cambio de estado se le
      aplica al vuelo. */
-  const barraInferior = gestor ? (
+  const barraInferior = manda ? (
     <div className="sticky bottom-0 z-30 -mx-4 mt-4 border-t bg-lienzo/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:hidden">
       <Button className="h-12 w-full text-[15px]" onClick={guardarMeta}>
         Guardar
@@ -379,192 +465,136 @@ export function TaskDetail({
       barraInferior={barraInferior}
     >
 
-        {/* ===== Meta ===== */}
-        {gestor ? (
+        {/* ===== Cabecera (ancha) =====
+            Lo que contesta «qué es esto y cómo va» de un vistazo: estado,
+            título, quién lo trabaja, para cuándo y cuánto lleva. Antes esos
+            datos iban en un renglón corrido de texto gris debajo del título. */}
+        <Tarjeta conMarco={comoPagina} className={cn("mb-4", !comoPagina && "mb-3 border-b pb-3")}>
           <div className="flex flex-col gap-3">
-            <Input
-              className="h-11 md:h-8"
-              value={titulo}
-              onChange={(e) => setTitulo(e.target.value)}
-              placeholder="Título"
-            />
-            <Textarea
-              rows={3}
-              value={descripcion}
-              onChange={(e) => setDescripcion(e.target.value)}
-              placeholder="Descripción…"
-            />
-            {/* En el teléfono, tarjeta con filas separadas (etiqueta ↔ valor);
-                en escritorio, la rejilla de dos columnas de siempre. */}
-            <div className="grid grid-cols-1 divide-y rounded-2xl border bg-card md:grid-cols-2 md:gap-3 md:divide-y-0 md:rounded-none md:border-0 md:bg-transparent">
-              {/* De quién es el trabajo. Solo en la agencia: en Fresafit el
-                  cliente es la propia marca y el campo sobraría. */}
-              {esAgencia && (
-                <Meta label="Cliente">
-                  <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
-                    <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_EMPRESA ? "De la agencia" : (empresas.find((e) => e.id === v)?.nombre ?? tarea.empresa?.nombre ?? "Cliente")}</SelectValue></SelectTrigger>
-                    <SelectContent>
-                      {empresas.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
-                      <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Meta>
-              )}
-              <Meta label="Responsable">
-                <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
-                  <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
-                    {equipo.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-              </Meta>
-              {/* El área la dicta el perfil del responsable, así que en el 99 %
-                  de los casos es un campo que se rellena solo y solo estorba
-                  ("si le creo una tarea a René no es necesario poner el área,
-                  su área ya es operaciones"). Se muestra como dato, con un
-                  atajo para el caso raro en que haya que cambiarla. */}
-              <Meta label="Área">
-                {areaManual ? (
-                  <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                    <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
-                    <SelectContent>
-                      {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm md:h-9 md:w-full">
-                    <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
-                    {/* De dónde salió el área solo cabe en escritorio; en el
-                        teléfono se come la fila entera. */}
-                    <span className="hidden text-xs text-muted-foreground md:inline">
-                      {responsable === SIN_ASIGNAR
-                        ? "sin responsable"
-                        : `según ${equipo.find((p) => p.id === responsable)?.nombre ?? "el responsable"}`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setAreaManual(true)}
-                      className="ml-auto shrink-0 text-xs font-medium text-primary hover:underline"
-                    >
-                      cambiar
-                    </button>
-                  </div>
-                )}
-              </Meta>
-              <Meta label="Prioridad">
-                <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
-                  <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
-                  <SelectContent>
-                    {PRIORIDADES.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-              </Meta>
-              <Meta label="Estado">
-                <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
-                  <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}</SelectValue></SelectTrigger>
-                  <SelectContent>
-                    {ESTADOS.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-              </Meta>
-              <Meta label="Fecha límite">
-                <DatePicker className={CTRL_MOVIL} value={fecha} onChange={setFecha} limpiable />
-              </Meta>
-              <Meta label="Recordatorio">
-                <Input
-                  className={CTRL_MOVIL}
-                  type="datetime-local"
-                  value={recordatorio}
-                  onChange={(e) => setRecordatorio(e.target.value)}
-                />
-              </Meta>
-            </div>
-
-            <Seccion titulo="¿Quién más trabaja esta tarea?" abiertaPorDefecto>
-              <SelectorPersonas
-                equipo={equipo}
-                seleccionados={coasignados}
-                principalId={responsable === SIN_ASIGNAR ? null : responsable}
-                onToggle={toggleCoasignado}
-              />
-            </Seccion>
-
-            {estado === "atorado" && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Motivo (atorado)
-                </span>
-                <Textarea
-                  rows={2}
-                  value={motivoAtorado}
-                  onChange={(e) => setMotivoAtorado(e.target.value)}
-                  placeholder="Qué se necesita de vuelta para poder avanzar…"
-                />
-              </div>
-            )}
-
-            <Seccion titulo="Etiquetas" abiertaPorDefecto>
-              <SelectorEtiquetas
-                area={area}
-                seleccionadas={etiquetas}
-                onToggle={toggleEtiquetaGestor}
-              />
-            </Seccion>
-          </div>
-        ) : (
-          /* No gestor: lectura + (si responsable) cambiar estado */
-          <div className="flex flex-col gap-2">
-            <h2 className="text-lg font-bold">{tarea.titulo}</h2>
-            {tarea.descripcion && (
-              <p className="whitespace-pre-wrap text-sm text-muted-foreground">{tarea.descripcion}</p>
-            )}
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              {tarea.empresa && (
-                <span className="text-muted-foreground">
-                  Cliente: <b className="text-foreground">{tarea.empresa.nombre}</b>
-                </span>
-              )}
-              <span className="text-muted-foreground">
-                Responsable: <b className="text-foreground">{nombrePorId(tarea.responsable_id)}</b>
-              </span>
-              {(tarea.coasignados ?? []).length > 0 && (
-                <span className="text-muted-foreground">
-                  Con:{" "}
-                  <b className="text-foreground">
-                    {tarea.coasignados.map((p) => p.nombre).join(", ")}
-                  </b>
-                </span>
-              )}
-              <span className="text-muted-foreground">
-                Te la puso: <b className="text-foreground">{nombrePorId(tarea.created_by)}</b>
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Estado:</span>
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+              {/* El estado manda en la cabecera: es el dato que más se mira y
+                  el único que casi todo el mundo puede cambiar. */}
+              {puedeMover ? (
                 <Select
                   value={estado}
-                  onValueChange={(v) => v && puedeMover && cambiarEstadoMiembro(v as EstadoId)}
-                  disabled={!puedeMover}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    if (manda) setEstado(v as EstadoId);
+                    else cambiarEstadoMiembro(v as EstadoId);
+                  }}
                 >
-                  <SelectTrigger className="h-8 w-40"><SelectValue>{(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}</SelectValue></SelectTrigger>
+                  <SelectTrigger
+                    className="h-8 w-auto gap-1.5 rounded-full border-0 px-3 text-[12.5px] font-semibold text-white shadow-sm focus-visible:ring-2"
+                    style={{ backgroundColor: obtenerEstado(estado)?.color }}
+                  >
+                    <SelectValue>
+                      {(v: string) => obtenerEstado(v)?.nombre ?? "Estado"}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
-                    {ESTADOS.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
+                    {ESTADOS.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
+              ) : (
+                <span
+                  className="inline-flex h-8 items-center rounded-full px-3 text-[12.5px] font-semibold text-white"
+                  style={{ backgroundColor: obtenerEstado(estado)?.color }}
+                >
+                  {obtenerEstado(estado)?.nombre}
+                </span>
+              )}
+
+              {manda ? (
+                <Input
+                  className="h-10 min-w-0 flex-1 border-0 bg-transparent px-0 text-[21px] font-bold tracking-tight shadow-none focus-visible:bg-muted/50 focus-visible:px-2 md:text-[23px]"
+                  value={titulo}
+                  onChange={(e) => setTitulo(e.target.value)}
+                  placeholder="Título de la tarea"
+                />
+              ) : (
+                <h1 className="min-w-0 flex-1 text-[21px] font-bold leading-tight tracking-tight md:text-[23px]">
+                  {tarea.titulo}
+                </h1>
+              )}
             </div>
-            {estado === "atorado" && tarea.motivo_atorado && (
-              <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-sm text-orange-800 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-300">
-                <b className="font-semibold">Atorada:</b> {tarea.motivo_atorado}
+
+            {/* Quién, para cuándo y con qué etiquetas — todo en un renglón. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[12.5px] text-muted-foreground">
+              <AvataresEquipo tarea={tarea} tamano="md" />
+              <span>
+                la puso <b className="font-semibold text-foreground">{nombrePorId(tarea.created_by)}</b>
+              </span>
+              {tarea.empresa && (
+                <span
+                  className="inline-flex items-center rounded-full px-2 py-0.5 text-[11.5px] font-semibold"
+                  style={{ backgroundColor: `${tarea.empresa.color}1f`, color: tarea.empresa.color }}
+                >
+                  {tarea.empresa.nombre}
+                </span>
+              )}
+              {/* Mientras se edita, la cabecera enseña lo que se está cambiando
+                  —no lo guardado—: si no, mover la fecha o quitar una etiqueta
+                  no se notaba arriba hasta pulsar Guardar. */}
+              {fechaCabecera && (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 font-medium",
+                    esVencida(fechaCabecera, estado) && "font-semibold text-red-600",
+                  )}
+                >
+                  <CalendarDays className="size-3.5" strokeWidth={1.9} aria-hidden="true" />
+                  {esVencida(fechaCabecera, estado) ? "venció" : "vence"} {formatearFecha(fechaCabecera)}
+                </span>
+              )}
+              {etiquetasCabecera.length > 0 && (
+                <ChipsEtiquetas ids={etiquetasCabecera} maximo={4} />
+              )}
+            </div>
+
+            {/* Progreso: la barra dice en un golpe de vista lo que la lista de
+                subtareas obliga a contar. Solo aparece si hay subtareas. */}
+            {checklist.length > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="h-1.5 w-full max-w-xs overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-500"
+                    style={{ width: `${Math.round((hechos / checklist.length) * 100)}%` }}
+                  />
+                </div>
+                <span className="shrink-0 text-[11.5px] font-semibold text-muted-foreground">
+                  {hechos}/{checklist.length} subtareas
+                </span>
               </div>
             )}
+
+            {estado === "atorado" && (manda ? motivoAtorado : tarea.motivo_atorado) && (
+              <div className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-[13px] text-orange-800 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-300">
+                <AlertTriangle className="mt-px size-4 shrink-0" strokeWidth={1.9} aria-hidden="true" />
+                <span>
+                  <b className="font-semibold">Atorada:</b>{" "}
+                  {manda ? motivoAtorado : tarea.motivo_atorado}
+                </span>
+              </div>
+            )}
+
             {!puedeMover && (
               <p className="text-xs italic text-muted-foreground">
                 Solo puedes comentar. El cambio de estado lo hace la persona responsable o un coordinador.
               </p>
             )}
+            {/* Esta vista no tiene botón de Guardar —el de abajo es solo para
+                quien edita la tarea— y sin decirlo parecía que lo que uno
+                escribía se quedaba sin guardar. */}
+            {puedeContribuir && !manda && (
+              <p className="text-xs italic text-muted-foreground">
+                No hay que guardar: el estado, las subtareas, los enlaces, las fotos y los comentarios
+                se guardan en cuanto los agregas.
+              </p>
+            )}
           </div>
-        )}
+        </Tarjeta>
 
         {cargando ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Cargando detalle…</p>
@@ -575,168 +605,446 @@ export function TaskDetail({
             No se pudo cargar el detalle: {errorDetalle}
           </p>
         ) : (
-          <>
-            {/* ===== Checklist ===== */}
-            <Seccion
-              titulo="Subtareas"
-              contador={checklist.length ? `${hechos}/${checklist.length}` : null}
-              sufijoEscritorio={checklist.length ? `(${hechos}/${checklist.length})` : null}
-              abiertaPorDefecto={checklist.length > 0}
-            >
-              <div className="flex flex-col gap-1">
-                {checklist.map((it) => (
-                  <label key={it.id} className="flex items-center gap-2.5 rounded-md px-1.5 py-2 hover:bg-muted/60 md:gap-2 md:py-1">
-                    <input
-                      type="checkbox"
-                      className="size-[18px] shrink-0 md:size-4"
-                      checked={it.hecho}
-                      disabled={!puedeContribuir}
-                      onChange={(e) => accion(() => toggleChecklist(it.id, e.target.checked))}
+          /* Dos columnas: a la izquierda lo que se TRABAJA (se lee y se
+             escribe), a la derecha lo que la tarea ES (ficha, etiquetas,
+             enlaces, historial), fija al hacer scroll para no perderla de
+             vista. El pop-up y el teléfono se quedan en una sola columna: los
+             breakpoints miran la ventana, no el ancho del diálogo. */
+          <div className={cn("grid gap-4", comoPagina && "lg:grid-cols-[minmax(0,1fr)_340px]")}>
+            {/* ---------------- Columna: el trabajo ---------------- */}
+            <div className="flex min-w-0 flex-col gap-4">
+              {/* Descripción */}
+              {(manda || tarea.descripcion) && (
+                <Tarjeta conMarco={comoPagina}>
+                  <h2 className="mb-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Descripción
+                  </h2>
+                  {manda ? (
+                    <Textarea
+                      rows={4}
+                      value={descripcion}
+                      onChange={(e) => setDescripcion(e.target.value)}
+                      placeholder="Detalles, contexto…"
                     />
-                    <span className={cn("flex-1 text-sm", it.hecho && "text-muted-foreground line-through")}>
-                      {it.texto}
-                    </span>
-                    {puedeContribuir && (
-                      <button className="text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => accion(() => borrarChecklist(it.id))}>✕</button>
-                    )}
-                  </label>
-                ))}
-              </div>
-              {puedeContribuir && (
-                <div className="mt-2 flex gap-2">
-                  <Input
-                    className="h-11 md:h-8"
-                    value={nuevaSubtarea}
-                    onChange={(e) => setNuevaSubtarea(e.target.value)}
-                    placeholder="Agregar subtarea…"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && nuevaSubtarea.trim()) {
-                        accion(() => agregarChecklist(tarea.id, nuevaSubtarea));
-                        setNuevaSubtarea("");
-                      }
-                    }}
+                  ) : (
+                    <p className="whitespace-pre-wrap text-[14px] leading-relaxed">
+                      {tarea.descripcion}
+                    </p>
+                  )}
+                </Tarjeta>
+              )}
+
+              {/* Motivo cuando está atorada (solo lo edita quien manda). */}
+              {manda && estado === "atorado" && (
+                <Tarjeta conMarco={comoPagina}>
+                  <h2 className="mb-2 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    ¿Por qué está atorada?
+                  </h2>
+                  <Textarea
+                    rows={2}
+                    value={motivoAtorado}
+                    onChange={(e) => setMotivoAtorado(e.target.value)}
+                    placeholder="Qué se necesita de vuelta para poder avanzar…"
                   />
-                </div>
+                </Tarjeta>
               )}
-            </Seccion>
 
-            {/* ===== Enlaces ===== */}
-            <Seccion titulo="Enlaces" contador={(detalle?.enlaces ?? []).length || null}>
-              <div className="flex flex-col gap-1">
-                {(detalle?.enlaces ?? []).map((l) => (
-                  <div key={l.id} className="flex items-center gap-2 py-1 text-sm md:py-0">
-                    <a href={l.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                      🔗 {l.titulo || l.url}
-                    </a>
-                    {puedeContribuir && (
-                      <button className="text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => accion(() => borrarEnlace(l.id))}>✕</button>
+              {/* ===== Subtareas ===== */}
+              <Tarjeta conMarco={comoPagina}>
+                <Seccion
+                  titulo="Subtareas"
+                  contador={checklist.length ? `${hechos}/${checklist.length}` : null}
+                  sufijoEscritorio={checklist.length ? `(${hechos}/${checklist.length})` : null}
+                  abiertaPorDefecto
+                >
+                  <div className="flex flex-col gap-1">
+                    {checklist.length === 0 && (
+                      <p className="text-sm text-muted-foreground">Sin subtareas todavía.</p>
                     )}
+                    {checklist.map((it) => (
+                      <label key={it.id} className="flex items-center gap-2.5 rounded-md px-1.5 py-2 hover:bg-muted/60 md:gap-2 md:py-1.5">
+                        <input
+                          type="checkbox"
+                          className="size-[18px] shrink-0 md:size-4"
+                          checked={it.hecho}
+                          disabled={!puedeContribuir}
+                          onChange={(e) => accion(() => toggleChecklist(it.id, e.target.checked))}
+                        />
+                        <span className={cn("flex-1 text-sm", it.hecho && "text-muted-foreground line-through")}>
+                          {it.texto}
+                        </span>
+                        {puedeContribuir && (
+                          <button className="text-xs text-muted-foreground hover:text-destructive"
+                            onClick={() => accion(() => borrarChecklist(it.id))}>✕</button>
+                        )}
+                      </label>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {puedeContribuir && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Input className="h-11 w-full md:h-8 md:w-auto md:min-w-[38%] md:flex-1" value={enlaceTitulo}
-                    onChange={(e) => setEnlaceTitulo(e.target.value)} placeholder="Nombre (opcional)" />
-                  <Input className="h-11 w-full md:h-8 md:w-auto md:min-w-[38%] md:flex-1" value={enlaceUrl}
-                    onChange={(e) => setEnlaceUrl(e.target.value)} placeholder="https://…" />
-                  <Button variant="outline" size="sm" className="h-10 w-full md:h-8 md:w-auto"
-                    onClick={() => {
-                      if (!enlaceUrl.trim()) return;
-                      accion(() => agregarEnlace(tarea.id, enlaceTitulo, enlaceUrl));
-                      setEnlaceTitulo(""); setEnlaceUrl("");
-                    }}>Agregar</Button>
-                </div>
-              )}
-            </Seccion>
-
-            {/* ===== Adjuntos ===== */}
-            <Seccion titulo="Adjuntos / fotos" contador={(detalle?.adjuntos ?? []).length || null}>
-              <div className="flex flex-col gap-1">
-                {(detalle?.adjuntos ?? []).map((a) => (
-                  <div key={a.id} className="flex items-center gap-2 py-1 text-sm md:py-0">
-                    <button className="text-primary hover:underline" onClick={() => verAdjunto(a.storage_path)}>
-                      📎 {a.nombre}
-                    </button>
-                    {(gestor || a.autor === currentUserId) && (
-                      <button className="text-xs text-muted-foreground hover:text-destructive"
-                        onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path))}>✕</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {puedeContribuir && (
-                <div className="mt-2">
-                  <input ref={fileRef} type="file" className="hidden" onChange={onSubir} />
-                  <Button variant="outline" size="sm" className="h-10 w-full md:h-8 md:w-auto" onClick={() => fileRef.current?.click()}>
-                    📎 Adjuntar archivo / foto
-                  </Button>
-                </div>
-              )}
-            </Seccion>
-
-            {/* ===== Comentarios ===== */}
-            <Seccion
-              titulo="Comentarios"
-              contador={(detalle?.comentarios ?? []).length || null}
-              abiertaPorDefecto
-            >
-              <div ref={hiloRef} className="flex flex-col gap-2">
-                {(detalle?.comentarios ?? []).length === 0 && (
-                  <p className="text-sm text-muted-foreground">Sin comentarios todavía.</p>
-                )}
-                {(detalle?.comentarios ?? []).map((c) => (
-                  <div key={c.id} className="rounded-lg bg-muted/60 px-3 py-2">
-                    <div className="mb-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                      <b className="text-foreground">{nombrePorId(c.autor)}</b>
-                      <span>{fmtFechaHora(c.created_at)}</span>
-                      {(gestor || c.autor === currentUserId) && (
-                        <button className="ml-auto hover:text-destructive"
-                          onClick={() => accion(() => borrarComentario(c.id))}>✕</button>
-                      )}
+                  {/* El botón NO es decorativo: la subtarea solo se agregaba con
+                      Enter y no había nada que lo dijera, así que se escribía y se
+                      perdía. El Enter sigue funcionando para quien ya lo sabe. */}
+                  {puedeContribuir && (
+                    <div className="mt-2 flex gap-2">
+                      <Input
+                        className="h-11 min-w-0 flex-1 md:h-9"
+                        value={nuevaSubtarea}
+                        onChange={(e) => setNuevaSubtarea(e.target.value)}
+                        placeholder="Agregar subtarea…"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            agregarSubtarea();
+                          }
+                        }}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-11 shrink-0 md:h-9"
+                        disabled={!nuevaSubtarea.trim()}
+                        onClick={agregarSubtarea}
+                      >
+                        Agregar
+                      </Button>
                     </div>
-                    <p className="whitespace-pre-wrap text-sm">{c.texto}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 flex flex-col gap-2 md:flex-row">
-                <Textarea ref={comentarioRef} rows={2} value={nuevoComentario}
-                  onChange={(e) => setNuevoComentario(e.target.value)} placeholder="Escribe un comentario…" />
-                <Button variant="outline" size="sm" className="h-10 self-end px-5 md:h-8 md:self-auto md:px-3"
-                  onClick={() => {
-                    if (!nuevoComentario.trim()) return;
-                    accion(() => comentar(tarea.id, nuevoComentario), "Comentario agregado.");
-                    setNuevoComentario("");
-                  }}>Comentar</Button>
-              </div>
-            </Seccion>
+                  )}
+                </Seccion>
+              </Tarjeta>
 
-            {/* ===== Historial ===== */}
-            <Seccion titulo="Historial de actividad" contador={(detalle?.actividad ?? []).length || null}>
-              <div className="flex flex-col gap-1">
-                {(detalle?.actividad ?? []).map((a) => (
-                  <div key={a.id} className="text-xs text-muted-foreground">
-                    <b className="text-foreground">{nombrePorId(a.autor)}</b> {a.texto}
-                    <span> · {fmtFechaHora(a.created_at)}</span>
+              {/* ===== Fotos y archivos ===== */}
+              <Tarjeta conMarco={comoPagina}>
+                <Seccion
+                  titulo="Fotos y archivos"
+                  contador={(detalle?.adjuntos ?? []).length || null}
+                  abiertaPorDefecto
+                >
+                  {/* Las fotos se ven aquí mismo. Antes toda la sección era una
+                      lista de nombres, y para saber qué había mandado alguien
+                      —justo el caso de esto: mandar la foto de lo que se contó—
+                      había que abrir cada archivo en otra pestaña.
+                      Lo que no es imagen (o cuya miniatura no se pudo firmar)
+                      sigue como renglón con su nombre. */}
+                  {fotos.length > 0 && (
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
+                      {fotos.map(({ a, url }) => (
+                        <div key={a.id} className="group relative">
+                          <button
+                            type="button"
+                            onClick={() => verAdjunto(a.storage_path)}
+                            title={`Ver «${a.nombre}» en grande`}
+                            className="block w-full overflow-hidden rounded-xl border bg-muted/40 transition-opacity hover:opacity-90"
+                          >
+                            {/* <img> plano, como en el catálogo: es una miniatura ya
+                                redimensionada por Storage y su URL es firmada (y
+                                caduca), así que no gana nada pasando por next/image. */}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt={a.nombre}
+                              loading="lazy"
+                              className="aspect-square w-full object-contain"
+                            />
+                          </button>
+                          {(gestor || a.autor === currentUserId) && (
+                            <button
+                              type="button"
+                              aria-label={`Quitar ${a.nombre}`}
+                              onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path))}
+                              className="absolute -right-1.5 -top-1.5 flex size-6 items-center justify-center rounded-full border bg-card text-xs text-muted-foreground shadow-sm hover:text-destructive"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className={cn("flex flex-col gap-1", fotos.length > 0 && archivos.length > 0 && "mt-2")}>
+                    {archivos.map((a) => (
+                      <div key={a.id} className="flex items-center gap-2 py-1 text-sm md:py-0">
+                        <button className="text-primary hover:underline" onClick={() => verAdjunto(a.storage_path)}>
+                          📎 {a.nombre}
+                        </button>
+                        {(gestor || a.autor === currentUserId) && (
+                          <button className="text-xs text-muted-foreground hover:text-destructive"
+                            onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path))}>✕</button>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </Seccion>
-          </>
+                  {fotos.length === 0 && archivos.length === 0 && (
+                    <p className="text-sm text-muted-foreground">Nada adjunto todavía.</p>
+                  )}
+                  {puedeContribuir && (
+                    <div className="mt-2">
+                      <input ref={fileRef} type="file" className="hidden" onChange={onSubir} />
+                      <Button variant="outline" size="sm" className="h-10 w-full md:h-9 md:w-auto" onClick={() => fileRef.current?.click()}>
+                        📎 Adjuntar archivo / foto
+                      </Button>
+                    </div>
+                  )}
+                </Seccion>
+              </Tarjeta>
+
+              {/* ===== Conversación ===== */}
+              <Tarjeta conMarco={comoPagina}>
+                <Seccion
+                  titulo="Conversación"
+                  contador={(detalle?.comentarios ?? []).length || null}
+                  abiertaPorDefecto
+                >
+                  <div ref={hiloRef} className="flex flex-col gap-2.5">
+                    {(detalle?.comentarios ?? []).length === 0 && (
+                      <p className="text-sm text-muted-foreground">Sin comentarios todavía.</p>
+                    )}
+                    {(detalle?.comentarios ?? []).map((c) => {
+                      const mio = c.autor === currentUserId;
+                      return (
+                        <div key={c.id} className="flex gap-2.5">
+                          {/* Avatar del autor: en un hilo de cuatro personas, el
+                              nombre en negritas no basta para seguir quién habla. */}
+                          <span
+                            className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                            style={{ backgroundColor: colorPorId(c.autor) }}
+                            aria-hidden="true"
+                          >
+                            {iniciales(nombrePorId(c.autor))}
+                          </span>
+                          <div className={cn("min-w-0 flex-1 rounded-2xl px-3 py-2", mio ? "bg-primary/10" : "bg-muted/60")}>
+                            <div className="mb-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                              <b className="text-foreground">{nombrePorId(c.autor)}</b>
+                              <span>{fmtFechaHora(c.created_at)}</span>
+                              {(gestor || mio) && (
+                                <button className="ml-auto hover:text-destructive"
+                                  onClick={() => accion(() => borrarComentario(c.id))}>✕</button>
+                              )}
+                            </div>
+                            <p className="whitespace-pre-wrap text-sm">{c.texto}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-end">
+                    <Textarea ref={comentarioRef} rows={2} value={nuevoComentario}
+                      onChange={(e) => setNuevoComentario(e.target.value)} placeholder="Escribe un comentario…" />
+                    <Button variant="outline" size="sm" className="h-10 self-end px-5 md:h-9 md:self-auto"
+                      onClick={() => {
+                        if (!nuevoComentario.trim()) return;
+                        accion(() => comentar(tarea.id, nuevoComentario), "Comentario agregado.");
+                        setNuevoComentario("");
+                      }}>Comentar</Button>
+                  </div>
+                </Seccion>
+              </Tarjeta>
+            </div>
+
+            {/* ---------------- Columna: la ficha ---------------- */}
+            <aside
+              className={cn(
+                "flex min-w-0 flex-col gap-4",
+                /* Fija al hacer scroll: la conversación puede ser larga y los
+                   datos de la tarea se consultan mientras se lee. top-20 la
+                   deja por debajo del header pegajoso del móvil/escritorio. */
+                comoPagina && "lg:sticky lg:top-20 lg:self-start",
+              )}
+            >
+              <Tarjeta conMarco={comoPagina}>
+                <h2 className="mb-3 text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Ficha
+                </h2>
+                {manda ? (
+                  /* Quien manda edita la ficha en el sitio; se guarda con el
+                     botón del pie (o la barra fija del teléfono). */
+                  <div className="grid grid-cols-1 divide-y rounded-2xl border bg-card md:divide-y-0 md:rounded-none md:border-0 md:bg-transparent">
+                    {/* De quién es el trabajo. Solo en la agencia: en Fresafit el
+                        cliente es la propia marca y el campo sobraría. */}
+                    {esAgencia && (
+                      <Meta label="Cliente">
+                        <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
+                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_EMPRESA ? "De la agencia" : (empresas.find((e) => e.id === v)?.nombre ?? tarea.empresa?.nombre ?? "Cliente")}</SelectValue></SelectTrigger>
+                          <SelectContent>
+                            {empresas.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
+                            <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Meta>
+                    )}
+                    <Meta label="Responsable">
+                      <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
+                        <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
+                          {equipo.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </Meta>
+                    {/* El área la dicta el perfil del responsable, así que en el 99 %
+                        de los casos es un campo que se rellena solo y solo estorba
+                        ("si le creo una tarea a René no es necesario poner el área,
+                        su área ya es operaciones"). Se muestra como dato, con un
+                        atajo para el caso raro en que haya que cambiarla. */}
+                    <Meta label="Área">
+                      {areaManual ? (
+                        <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
+                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
+                          <SelectContent>
+                            {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm md:h-9 md:w-full">
+                          <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
+                          <button
+                            type="button"
+                            onClick={() => setAreaManual(true)}
+                            className="ml-auto shrink-0 text-xs font-medium text-primary hover:underline"
+                          >
+                            cambiar
+                          </button>
+                        </div>
+                      )}
+                    </Meta>
+                    <Meta label="Prioridad">
+                      <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
+                        <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
+                        <SelectContent>
+                          {PRIORIDADES.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
+                        </SelectContent>
+                      </Select>
+                    </Meta>
+                    <Meta label="Fecha límite">
+                      <DatePicker className={CTRL_MOVIL} value={fecha} onChange={setFecha} limpiable />
+                    </Meta>
+                    <Meta label="Recordatorio">
+                      <Input
+                        className={CTRL_MOVIL}
+                        type="datetime-local"
+                        value={recordatorio}
+                        onChange={(e) => setRecordatorio(e.target.value)}
+                      />
+                    </Meta>
+                  </div>
+                ) : (
+                  /* Quien solo la trabaja la lee. El estado ya se cambia desde
+                     la cabecera, así que aquí no se repite. */
+                  <div className="flex flex-col gap-3">
+                    {tarea.empresa && (
+                      <Dato label="Cliente">{tarea.empresa.nombre}</Dato>
+                    )}
+                    <Dato label="Responsable">{nombrePorId(tarea.responsable_id)}</Dato>
+                    {(tarea.coasignados ?? []).length > 0 && (
+                      <Dato label="Con">{tarea.coasignados.map((p) => p.nombre).join(", ")}</Dato>
+                    )}
+                    <Dato label="Te la puso">{nombrePorId(tarea.created_by)}</Dato>
+                    <Dato label="Área">{obtenerArea(tarea.area)?.nombre ?? tarea.area}</Dato>
+                    <Dato label="Prioridad">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="size-2 rounded-full"
+                          style={{ backgroundColor: obtenerPrioridad(tarea.prioridad)?.color }}
+                        />
+                        {obtenerPrioridad(tarea.prioridad)?.nombre}
+                      </span>
+                    </Dato>
+                    <Dato label="Fecha límite">
+                      {tarea.fecha_limite ? formatearFecha(tarea.fecha_limite) : "sin fecha"}
+                    </Dato>
+                  </div>
+                )}
+              </Tarjeta>
+
+              {/* Equipo de apoyo (solo lo reparte quien manda). */}
+              {manda && (
+                <Tarjeta conMarco={comoPagina}>
+                  <Seccion titulo="¿Quién más trabaja esta tarea?" abiertaPorDefecto>
+                    <SelectorPersonas
+                      equipo={equipo}
+                      seleccionados={coasignados}
+                      principalId={responsable === SIN_ASIGNAR ? null : responsable}
+                      onToggle={toggleCoasignado}
+                    />
+                  </Seccion>
+                </Tarjeta>
+              )}
+
+              {/* Etiquetas: se ponen aquí y se ven arriba, en la cabecera. */}
+              {manda && (
+                <Tarjeta conMarco={comoPagina}>
+                  <Seccion titulo="Etiquetas" abiertaPorDefecto>
+                    <SelectorEtiquetas
+                      area={area}
+                      seleccionadas={etiquetas}
+                      onToggle={toggleEtiquetaGestor}
+                    />
+                  </Seccion>
+                </Tarjeta>
+              )}
+
+              {/* ===== Enlaces ===== */}
+              <Tarjeta conMarco={comoPagina}>
+                <Seccion titulo="Enlaces" contador={(detalle?.enlaces ?? []).length || null} abiertaPorDefecto>
+                  <div className="flex flex-col gap-1">
+                    {(detalle?.enlaces ?? []).length === 0 && (
+                      <p className="text-sm text-muted-foreground">Sin enlaces.</p>
+                    )}
+                    {(detalle?.enlaces ?? []).map((l) => (
+                      <div key={l.id} className="flex items-center gap-2 py-1 text-sm md:py-0">
+                        <a href={l.url} target="_blank" rel="noreferrer" className="min-w-0 truncate text-primary hover:underline">
+                          🔗 {l.titulo || l.url}
+                        </a>
+                        {puedeContribuir && (
+                          <button className="ml-auto shrink-0 text-xs text-muted-foreground hover:text-destructive"
+                            onClick={() => accion(() => borrarEnlace(l.id))}>✕</button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {puedeContribuir && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Input className="h-11 w-full md:h-9" value={enlaceTitulo}
+                        onChange={(e) => setEnlaceTitulo(e.target.value)} placeholder="Nombre (opcional)" />
+                      <Input className="h-11 w-full md:h-9" value={enlaceUrl}
+                        onChange={(e) => setEnlaceUrl(e.target.value)} placeholder="https://…" />
+                      <Button variant="outline" size="sm" className="h-10 w-full md:h-9"
+                        onClick={() => {
+                          if (!enlaceUrl.trim()) return;
+                          accion(() => agregarEnlace(tarea.id, enlaceTitulo, enlaceUrl));
+                          setEnlaceTitulo(""); setEnlaceUrl("");
+                        }}>Agregar</Button>
+                    </div>
+                  )}
+                </Seccion>
+              </Tarjeta>
+
+              {/* ===== Historial ===== */}
+              <Tarjeta conMarco={comoPagina}>
+                <Seccion titulo="Historial" contador={(detalle?.actividad ?? []).length || null}>
+                  {/* Línea de tiempo: el hilo vertical y el punto de cada paso
+                      hacen legible de un vistazo que esto es una secuencia, que
+                      es justo lo que una lista de renglones grises escondía. */}
+                  <ol className="relative flex flex-col gap-3 border-l pl-4">
+                    {(detalle?.actividad ?? []).map((a) => (
+                      <li key={a.id} className="relative text-[12px] leading-snug text-muted-foreground">
+                        <span
+                          className="absolute -left-[21px] top-1 size-2 rounded-full bg-border ring-4 ring-card"
+                          aria-hidden="true"
+                        />
+                        <b className="text-foreground">{nombrePorId(a.autor)}</b> {a.texto}
+                        <div className="text-[11px] text-muted-foreground/70">{fmtFechaHora(a.created_at)}</div>
+                      </li>
+                    ))}
+                  </ol>
+                </Seccion>
+              </Tarjeta>
+            </aside>
+          </div>
         )}
 
         {/* ===== Pie ===== */}
-        {/* En el teléfono el pie se parte en dos: la procedencia se queda aquí
-            como nota y las acciones viven en las barras fijas (⋯ arriba,
-            Guardar abajo). En escritorio sigue siendo la fila de siempre. */}
-        {comoPagina && (
-          <p className="mt-4 border-t pt-3 text-xs text-muted-foreground md:hidden">
-            Delegada por {nombrePorId(tarea.created_by)}
-            {tarea.fecha_inicio && ` · Inicio ${formatearFecha(tarea.fecha_inicio)}`}
-          </p>
-        )}
+        {/* En el teléfono las acciones viven en las barras fijas (⋯ arriba,
+            Guardar abajo), así que aquí solo queda la fila de escritorio.
+            Quién la delegó ya no se repite: lo dice la cabecera. */}
         <div
           className={cn(
             "mt-4 flex items-center gap-2 border-t pt-4",
@@ -746,11 +1054,10 @@ export function TaskDetail({
           )}
         >
           <span className="text-xs text-muted-foreground">
-            Delegada por {nombrePorId(tarea.created_by)}
-            {tarea.fecha_inicio && ` · Inicio ${formatearFecha(tarea.fecha_inicio)}`}
+            {tarea.fecha_inicio ? `Empezó el ${formatearFecha(tarea.fecha_inicio)}` : ""}
           </span>
           <div className="ml-auto flex gap-2">
-            {gestor && (
+            {manda && (
               <Button variant="outline" className="text-destructive hover:text-destructive" onClick={borrar}>
                 Borrar
               </Button>
@@ -758,7 +1065,7 @@ export function TaskDetail({
             <Button variant="outline" onClick={onClose}>
               {comoPagina ? "Volver" : "Cerrar"}
             </Button>
-            {gestor && <Button onClick={guardarMeta}>Guardar</Button>}
+            {manda && <Button onClick={guardarMeta}>Guardar</Button>}
           </div>
         </div>
     </Envoltorio>

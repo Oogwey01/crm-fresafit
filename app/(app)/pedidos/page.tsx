@@ -1,8 +1,10 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { leerDatosIntegracion } from "@/lib/canales/integraciones";
 import { diasDesdeHoy } from "@/lib/fecha";
+import { instanteDeCorte } from "@/lib/mercadolibre/desempeno";
 import { PanelPedidos } from "@/components/pedidos/panel";
 import type { PedidoEnvio, RolId } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Pedidos · Fresafit" };
 
@@ -10,6 +12,7 @@ export const metadata = { title: "Pedidos · Fresafit" };
 const DIAS_VENTANA = 120;
 
 export default async function PedidosPage() {
+  await exigirModulo("pedidos");
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
@@ -33,6 +36,7 @@ export default async function PedidosPage() {
       .select(
         "id, fecha, canal, cantidad, estado, num_guia, paqueteria, descripcion," +
           " referencia_externa, envio_direccion, url_rastreo, url_orden," +
+          " envio_limite_despacho, envio_despachado_en, envio_id," +
           " producto:products!producto_id(id, nombre, variante)," +
           " cliente:customers!cliente_id(id, nombre)",
       )
@@ -51,5 +55,12 @@ export default async function PedidosPage() {
   const dominioTN =
     typeof datosTN.dominio_admin === "string" ? datosTN.dominio_admin : null;
 
-  return <PanelPedidos pedidos={pedidos} rol={rol} dominioTiendaNube={dominioTN} />;
+  return (
+    <PanelPedidos
+      pedidos={pedidos}
+      rol={rol}
+      dominioTiendaNube={dominioTN}
+      ahora={instanteDeCorte()}
+    />
+  );
 }

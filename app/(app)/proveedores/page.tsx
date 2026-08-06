@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { adjuntarCostos } from "@/lib/supabase/montos";
 import { esDireccion } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { paramsReordenDesdeEnv } from "@/lib/inventario/reabastecimiento";
 import { PanelProveedores } from "@/components/proveedores/panel";
 import type { Product, Supplier, SupplierOrderConDetalle } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Proveedores · Fresafit" };
 
@@ -16,6 +18,7 @@ export const metadata = { title: "Proveedores · Fresafit" };
    cada pedido. La RLS ya lo acota; este corte es para que nadie llegue a una
    pantalla vacía sin entender por qué. */
 export default async function ProveedoresPage() {
+  await exigirModulo("proveedores");
   const { supabase, rol } = await usuarioActual();
   if (!esDireccion(rol)) redirect("/inventario");
 
@@ -41,13 +44,20 @@ export default async function ProveedoresPage() {
 
   /* Catálogo liviano: solo lo que necesitan el diálogo de pedido y los
      importadores para emparejar SKUs. Nada del peso de /inventario. */
-  const productos = await traerTodo<ProductoLigeroProv>((desde, hasta) =>
+  /* El costo llega por `producto_costos`: la columna está fuera del alcance del
+     token (ver 20260902000000). Aquí siempre se pide —este módulo es de
+     dirección de punta a punta—, pero se pide por la puerta que valida. */
+  const catalogo = await traerTodo<ProductoLigeroProv>((desde, hasta) =>
     supabase
       .from("products")
-      .select("id, nombre, variante, sku, costo, activo, proveedor_id")
+      .select("id, nombre, variante, sku, activo, proveedor_id")
       .order("nombre")
-      .range(desde, hasta),
+      .range(desde, hasta) as unknown as PromiseLike<{
+      data: ProductoLigeroProv[] | null;
+      error: { message: string } | null;
+    }>,
   );
+  const productos = await adjuntarCostos(supabase, catalogo, true);
 
   return (
     <PanelProveedores
@@ -61,5 +71,5 @@ export default async function ProveedoresPage() {
 
 export type ProductoLigeroProv = Pick<
   Product,
-  "id" | "nombre" | "variante" | "sku" | "costo" | "activo" | "proveedor_id"
+  "id" | "nombre" | "variante" | "sku" | "activo" | "proveedor_id"
 >;

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, opcionesReimportacion, respuestaError } from "@/lib/canales/http";
+import {
+  autorizarCron,
+  conActorDePeticion,
+  opcionesReimportacion,
+  respuestaError,
+} from "@/lib/canales/http";
 import { conexionTiktok } from "@/lib/tiktok/api";
 import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
 import { importarVentasTikTok } from "@/lib/tiktok/ventas";
@@ -21,7 +26,7 @@ export async function GET(request: Request) {
   let resumen: Awaited<ReturnType<typeof importacionCompletaTikTok>> | null = null;
   let errorCatalogo: string | null = null;
   try {
-    resumen = await importacionCompletaTikTok(cx);
+    resumen = await conActorDePeticion(request, () => importacionCompletaTikTok(cx));
   } catch (e) {
     errorCatalogo = e instanceof Error ? e.message : "Falló la sincronización del catálogo.";
     console.error("[tiktok] sincronización de catálogo:", e);

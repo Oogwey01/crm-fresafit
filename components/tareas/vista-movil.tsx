@@ -7,6 +7,7 @@ import { esVencida, formatearFecha } from "@/lib/fecha";
 import { trabajaLaTarea, type EstadoId, type RolId, type TaskConResponsable } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
+import { FiltroEtiquetas, ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";
 
 /* Vista móvil del módulo Tareas (portada del diseño de Claude Design).
    Lista agrupada por ÁREA con tarjetas compactas — en vez de las vistas
@@ -34,12 +35,14 @@ const ESTILO_ESTADO: Record<EstadoId, { nombre: string; bg: string; color: strin
 export function VistaMovil({
   tareas,
   currentUserId,
-  gestor,
+  puedeCrear,
   rol,
   alcance,
   setAlcance,
   soloVencidas,
   setSoloVencidas,
+  filtroEtiquetas,
+  setFiltroEtiquetas,
   onAbrir,
   onNueva,
   checklistPorTarea,
@@ -48,12 +51,17 @@ export function VistaMovil({
 }: {
   tareas: TaskConResponsable[];
   currentUserId: string;
-  gestor: boolean;
+  /* Todo el equipo de casa puede abrir tareas y delegarlas; `externo` no. */
+  puedeCrear: boolean;
   rol: RolId;
   alcance: Alcance;
   setAlcance: (a: Alcance) => void;
   soloVencidas: boolean;
   setSoloVencidas: (fn: (v: boolean) => boolean) => void;
+  /* Etiquetas marcadas. El estado vive en el <Board> y se comparte con las
+     vistas de escritorio, igual que el alcance. */
+  filtroEtiquetas: string[];
+  setFiltroEtiquetas: (ids: string[]) => void;
   onAbrir: (t: TaskConResponsable) => void;
   onNueva: () => void;
   checklistPorTarea?: Record<string, { total: number; hechos: number }>;
@@ -67,12 +75,19 @@ export function VistaMovil({
   const porCliente = !!empresas;
   /* "mis" = lo asignado a mí; "delegadas" = lo que yo delegué; "todas" = todo
      (los filtros de persona/área son de escritorio y aquí no aplican). */
-  const base =
+  const porAlcance =
     alcance === "mis"
       ? tareas.filter((t) => trabajaLaTarea(t, currentUserId))
       : alcance === "delegadas"
         ? tareas.filter((t) => t.created_by === currentUserId)
         : tareas;
+
+  /* Etiquetas: la tarea entra si tiene ALGUNA de las marcadas. Va antes de
+     contar vencidas para que el chip rojo hable de lo que se está viendo. */
+  const base =
+    filtroEtiquetas.length === 0
+      ? porAlcance
+      : porAlcance.filter((t) => (t.etiquetas ?? []).some((e) => filtroEtiquetas.includes(e)));
 
   const vencidas = base.filter((t) => esVencida(t.fecha_limite, t.estado)).length;
   const filtradas = soloVencidas
@@ -139,7 +154,7 @@ export function VistaMovil({
         >
           Mías
         </button>
-        {gestor && (
+        {puedeCrear && (
           <button
             type="button"
             onClick={() => setAlcance("delegadas")}
@@ -173,6 +188,18 @@ export function VistaMovil({
         )}
       </div>
 
+      {/* Filtro por etiqueta. En renglón aparte: la fila de arriba ya reparte su
+          ancho entre tres o cuatro chips y uno más los dejaría ilegibles. Solo
+          aparece si hay etiquetas puestas en lo que se está mirando. */}
+      <div className="mt-1.5 flex">
+        <FiltroEtiquetas
+          tareas={porAlcance}
+          seleccionadas={filtroEtiquetas}
+          onCambiar={setFiltroEtiquetas}
+          className="h-auto rounded-full px-3 py-2 text-[12px]"
+        />
+      </div>
+
       {/* Nota de acceso */}
       <div className="mt-2 flex items-start gap-2.5 rounded-xl border bg-card px-3.5 py-3 text-[12px] text-muted-foreground">
         <Info className="mt-px size-[15px] shrink-0" strokeWidth={1.8} aria-hidden="true" />
@@ -185,9 +212,11 @@ export function VistaMovil({
       {/* Grupos por área */}
       {grupos.length === 0 ? (
         <p className="mt-6 text-sm italic text-muted-foreground">
-          {alcance === "mis"
-            ? "No tienes tareas asignadas por ahora."
-            : "No hay tareas para mostrar."}
+          {filtroEtiquetas.length > 0
+            ? "Nada con esas etiquetas."
+            : alcance === "mis"
+              ? "No tienes tareas asignadas por ahora."
+              : "No hay tareas para mostrar."}
         </p>
       ) : (
         <div className="mt-4 flex flex-col gap-5">
@@ -300,6 +329,14 @@ export function VistaMovil({
                           </span>
                         )}
                       </div>
+
+                      {/* Etiquetas — renglón propio y solo si las trae, como en
+                          las tarjetas del tablero. */}
+                      {(t.etiquetas ?? []).length > 0 && (
+                        <div className="mt-2">
+                          <ChipsEtiquetas ids={t.etiquetas} maximo={3} />
+                        </div>
+                      )}
                     </button>
                   );
                 })}
@@ -312,8 +349,8 @@ export function VistaMovil({
         </div>
       )}
 
-      {/* FAB — Nueva tarea (solo gestores) */}
-      {gestor && (
+      {/* FAB — Nueva tarea (todo el equipo de casa) */}
+      {puedeCrear && (
         <button
           type="button"
           onClick={onNueva}

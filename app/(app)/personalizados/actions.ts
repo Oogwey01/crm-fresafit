@@ -31,6 +31,7 @@ export type PersonalizadoInput = {
   url: string;
   estado: EstadoPersonalizadoId;
   notas: string;
+  responsable_id: string | null;
 };
 
 export async function guardarPersonalizado(
@@ -56,6 +57,7 @@ export async function guardarPersonalizado(
     url: textoONulo(input.url),
     estado: input.estado,
     notas: textoONulo(input.notas),
+    responsable_id: input.responsable_id,
   };
 
   const { data, error } = id
@@ -157,6 +159,17 @@ export async function urlFotoPersonalizado(
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;
   return urlFirmada(cx.supabase, "personalizados", path);
+}
+
+/* Liga del diseño para MANDARSE por WhatsApp al proveedor (Eduardo). Dura 7
+   días y no 1 hora: la abre él cuando le toque el pedido, no al instante. */
+const SIETE_DIAS = 7 * 24 * 60 * 60;
+export async function ligaDisenoParaProveedor(
+  path: string,
+): Promise<{ url: string } | { error: string }> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+  return urlFirmada(cx.supabase, "personalizados", path, SIETE_DIAS);
 }
 
 /* ---------------------------------------------------------------------------

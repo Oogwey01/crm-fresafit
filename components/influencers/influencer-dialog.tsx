@@ -29,6 +29,7 @@ import {
 } from "@/lib/catalogos";
 import { aNumero } from "@/lib/validacion";
 import { formatearMXN } from "@/lib/moneda";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import type { EtapaInfluencerId, Influencer, TierInfluencerId } from "@/lib/types";
 
 const SIN_TIER = "sin_tier";
@@ -38,9 +39,12 @@ const SIN_TIER = "sin_tier";
    cuál es ese valor para no tener que escribirlo. */
 export function InfluencerDialog({
   influencer,
+  dinero,
   onClose,
 }: {
-  influencer: Influencer | null; // null = alta
+  influencer: Influencer | null;
+  /* El crédito al mes es egreso: sin permiso, el campo no aparece al editar. */
+  dinero: VistaDinero; // null = alta
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -264,18 +268,25 @@ export function InfluencerDialog({
                 onChange={(e) => setComision(e.target.value)}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-credito">Crédito al mes</Label>
-              <Input
-                id="inf-credito"
-                type="number"
-                min="0"
-                step="100"
-                placeholder={tierElegido?.creditoMensual != null ? String(tierElegido.creditoMensual) : "—"}
-                value={credito}
-                onChange={(e) => setCredito(e.target.value)}
-              />
-            </div>
+            {/* El crédito es egreso: al editar, quien no lo ve tampoco lo
+                recibió, y el campo vacío lo dejaría en nulo. Al dar de alta sí se
+                pide. El servidor conserva el anterior de todas formas. */}
+            {(dinero.egresos || !influencer) && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="inf-credito">Crédito al mes</Label>
+                <Input
+                  id="inf-credito"
+                  type="number"
+                  min="0"
+                  step="100"
+                  placeholder={
+                    tierElegido?.creditoMensual != null ? String(tierElegido.creditoMensual) : "—"
+                  }
+                  value={credito}
+                  onChange={(e) => setCredito(e.target.value)}
+                />
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="inf-prueba">Inicio de prueba</Label>
               <DatePicker id="inf-prueba" value={inicioPrueba} onChange={setInicioPrueba} limpiable />

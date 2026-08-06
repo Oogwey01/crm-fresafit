@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   AlertTriangle,
   Boxes,
@@ -13,7 +12,6 @@ import {
   Search,
   ShoppingCart,
   SlidersHorizontal,
-  Warehouse,
 } from "lucide-react";
 import { toast } from "sonner";
 import { esGestor } from "@/lib/catalogos";
@@ -29,6 +27,10 @@ import {
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
 import { formatearMXN } from "@/lib/moneda";
+import { LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
+import { movimientosStock } from "@/app/(app)/inventario/actions";
+import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import type {
   ProductConProveedor,
   Supplier,
@@ -37,7 +39,7 @@ import type {
   ConteoConProducto,
   Profile,
 } from "@/lib/types";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import {
@@ -49,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { StatCard } from "@/components/compartido/stat-card";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
+import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TIPOS_PRODUCTO, obtenerTipoProducto } from "@/lib/catalogos";
 import { TablaProductos } from "@/components/inventario/tabla-productos";
 import { TablaProductosAgrupada } from "@/components/inventario/tabla-productos-agrupada";
@@ -110,6 +113,21 @@ const VISTAS_CATALOGO = [
 ] as const;
 
 type VistaCatalogo = (typeof VISTAS_CATALOGO)[number][0];
+
+/* Las dos caras del historial. «Movimientos» son las piezas que cambiaron de
+   verdad —ventas, cancelaciones, mercancía recibida, ajustes—; «Puestas al día»
+   son el CRM copiando el número que ya tenía el canal, que es el 93% del ledger
+   y sepultaba a lo demás. La clasificación vive en lib/inventario/origenes.ts. */
+const VISTAS_MOV = [
+  ["reales", "Movimientos"],
+  ["puestas_al_dia", "Puestas al día"],
+] as const;
+
+type VistaMov = (typeof VISTAS_MOV)[number][0];
+
+/* Lo que la página ya trae cargado: sin pedirlo otra vez al abrir. */
+const VISTA_MOV_INICIAL: VistaMov = "reales";
+const CANAL_MOV_INICIAL = "todos";
 
 /* Filtro de canal para el historial de movimientos. */
 const CANALES_MOV = [
@@ -217,6 +235,7 @@ export function PanelInventario({
   enCamino,
   paramsReorden,
   rol,
+  dinero,
   tiendanube,
   mercadolibre,
   tiktok,
@@ -236,6 +255,8 @@ export function PanelInventario({
   enCamino: EnCamino;
   paramsReorden: ParamsReorden;
   rol: RolId;
+  /* Qué puede ver de dinero quien mira: el costo es egreso, el precio ingreso. */
+  dinero: VistaDinero;
   tiendanube: { conectada: boolean; ultimaSync: string | null };
   mercadolibre: { conectada: boolean; ultimaSync: string | null };
   tiktok: { conectada: boolean; ultimaSync: string | null };
@@ -294,16 +315,63 @@ export function PanelInventario({
     limpiarFiltros,
   } = useFiltrosProductos(productos);
 
-  /* Filtro de canal del historial (solo aplica a la pestaña de movimientos). */
-  const [filtroCanalMov, setFiltroCanalMov] = useState("todos");
-  const movimientosFiltrados =
-    filtroCanalMov === "todos" ? movimientos : movimientos.filter((m) => m.canal === filtroCanalMov);
+  /* Filtros del historial (solo aplican a la pestaña de movimientos): por dónde
+     impactó el cambio y por quién lo hizo. */
+  const [filtroCanalMov, setFiltroCanalMov] = useState<string>(CANAL_MOV_INICIAL);
+  const [filtroAutorMov, setFiltroAutorMov] = useState("todos");
+  const [vistaMov, setVistaMov] = useState<VistaMov>(VISTA_MOV_INICIAL);
+
+  /* La vista y el canal se resuelven en el SERVIDOR, no recortando la lista que
+     ya llegó: el tope se aplica antes de filtrar, así que un filtro de cliente
+     enseñaría tres renglones de Mercado Libre y daría a entender que solo hubo
+     tres. En la combinación inicial no se va a la red —esos datos son los que
+     la página ya trajo—. */
+  const claveMov = `${vistaMov}:${filtroCanalMov}`;
+  const { datos: cargaMov, cargando: cargandoMov } = useDetalleRemoto<{
+    movimientos: StockLog[];
+    tope: boolean;
+  }>(async () => {
+    if (vistaMov === VISTA_MOV_INICIAL && filtroCanalMov === CANAL_MOV_INICIAL) {
+      return { movimientos, tope: movimientos.length >= LIMITE_MOVIMIENTOS };
+    }
+    const r = await movimientosStock({
+      vista: vistaMov,
+      canal: filtroCanalMov as "todos" | StockLog["canal"],
+    });
+    return "error" in r ? { movimientos: [], tope: false } : r;
+  }, claveMov);
+
+  const movimientosVista = useMemo(() => cargaMov?.movimientos ?? [], [cargaMov]);
+
+  /* Quiénes firman los movimientos cargados. Sale de ellos y no del equipo
+     entero: ofrecer a quince personas cuando en el historial solo aparecen dos
+     es un selector lleno de filtros que no devuelven nada. */
+  const autoresMov = useMemo(() => {
+    const vistos = new Map<string, string>();
+    for (const m of movimientosVista) {
+      if (m.created_by && m.autor?.nombre) vistos.set(m.created_by, m.autor.nombre);
+    }
+    return [...vistos].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [movimientosVista]);
+
+  /* El autor sí se filtra aquí: solo tiene sentido sobre lo que se está viendo
+     (el selector se arma con los que firman esos mismos renglones). */
+  const movimientosFiltrados = movimientosVista.filter(
+    (m) =>
+      filtroAutorMov === "todos" ||
+      (filtroAutorMov === "sistema" ? m.created_by == null : m.created_by === filtroAutorMov),
+  );
 
   /* Agotado (ya no hay) y por acabarse (queda poco: lo accionable) son cosas
      distintas; juntarlos ahogaba el aviso con cientos de variantes agotadas. */
   const agotados = productos.filter((p) => estadoStock(p) === "agotado");
   const porAcabarse = productos.filter((p) => estadoStock(p) === "por_acabarse");
-  const valorInventario = productos.reduce((acc, p) => acc + p.stock * (p.costo ?? 0), 0);
+  /* Ojo con el `?? 0` de la suma: si el costo no viaja —quien mira no ve los
+     egresos— esto daría cero en silencio y la tarjeta pintaría «$0», que se lee
+     como un dato. Por eso el valor es null, y la tarjeta desaparece. */
+  const valorInventario = dinero.egresos
+    ? productos.reduce((acc, p) => acc + p.stock * (p.costo ?? 0), 0)
+    : null;
 
   /* Reorden con la ventana y la plataforma por defecto de «Qué pedir» (30 días,
      todas), para que la tarjeta KPI, la tabla y la ficha de un producto cuenten
@@ -450,18 +518,6 @@ export function PanelInventario({
           {esDireccion && (
             <BarraCanales tiendanube={tiendanube} mercadolibre={mercadolibre} tiktok={tiktok} />
           )}
-          {/* Bodega vive aparte: se usa en el piso, desde el celular, y no
-              necesita el catálogo completo ni las ventas que carga esta página. */}
-          <Link
-            href="/inventario/bodega"
-            className={cn(
-              buttonVariants({ variant: "outline" }),
-              "h-auto w-full gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:w-auto",
-            )}
-          >
-            <Warehouse className="size-4" strokeWidth={2} />
-            Bodega
-          </Link>
           {ETIQUETA_NUEVO[pestana] && (
             <Button
               onClick={abrirNuevo}
@@ -473,6 +529,8 @@ export function PanelInventario({
           )}
         </div>
       </div>
+
+      <TabsSeccion opciones={PESTANAS} valor={pestana} onCambio={setPestana} className="mb-4" />
 
       {/* Tarjetas KPI. En el teléfono se ven las TRES accionables en un renglón;
           «SKUs» y «Valor inventario» son datos de contexto que ahí solo estiraban
@@ -507,118 +565,136 @@ export function PanelInventario({
           icono={PackageX}
           valorClassName={agotados.length > 0 ? "text-red-600" : undefined}
         />
-        <StatCard
-          etiqueta="Valor inventario"
-          valor={valorCompacto(valorInventario)}
-          icono={DollarSign}
-          className="hidden md:block"
-        />
+        {valorInventario !== null && (
+          <StatCard
+            etiqueta="Valor inventario"
+            valor={valorCompacto(valorInventario)}
+            icono={DollarSign}
+            className="hidden md:block"
+          />
+        )}
       </div>
 
-      {/* Barra de herramientas: pestañas a la izquierda, búsqueda/filtro a la derecha */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {/* Móvil: Select (los labels no caben en un segmentado). Escritorio: segmentado. */}
-        <Select value={pestana} onValueChange={(v) => v && setPestana(v as Pestana)}>
-          <SelectTrigger className="w-full bg-card md:hidden">
-            <SelectValue>
-              {(v: string) => PESTANAS.find(([id]) => id === v)?.[1] ?? "Sección"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {PESTANAS.map(([id, label]) => (
-              <SelectItem key={id} value={id}>
-                {label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <ControlSegmentado
-          opciones={PESTANAS}
-          valor={pestana}
-          onCambio={setPestana}
-          className="hidden md:inline-flex"
-        />
+      {/* Barra de herramientas de la sección: búsqueda y filtros. Las pestañas
+          se subieron junto al título, con las demás pantallas; por eso la barra
+          ya no se pinta en Reconciliación, que no tiene nada que filtrar y
+          quedaría como un hueco. */}
+      {pestana !== "reconciliacion" && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {(pestana === "productos" || pestana === "reabastecer") && (
+            <>
+              <div className="relative flex w-full items-center md:w-auto md:min-w-[260px]">
+                <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" strokeWidth={1.9} />
+                <Input
+                  placeholder="Buscar producto, SKU o proveedor…"
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  className="h-auto rounded-[10px] bg-card py-2 pl-9"
+                />
+              </div>
+              {/* Tipo y stock viven en la barra en escritorio y plegados en el
+                  teléfono (ver el bloque de «Más filtros»): son los MISMOS
+                  controles, montados donde caben. */}
+              <div className="hidden md:contents">{selectTipo}</div>
+            </>
+          )}
 
-        <div className="flex-1" />
+          {pestana === "productos" && (
+            <>
+              <div className="hidden md:contents">{selectStock}</div>
 
-        {(pestana === "productos" || pestana === "reabastecer") && (
-          <>
-            <div className="relative flex w-full items-center md:w-auto md:min-w-[260px]">
-              <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" strokeWidth={1.9} />
-              <Input
-                placeholder="Buscar producto, SKU o proveedor…"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                className="h-auto rounded-[10px] bg-card py-2 pl-9"
+              {/* En escritorio se pliegan solo almacén y vigencia, que se usan
+                  poco; en el teléfono también tipo y stock, porque cinco
+                  controles en fila dejaban el catálogo fuera de la pantalla. El
+                  contador avisa de los que quedaron puestos: un filtro escondido
+                  y olvidado es lo que hace que «falte» un producto. */}
+              <Button
+                variant="outline"
+                onClick={() => setMasFiltros((v) => !v)}
+                className={cn(
+                  "h-auto flex-1 gap-1.5 rounded-[10px] px-3 py-2 text-[13px] font-semibold md:flex-none",
+                  filtrosPlegadosMovil > 0 && "border-primary/40 text-primary",
+                )}
+              >
+                <SlidersHorizontal className="size-4" strokeWidth={2} />
+                Filtros
+                {filtrosPlegadosMovil > 0 && (
+                  <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:hidden">
+                    {filtrosPlegadosMovil}
+                  </span>
+                )}
+                {filtrosPlegadosActivos > 0 && (
+                  <span className="hidden rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:inline">
+                    {filtrosPlegadosActivos}
+                  </span>
+                )}
+              </Button>
+
+              {/* Desglosado = una fila por variante de canal (como siempre).
+                  Agrupado = una fila por producto, con sus tallas plegadas. */}
+              <ControlSegmentado
+                opciones={VISTAS_CATALOGO}
+                valor={vistaCatalogo}
+                onCambio={setVistaCatalogo}
+                className="flex-1 md:flex-none"
+                botonClassName="flex-1 md:flex-none"
               />
-            </div>
-            {/* Tipo y stock viven en la barra en escritorio y plegados en el
-                teléfono (ver el bloque de «Más filtros»): son los MISMOS
-                controles, montados donde caben. */}
-            <div className="hidden md:contents">{selectTipo}</div>
-          </>
-        )}
+            </>
+          )}
 
-        {pestana === "productos" && (
-          <>
-            <div className="hidden md:contents">{selectStock}</div>
-
-            {/* En escritorio se pliegan solo almacén y vigencia, que se usan
-                poco; en el teléfono también tipo y stock, porque cinco
-                controles en fila dejaban el catálogo fuera de la pantalla. El
-                contador avisa de los que quedaron puestos: un filtro escondido
-                y olvidado es lo que hace que «falte» un producto. */}
-            <Button
-              variant="outline"
-              onClick={() => setMasFiltros((v) => !v)}
-              className={cn(
-                "h-auto flex-1 gap-1.5 rounded-[10px] px-3 py-2 text-[13px] font-semibold md:flex-none",
-                filtrosPlegadosMovil > 0 && "border-primary/40 text-primary",
+          {pestana === "movimientos" && (
+            <>
+              <ControlSegmentado
+                opciones={VISTAS_MOV}
+                valor={vistaMov}
+                onCambio={setVistaMov}
+                className="flex-1 md:flex-none"
+                botonClassName="flex-1 md:flex-none"
+              />
+              <Select value={filtroCanalMov} onValueChange={(v) => setFiltroCanalMov(v ?? "todos")}>
+                <SelectTrigger className="w-full bg-card md:w-[190px]">
+                  <SelectValue>
+                    {(v: string) => CANALES_MOV.find(([id]) => id === v)?.[1] ?? "Canal"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  {CANALES_MOV.map(([id, label]) => (
+                    <SelectItem key={id} value={id}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* Solo cuando alguien firma algo: si todo el historial visible es
+                  automático, el selector no tendría a quién filtrar. */}
+              {autoresMov.length > 0 && (
+                <Select value={filtroAutorMov} onValueChange={(v) => setFiltroAutorMov(v ?? "todos")}>
+                  <SelectTrigger className="w-full bg-card md:w-[170px]">
+                    <SelectValue>
+                      {(v: string) =>
+                        v === "todos"
+                          ? "Quién: todos"
+                          : v === "sistema"
+                            ? "Automático"
+                            : (autoresMov.find(([id]) => id === v)?.[1] ?? "Quién")
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Quién: todos</SelectItem>
+                    <SelectItem value="sistema">Automático</SelectItem>
+                    {autoresMov.map(([id, nombre]) => (
+                      <SelectItem key={id} value={id}>
+                        {nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
-            >
-              <SlidersHorizontal className="size-4" strokeWidth={2} />
-              Filtros
-              {filtrosPlegadosMovil > 0 && (
-                <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:hidden">
-                  {filtrosPlegadosMovil}
-                </span>
-              )}
-              {filtrosPlegadosActivos > 0 && (
-                <span className="hidden rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:inline">
-                  {filtrosPlegadosActivos}
-                </span>
-              )}
-            </Button>
-
-            {/* Desglosado = una fila por variante de canal (como siempre).
-                Agrupado = una fila por producto, con sus tallas plegadas. */}
-            <ControlSegmentado
-              opciones={VISTAS_CATALOGO}
-              valor={vistaCatalogo}
-              onCambio={setVistaCatalogo}
-              className="flex-1 md:flex-none"
-              botonClassName="flex-1 md:flex-none"
-            />
-          </>
-        )}
-
-        {pestana === "movimientos" && (
-          <Select value={filtroCanalMov} onValueChange={(v) => setFiltroCanalMov(v ?? "todos")}>
-            <SelectTrigger className="w-full bg-card md:w-[190px]">
-              <SelectValue>
-                {(v: string) => CANALES_MOV.find(([id]) => id === v)?.[1] ?? "Canal"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {CANALES_MOV.map(([id, label]) => (
-                <SelectItem key={id} value={id}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      )}
 
       {pestana === "productos" && masFiltros && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2.5">
@@ -686,6 +762,7 @@ export function PanelInventario({
             filtrosActivos={filtrosActivos}
             onLimpiarFiltros={limpiarFiltros}
             escrituraCanales={escrituraCanales}
+            verPrecio={dinero.ingresos}
             onAbrir={(p) => router.push(`/inventario/producto/${p.id}`)}
           />
         ) : (
@@ -698,6 +775,7 @@ export function PanelInventario({
             filtrosActivos={filtrosActivos}
             onLimpiarFiltros={limpiarFiltros}
             escrituraCanales={escrituraCanales}
+            verPrecio={dinero.ingresos}
             onAbrir={(p) => router.push(`/inventario/producto/${p.id}`)}
           />
         ))}
@@ -712,7 +790,14 @@ export function PanelInventario({
           onPedir={esDireccion ? irAPedidoNuevo : undefined}
         />
       )}
-      {pestana === "movimientos" && <TablaMovimientos movimientos={movimientosFiltrados} />}
+      {pestana === "movimientos" && (
+        <TablaMovimientos
+          movimientos={movimientosFiltrados}
+          vista={vistaMov}
+          cargando={cargandoMov}
+          tope={cargaMov?.tope ?? false}
+        />
+      )}
 
       {pestana === "reconciliacion" && (
         <PanelReconciliacion
@@ -732,6 +817,7 @@ export function PanelInventario({
           producto={productoDialog === "nuevo" ? null : productoDialog}
           proveedores={proveedores}
           gestor={gestor}
+          dinero={dinero}
           escrituraCanales={escrituraCanales}
           onClose={() => setProductoDialog(null)}
         />

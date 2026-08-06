@@ -20,8 +20,31 @@ import {
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
+import { ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";
 
-const COLS = "grid-cols-[minmax(160px,1fr)_150px_140px_120px_100px_150px]";
+/* Rejilla de la tabla. Hay cuatro porque dos columnas son condicionales —
+   Cliente (solo con tareas de la agencia) y Etiquetas (solo si alguna las
+   trae)— y las clases de Tailwind tienen que existir enteras en el código, no
+   armarse concatenando. Orden: Tarea · [Cliente] · [Etiquetas] · Responsable ·
+   Estado · Prioridad · Fecha · Última actualización. */
+const REJILLA = {
+  "": {
+    cols: "grid-cols-[minmax(160px,1fr)_150px_140px_120px_100px_150px]",
+    minW: "min-w-[760px]",
+  },
+  cliente: {
+    cols: "grid-cols-[minmax(160px,1fr)_130px_150px_140px_120px_100px_150px]",
+    minW: "min-w-[890px]",
+  },
+  etiquetas: {
+    cols: "grid-cols-[minmax(160px,1fr)_170px_150px_140px_120px_100px_150px]",
+    minW: "min-w-[930px]",
+  },
+  "cliente+etiquetas": {
+    cols: "grid-cols-[minmax(160px,1fr)_130px_170px_150px_140px_120px_100px_150px]",
+    minW: "min-w-[1060px]",
+  },
+} as const;
 
 function PastillaEstado({ estado }: { estado: string }) {
   const e = obtenerEstado(estado);
@@ -51,6 +74,7 @@ export function VistaTabla({
   tareas,
   currentUserId,
   gestor,
+  puedeEditar,
   onAbrir,
   onMoverEstado,
   onCambiarPrioridad,
@@ -59,6 +83,9 @@ export function VistaTabla({
   tareas: TaskConResponsable[];
   currentUserId: string;
   gestor: boolean;
+  /* ¿Manda sobre esta tarea en concreto? (gestor, o quien la creó). Llega como
+     función porque depende de la fila, no solo del rol. */
+  puedeEditar: (t: TaskConResponsable) => boolean;
   onAbrir: (t: TaskConResponsable) => void;
   onMoverEstado: (id: string, estado: EstadoId) => void;
   onCambiarPrioridad: (id: string, prioridad: PrioridadId) => void;
@@ -81,6 +108,21 @@ export function VistaTabla({
   if (grupos.length === 0) {
     return <p className="text-sm italic text-muted-foreground">No hay tareas para mostrar.</p>;
   }
+
+  /* Columnas condicionales: una columna que sale vacía en todos los renglones
+     solo estrecha a las demás. */
+  const hayCliente = tareas.some((t) => t.espacio === "agencia");
+  const hayEtiquetas = tareas.some((t) => (t.etiquetas ?? []).length > 0);
+  const rejilla =
+    REJILLA[
+      (hayCliente && hayEtiquetas
+        ? "cliente+etiquetas"
+        : hayCliente
+          ? "cliente"
+          : hayEtiquetas
+            ? "etiquetas"
+            : "") as keyof typeof REJILLA
+    ];
 
   const columnas: Columna<TaskConResponsable>[] = [
     {
@@ -120,7 +162,7 @@ export function VistaTabla({
     },
     /* Cliente: solo cuando lo que se lista trae tareas de la agencia. En el
        tablero de Fresafit sería una columna vacía en todos los renglones. */
-    ...(tareas.some((t) => t.espacio === "agencia")
+    ...(hayCliente
       ? [
           {
             clave: "cliente",
@@ -139,6 +181,20 @@ export function VistaTabla({
           },
         ]
       : []),
+    /* Etiquetas: el mismo dato que ya se veía en las tarjetas del tablero,
+       ahora también aquí, que es donde se revisa el trabajo de corrido. */
+    ...(hayEtiquetas
+      ? [
+          {
+            clave: "etiquetas",
+            label: "Etiquetas",
+            /* En la tarjeta del teléfono ocupan el renglón entero: en media
+               columna los chips se apilan de uno en uno. */
+            cardAncho: true,
+            celda: (t: TaskConResponsable) => <ChipsEtiquetas ids={t.etiquetas} />,
+          },
+        ]
+      : []),
     {
       clave: "responsable",
       label: "Responsable",
@@ -149,9 +205,9 @@ export function VistaTabla({
     {
       clave: "estado",
       label: "Estado",
-      /* Editable en celda si trabaja la tarea (o es gestor). */
+      /* Editable en celda si trabaja la tarea, la creó o es gestor. */
       celda: (t) =>
-        gestor || trabajaLaTarea(t, currentUserId) ? (
+        gestor || puedeEditar(t) || trabajaLaTarea(t, currentUserId) ? (
           <Select value={t.estado} onValueChange={(v) => v && onMoverEstado(t.id, v as EstadoId)}>
             <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
               <PastillaEstado estado={t.estado} />
@@ -171,9 +227,9 @@ export function VistaTabla({
     {
       clave: "prioridad",
       label: "Prioridad",
-      /* Editable en celda solo gestor. */
+      /* Editable en celda por quien manda en la tarea (gestor o quien la creó). */
       celda: (t) =>
-        gestor ? (
+        puedeEditar(t) ? (
           <Select value={t.prioridad} onValueChange={(v) => v && onCambiarPrioridad(t.id, v as PrioridadId)}>
             <SelectTrigger className="ml-auto h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 md:ml-0">
               <Prioridad prioridad={t.prioridad} />
@@ -235,7 +291,8 @@ export function VistaTabla({
         return (
           <TablaSimple
             key={area.id}
-            cols={COLS}
+            cols={rejilla.cols}
+            minW={rejilla.minW}
             columnas={columnas}
             datos={items}
             filaKey={(t) => t.id}

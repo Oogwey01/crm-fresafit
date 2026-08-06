@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { conActor } from "@/lib/inventario/actor";
+
+/* ¿Viene del programador externo con el secreto, y no de una persona? */
+function esCron(request: Request): boolean {
+  const auth = request.headers.get("authorization");
+  return !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
+}
 
 /* Autorización de las rutas que dispara un cron externo (cron-job.org) con
    `Authorization: Bearer CRON_SECRET`, o un usuario interno a mano. Era el
@@ -7,14 +14,24 @@ import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
    retornar, o null si la petición está autorizada — el contrato (código y
    cuerpo) es EXACTAMENTE el que ya consumen los crons externos. */
 export async function autorizarCron(request: Request): Promise<NextResponse | null> {
-  const auth = request.headers.get("authorization");
-  const esCron = !!process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`;
-  if (esCron) return null;
+  if (esCron(request)) return null;
   const { user, rol } = await usuarioActual();
   if (!user || !esInterno(rol)) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
   return null;
+}
+
+/* Firma en el historial de stock lo que se escriba dentro de `fn` con la
+   persona que disparó ESTA petición a mano; null si la disparó el cron. Así una
+   sincronización picada desde el navegador queda distinguible de la de las 6:00,
+   que es de nadie. Al cron no le cuesta ninguna consulta extra (se corta antes
+   de preguntar por el usuario), y a la persona tampoco: `usuarioActual` está
+   cacheada por petición y `autorizarCron` ya la llamó. */
+export async function conActorDePeticion<T>(request: Request, fn: () => Promise<T>): Promise<T> {
+  if (esCron(request)) return conActor(null, fn);
+  const { user } = await usuarioActual();
+  return conActor(user?.id ?? null, fn);
 }
 
 /* Opciones de reimportación leídas de la URL de una ruta de sync:

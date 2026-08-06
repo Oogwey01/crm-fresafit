@@ -8,6 +8,7 @@ import type {
   NominaPagoConEmpleado,
   Profile,
 } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Nómina · Fresafit" };
 
@@ -18,6 +19,7 @@ export const metadata = { title: "Nómina · Fresafit" };
    Solo dirección: son sueldos. La RLS ya lo impide, pero sin este corte el resto
    vería una pantalla vacía sin entender por qué. */
 export default async function NominaFresafitPage() {
+  await exigirModulo("nomina");
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 

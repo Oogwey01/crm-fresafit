@@ -138,12 +138,17 @@ export function BloquesCanales({
   salud,
   carritos,
   ventasML,
+  verDineroTN,
 }: {
   visitas: VisitasML | null;
   salud: SaludML | null;
   carritos: CarritosTN | null;
   /* Unidades vendidas en Mercado Libre en la misma ventana que las visitas. */
   ventasML: number;
+  /* Lo que hay en los carritos sale de la API de Tienda Nube, no de la base, así
+     que ninguna función de allá lo tapa: se decide aquí. Cuántos carritos hay
+     —y cuántos dejaron correo, que es lo accionable— lo ve todo el equipo. */
+  verDineroTN: boolean;
 }) {
   /* Conversión: de cada 100 que vieron una publicación, cuántos compraron. Es el
      número que ninguna plataforma da masticado y el que dice si el problema es
@@ -282,22 +287,32 @@ export function BloquesCanales({
               etiqueta="Carritos"
               valor={`${carritos.cantidad}${carritos.truncado ? "+" : ""}`}
             />
-            <Dato
-              etiqueta="En juego"
-              valor={formatearMXN(carritos.monto)}
-              className="text-amber-600"
-            />
-            <Dato
-              etiqueta="Ticket promedio"
-              valor={formatearMXN(
-                carritos.cantidad > 0 ? carritos.monto / carritos.cantidad : 0,
-              )}
-              detalle={
-                carritos.conContacto === carritos.cantidad
-                  ? "todos dejaron correo"
-                  : `${carritos.conContacto} con correo`
-              }
-            />
+            {verDineroTN ? (
+              <>
+                <Dato
+                  etiqueta="En juego"
+                  valor={formatearMXN(carritos.monto)}
+                  className="text-amber-600"
+                />
+                <Dato
+                  etiqueta="Ticket promedio"
+                  valor={formatearMXN(
+                    carritos.cantidad > 0 ? carritos.monto / carritos.cantidad : 0,
+                  )}
+                  detalle={
+                    carritos.conContacto === carritos.cantidad
+                      ? "todos dejaron correo"
+                      : `${carritos.conContacto} con correo`
+                  }
+                />
+              </>
+            ) : (
+              <Dato
+                etiqueta="Con correo"
+                valor={String(carritos.conContacto)}
+                detalle="se pueden recuperar"
+              />
+            )}
           </div>
         </Bloque>
       )}

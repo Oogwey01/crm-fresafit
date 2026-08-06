@@ -42,6 +42,10 @@ export type ProductoTN = {
   published: boolean;
   variants: VarianteTN[];
   images?: ImagenTN[];
+  /* URL pública del producto en la tienda (dominio real + slug). Es la única
+     forma de enlazar la vista de comprador: el slug no se puede armar desde el
+     id. */
+  canonical_url?: string | null;
 };
 
 /* ------------------------- Conexión guardada ----------------------------- */
@@ -123,6 +127,33 @@ async function tnFetch(cx: ConexionTN, path: string, init?: RequestInit): Promis
     if (res.status !== 429 || intento >= 3) return res;
     const reset = Number(res.headers.get("x-rate-limit-reset")) || 2000;
     await new Promise((r) => setTimeout(r, Math.min(reset, 10_000)));
+  }
+}
+
+/* La etiqueta PDF de una orden, si Tienda Nube la entrega por API. Los
+   fulfillment orders traen los documentos de la etiqueta con URL firmada
+   (necesita el scope read_fulfillment_orders). Null cuando la orden no tiene
+   etiqueta generada, el token no alcanza, o el recurso no aplica: quien llama
+   decide el plan B (mandar al admin). La forma de `labels` se maneja como
+   objeto o lista porque la doc no fija una sola. */
+export async function urlEtiquetaTN(cx: ConexionTN, ordenId: number): Promise<string | null> {
+  try {
+    const res = await tnFetch(cx, `/orders/${ordenId}/fulfillment-orders`);
+    if (!res.ok) return null;
+    type Doc = { url?: string | null; type?: string | null };
+    type Labels = { documents?: Doc[] | null };
+    const lista = (await res.json()) as { labels?: Labels | Labels[] | null }[] | null;
+    for (const fo of Array.isArray(lista) ? lista : []) {
+      const labels = Array.isArray(fo?.labels) ? fo.labels : fo?.labels ? [fo.labels] : [];
+      for (const l of labels) {
+        for (const d of l?.documents ?? []) {
+          if (d?.url?.trim()) return d.url.trim();
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 

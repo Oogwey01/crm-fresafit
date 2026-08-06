@@ -4,43 +4,26 @@ import { ArrowRight } from "lucide-react";
 import { formatearFechaHora } from "@/lib/fecha";
 import type { StockLog } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { descripcionOrigen, esOrigenHumano, etiquetaOrigen } from "@/lib/inventario/origenes";
 import { cn } from "@/lib/utils";
 
 const COLS = "grid-cols-[150px_minmax(180px,1fr)_170px_140px_130px_80px]";
 
-/* Etiquetas legibles para el `origen` del movimiento (qué lo disparó). */
-const ORIGEN_LABEL: Record<string, string> = {
-  manual: "Ajuste manual",
-  tiendanube_sync: "Igualado con Tienda Nube",
-  mercadolibre_sync: "Igualado con Mercado Libre",
-  tiktok_sync: "Igualado con TikTok",
-  proveedor: "Llegó pedido a proveedor",
-  venta_ml: "Venta en Mercado Libre",
-  venta_tn: "Venta en Tienda Nube",
-  venta_tiktok: "Venta en TikTok",
-  reparacion: "Corrección automática",
-  cancelacion_tn: "Venta cancelada (Tienda Nube)",
-  cancelacion_ml: "Venta cancelada (Mercado Libre)",
-};
+/* Segunda línea de la celda de movimiento: quién lo provocó. La comparte la
+   ficha de un producto, que lista sus últimos movimientos con el mismo criterio.
 
-/* Explicación al pasar el cursor: qué significa cada tipo de movimiento. Las
-   sincronizaciones son las más frecuentes y las que más confunden. */
-const ORIGEN_DESC: Record<string, string> = {
-  manual: "Alguien cambió el stock a mano con los botones +/− del CRM.",
-  tiendanube_sync:
-    "La sincronización automática igualó el stock del CRM al que tenía Tienda Nube en ese momento. No es una venta: solo se pusieron de acuerdo los números.",
-  mercadolibre_sync:
-    "La sincronización automática igualó el stock del CRM al que tenía Mercado Libre en ese momento. No es una venta.",
-  tiktok_sync:
-    "La sincronización automática igualó el stock del CRM al que tenía TikTok en ese momento. No es una venta.",
-  proveedor: "Se recibió un pedido a proveedor y sus piezas se sumaron al stock.",
-  venta_ml: "Se vendió en Mercado Libre y se descontó del stock.",
-  venta_tn: "Se vendió en Tienda Nube y se descontó del stock.",
-  venta_tiktok: "Se vendió en TikTok y se descontó del stock.",
-  reparacion: "El sistema detectó un desfase y corrigió el stock hacia la fuente de verdad.",
-  cancelacion_tn: "Se canceló una venta de Tienda Nube y sus piezas volvieron al stock.",
-  cancelacion_ml: "Se canceló una venta de Mercado Libre y sus piezas volvieron al stock.",
-};
+   Las etiquetas, las descripciones y qué movimiento lleva SIEMPRE una persona
+   detrás viven en lib/inventario/origenes.ts, compartidas con la ficha del
+   producto y el monitor del piloto: antes cada pantalla traía su propia copia y
+   la misma cosa se llamaba distinto en cada una. */
+export function firmaMovimiento(m: StockLog): string | null {
+  if (m.autor?.nombre) return `por ${m.autor.nombre}`;
+  /* «Sin registro» y «automático» no son lo mismo: en un ajuste manual sin firma
+     el movimiento es anterior a que se guardara el quién (agosto de 2026), y
+     llamarlo automático sería mentira. */
+  if (esOrigenHumano(m.origen)) return "sin registro";
+  return "automático";
+}
 
 /* Etiquetas legibles para el `canal` (dónde impactó la escritura). */
 const CANAL_LABEL: Record<StockLog["canal"], string> = {
@@ -118,12 +101,32 @@ function agruparPorLote(movs: StockLog[]): Map<number, Lote> {
   return lotes;
 }
 
-export function TablaMovimientos({ movimientos }: { movimientos: StockLog[] }) {
+export function TablaMovimientos({
+  movimientos,
+  vista = "reales",
+  cargando = false,
+  tope = false,
+}: {
+  movimientos: StockLog[];
+  /* Qué se está mirando. Cambia la explicación de arriba y el texto de vacío:
+     lo que hay que aclarar en cada vista es distinto. */
+  vista?: "reales" | "puestas_al_dia";
+  cargando?: boolean;
+  /* Se alcanzó el tope de la consulta: hay más historia detrás. */
+  tope?: boolean;
+}) {
+  const reales = vista === "reales";
+
+  if (cargando) {
+    return <p className="text-sm italic text-muted-foreground">Cargando movimientos…</p>;
+  }
+
   if (movimientos.length === 0) {
     return (
       <p className="text-sm italic text-muted-foreground">
-        Aún no hay movimientos de inventario registrados. Aquí aparecerá cada cambio de stock
-        (ventas, ajustes manuales y sincronizaciones) con su fecha, de qué número a cuál y por qué vía.
+        {reales
+          ? "Sin movimientos con estos filtros. Aquí aparece cada cambio real de stock —ventas, cancelaciones, mercancía recibida y ajustes a mano— con su fecha, quién lo hizo y de qué número a cuál."
+          : "Sin puestas al día con estos filtros. Aquí aparece cada vez que el CRM copió el número que ya tenía un canal."}
       </p>
     );
   }
@@ -179,14 +182,27 @@ export function TablaMovimientos({ movimientos }: { movimientos: StockLog[] }) {
     {
       clave: "origen",
       label: "Movimiento",
-      celda: (m) => (
-        <span
-          className={cn(ORIGEN_DESC[m.origen] && "cursor-help underline decoration-dotted underline-offset-2")}
-          title={ORIGEN_DESC[m.origen]}
-        >
-          {ORIGEN_LABEL[m.origen] ?? m.origen}
-        </span>
-      ),
+      celda: (m) => {
+        const lote = lotes.get(m.id);
+        // La firma solo en el renglón que abre el bloque: todo el lote es la
+        // misma operación y la misma persona, repetirla 40 veces es ruido.
+        const quien = !lote || lote.primero ? firmaMovimiento(m) : null;
+        const desc = descripcionOrigen(m.origen);
+        return (
+          <span className="flex flex-col">
+            <span
+              className={cn(
+                desc && "cursor-help underline decoration-dotted underline-offset-2",
+                "self-start",
+              )}
+              title={desc}
+            >
+              {etiquetaOrigen(m.origen)}
+            </span>
+            {quien && <span className="text-[11px] text-muted-foreground">{quien}</span>}
+          </span>
+        );
+      },
     },
     {
       clave: "canal",
@@ -233,12 +249,31 @@ export function TablaMovimientos({ movimientos }: { movimientos: StockLog[] }) {
   return (
     <div className="flex flex-col gap-3">
       <p className="rounded-xl border bg-muted/40 px-4 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
-        Cada renglón es un cambio de stock. <b className="font-semibold text-foreground">«Igualado con
-        Tienda Nube/Mercado Libre»</b> son las sincronizaciones automáticas: el stock del CRM se puso al
-        día con lo que tenía el canal, <b>no</b> son ventas. Los renglones con el <b>mismo color de
-        fondo</b> son una sola operación (por eso comparten hora): una sincronización ajusta muchos
-        productos a la vez. Pasa el cursor sobre el movimiento para ver qué fue.
+        {reales ? (
+          <>
+            Aquí van los cambios en los que de verdad se movieron piezas: ventas, cancelaciones,
+            mercancía recibida y ajustes a mano. Lo que no aparece son las{" "}
+            <b className="font-semibold text-foreground">puestas al día</b> —el CRM copiando el número
+            que ya tenía el canal, que no son ventas—: están en la otra pestaña.
+          </>
+        ) : (
+          <>
+            Aquí <b>no</b> se movieron piezas: cada renglón es el CRM poniéndose al día con el número
+            que ya tenía el canal. Es así como se entera de lo que se vendió en Tienda Nube, así que
+            una bajada aquí suele ser una venta que el canal ya descontó por su cuenta.
+          </>
+        )}{" "}
+        Debajo de cada movimiento va <b className="font-semibold text-foreground">quién lo hizo</b>:
+        «automático» es el sistema y «sin registro» son los anteriores a agosto de 2026, cuando aún
+        no se guardaba. Los renglones con el <b>mismo color de fondo</b> son una sola operación (por
+        eso comparten hora y firma). Pasa el cursor sobre el movimiento para ver qué fue.
       </p>
+      {tope && (
+        <p className="text-xs text-muted-foreground">
+          Mostrando los {movimientos.length} más recientes. Hay más historia detrás: el CRM guarda 90
+          días.
+        </p>
+      )}
       <TablaSimple
         cols={COLS}
         columnas={columnas}

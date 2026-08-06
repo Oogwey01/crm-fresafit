@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, Banknote, CalendarClock, Plus, Users } from "lucide-react";
-import { ControlSegmentado } from "@/components/compartido/control-segmentado";
+import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
@@ -256,6 +256,8 @@ export function PanelNomina({
         </div>
       </div>
 
+      <TabsSeccion opciones={VISTAS} valor={vista} onCambio={setVista} className="mb-4" />
+
       <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <StatCard etiqueta="En nómina" valor={String(resumen.activos)} icono={Users} />
         <StatCard
@@ -278,10 +280,6 @@ export function PanelNomina({
           icono={AlertTriangle}
           valorClassName={resumen.sinFormalizar > 0 ? "text-red-600" : undefined}
         />
-      </div>
-
-      <div className="mb-4">
-        <ControlSegmentado opciones={VISTAS} valor={vista} onCambio={setVista} />
       </div>
 
       {vista === "personas" ? (

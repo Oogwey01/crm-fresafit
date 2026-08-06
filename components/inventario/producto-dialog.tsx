@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import type { VistaDinero } from "@/lib/permisos-dinero";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { aNumero } from "@/lib/validacion";
 import { TIPOS_PRODUCTO } from "@/lib/catalogos";
@@ -38,12 +39,15 @@ export function ProductoDialog({
   producto,
   proveedores,
   gestor,
+  dinero,
   escrituraCanales,
   onClose,
 }: {
   producto: ProductConProveedor | null; // null = alta
   proveedores: Supplier[];
   gestor: boolean;
+  /* Qué puede ver de dinero quien edita: costo (egreso) y precio (ingreso). */
+  dinero: VistaDinero;
   /* false (el default del sistema) = el CRM no modifica nada en las plataformas. */
   escrituraCanales: boolean;
   onClose: () => void;
@@ -235,32 +239,40 @@ export function ProductoDialog({
             </div>
           </div>
 
+          {/* Costo y precio desaparecen para quien no puede verlos: al editar
+              llegarían vacíos y guardar los dejaría en nulo sin que nadie lo
+              pidiera. Al dar de alta sí se piden —ahí el número lo pone quien
+              captura—; el servidor conserva los anteriores de todas formas. */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="prod-costo">Costo ($)</Label>
-              <Input
-                id="prod-costo"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={costo}
-                onChange={(e) => setCosto(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="prod-precio">Precio ($)</Label>
-              <Input
-                id="prod-precio"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                disabled={deMeli && !deTiendaNube}
-                value={precio}
-                onChange={(e) => setPrecio(e.target.value)}
-              />
-            </div>
+            {(dinero.egresos || !producto) && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="prod-costo">Costo ($)</Label>
+                <Input
+                  id="prod-costo"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={costo}
+                  onChange={(e) => setCosto(e.target.value)}
+                />
+              </div>
+            )}
+            {(dinero.ingresos || !producto) && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="prod-precio">Precio ($)</Label>
+                <Input
+                  id="prod-precio"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  disabled={deMeli && !deTiendaNube}
+                  value={precio}
+                  onChange={(e) => setPrecio(e.target.value)}
+                />
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="prod-stock">Stock</Label>
               <Input

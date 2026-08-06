@@ -15,7 +15,10 @@ import {
 import type { ProductConProveedor } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 
-const COLS = "grid-cols-[minmax(180px,1fr)_130px_120px_100px_215px]";
+/* Dos rejillas literales: Tailwind lee las clases del código fuente, así que un
+   `grid-cols-[…]` armado por concatenación no llegaría a la hoja de estilos. */
+const COLS = "grid-cols-[minmax(288px,1fr)_130px_120px_100px_215px]";
+const COLS_SIN_PRECIO = "grid-cols-[minmax(288px,1fr)_130px_120px_215px]";
 
 export function TablaProductos({
   productos,
@@ -26,6 +29,7 @@ export function TablaProductos({
   filtrosActivos,
   onLimpiarFiltros,
   escrituraCanales,
+  verPrecio,
   onAbrir,
 }: {
   /* Ya viene recortada por los filtros del panel (almacén, vigencia). */
@@ -44,6 +48,9 @@ export function TablaProductos({
   onLimpiarFiltros: () => void;
   /* false (el default del sistema) = el ajuste es local, no viaja a los canales. */
   escrituraCanales: boolean;
+  /* El precio de lista es ingreso: sin permiso la columna no se pinta —y el dato
+     tampoco llegó del servidor—. Vacía se leería como un producto sin precio. */
+  verPrecio: boolean;
   onAbrir: (p: ProductConProveedor) => void;
 }) {
   const { cambiarStock, tituloAjuste } = useAjusteStock(escrituraCanales);
@@ -111,9 +118,10 @@ export function TablaProductos({
       esTitulo: true,
       celda: (p) => (
         <div className="flex min-w-0 items-center gap-2.5">
-          {/* En la tarjeta del teléfono la miniatura de 80 px se comía media
-              tarjeta para no decir nada que el nombre no diga. */}
-          <Miniatura src={portadaProducto(p)} alt={p.nombre} tam="size-11 md:size-20" />
+          {/* Grande en escritorio —el catálogo se reconoce por la foto, no por
+              el SKU— y pequeña en la tarjeta del teléfono, donde una miniatura
+              así se comería media tarjeta sin decir nada que el nombre no diga. */}
+          <Miniatura src={portadaProducto(p)} alt={p.nombre} tam="size-12 md:size-36" />
           <button
             type="button"
             onClick={() => onAbrir(p)}
@@ -141,7 +149,11 @@ export function TablaProductos({
         ),
     },
     { clave: "tipo", label: "Tipo", celda: (p) => <PastillaTipo tipo={p.tipo} /> },
-    { clave: "precio", label: "Precio", celda: (p) => <div>{formatearMXN(p.precio)}</div> },
+    ...(verPrecio
+      ? ([
+          { clave: "precio", label: "Precio", celda: (p) => <div>{formatearMXN(p.precio)}</div> },
+        ] satisfies Columna<ProductConProveedor>[])
+      : []),
     {
       clave: "stock",
       label: "Stock",
@@ -159,12 +171,12 @@ export function TablaProductos({
         Mostrando {visibles.length} de {totalCatalogo} productos
       </p>
       <TablaSimple
-        cols={COLS}
+        cols={verPrecio ? COLS : COLS_SIN_PRECIO}
         columnas={columnas}
         datos={visibles}
         filaKey={(p) => p.id}
         filaClassName={(p) => (!p.activo ? "opacity-50" : "")}
-        minW="min-w-[650px]"
+        minW="min-w-[760px]"
         onRowClick={onAbrir}
       />
     </div>

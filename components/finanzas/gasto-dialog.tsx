@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { ExternalLink, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -50,6 +51,45 @@ import type {
 function enumerar(partes: string[]): string {
   if (partes.length === 1) return partes[0];
   return `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`;
+}
+
+/* El comprobante a lo ancho de su columna: los tickets y facturas son fotos
+   casi siempre, y para saber cuál era cuál había que abrirlos de uno en uno.
+   El bucket es privado, así que cada imagen pide su enlace firmado al montarse;
+   los PDF conservan el clip (no hay vista previa que valga la pena inventar). */
+function VistaComprobante({ comprobante }: { comprobante: ExpenseReceipt }) {
+  const esImagen = (comprobante.tipo ?? "").startsWith("image/");
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!esImagen) return;
+    let vivo = true;
+    urlComprobante(comprobante.storage_path).then((r) => {
+      if (vivo && !("error" in r)) setUrl(r.url);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [comprobante.storage_path, esImagen]);
+
+  if (!esImagen || !url) {
+    return (
+      <span className="flex h-24 w-full items-center justify-center gap-2 bg-muted/40 text-xs text-muted-foreground">
+        <Paperclip className="size-4" />
+        {esImagen ? "Cargando…" : "PDF"}
+      </span>
+    );
+  }
+  return (
+    <Image
+      src={url}
+      alt={comprobante.nombre}
+      width={640}
+      height={640}
+      unoptimized
+      className="max-h-[420px] w-full bg-muted/30 object-contain"
+    />
+  );
 }
 
 /* Alta y edición de un gasto. Los comprobantes (facturas, tickets) solo se
@@ -138,18 +178,27 @@ export function GastoDialog({
     });
   }
 
-  async function adjuntar(archivo: File) {
-    if (!gasto) return;
+  /* Se aceptan VARIOS archivos de un jalón (un gasto suele traer ticket +
+     factura, o varias fotos). Suben en orden, y si uno falla los demás siguen:
+     un ticket borroso no debe tirar la factura buena. */
+  async function adjuntarTodos(lista: FileList | null) {
+    if (!gasto || !lista?.length) return;
     setSubiendo(true);
+    let subidos = 0;
     try {
-      const fd = new FormData();
-      fd.set("file", archivo);
-      const r = await subirComprobante(gasto.id, fd);
-      if ("error" in r) {
-        toast.error(r.error);
-      } else {
+      for (const archivo of Array.from(lista)) {
+        const fd = new FormData();
+        fd.set("file", archivo);
+        const r = await subirComprobante(gasto.id, fd);
+        if ("error" in r) {
+          toast.error(`${archivo.name}: ${r.error}`);
+          continue;
+        }
         setComprobantes((prev) => [...prev, r.comprobante]);
-        toast.success("Comprobante guardado.");
+        subidos++;
+      }
+      if (subidos > 0) {
+        toast.success(subidos === 1 ? "Comprobante guardado." : `${subidos} comprobantes guardados.`);
       }
     } catch {
       toast.error("No se pudo subir el comprobante.");
@@ -180,11 +229,15 @@ export function GastoDialog({
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      {/* Rectangular en escritorio: el formulario a la izquierda y los
+          comprobantes a lo alto del lado derecho, en grande — que la factura se
+          LEA sin abrirla era el punto de enseñarla aquí. */}
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg md:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{gasto ? "Editar gasto" : "Nuevo gasto"}</DialogTitle>
         </DialogHeader>
 
+        <div className="flex flex-col gap-4 md:grid md:grid-cols-[minmax(0,1fr)_340px] md:items-start md:gap-6">
         <div className="flex flex-col gap-3">
           {/* Los gastos se repiten mes con mes: el campo propone los de siempre
               ordenados por cuántas veces se han capturado y completa al teclear. */}
@@ -334,27 +387,36 @@ export function GastoDialog({
             />
           </div>
 
-          {/* Comprobantes: solo con el gasto ya creado (la ruta usa su id). */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Facturas y comprobantes</Label>
-            {!gasto ? (
-              <p className="text-xs text-muted-foreground">
-                Guarda el gasto y vuelve a abrirlo para adjuntar la factura o el ticket.
-              </p>
-            ) : (
-              <>
-                {comprobantes.length > 0 && (
-                  <ul className="flex flex-col gap-1">
-                    {comprobantes.map((c) => (
-                      <li
-                        key={c.id}
-                        className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-1.5 text-sm"
+        </div>
+
+        {/* Comprobantes: solo con el gasto ya creado (la ruta usa su id). En
+            escritorio es la columna derecha completa; en el teléfono queda
+            debajo del formulario. */}
+        <div className="flex min-w-0 flex-col gap-2 md:h-full md:border-l md:pl-6">
+          <Label>Facturas y comprobantes</Label>
+          {!gasto ? (
+            <p className="text-xs text-muted-foreground">
+              Guarda el gasto y vuelve a abrirlo para adjuntar la factura o el ticket.
+            </p>
+          ) : (
+            <>
+              {comprobantes.length > 0 && (
+                <ul className="flex flex-col gap-2.5">
+                  {comprobantes.map((c) => (
+                    <li key={c.id} className="overflow-hidden rounded-lg border bg-card">
+                      <button
+                        type="button"
+                        onClick={() => abrirComprobante(c.storage_path)}
+                        title="Ver el archivo completo"
+                        className="block w-full transition-opacity hover:opacity-80"
                       >
-                        <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
+                        <VistaComprobante comprobante={c} />
+                      </button>
+                      <div className="flex items-center gap-1.5 border-t px-2.5 py-1.5 text-xs">
                         <button
                           type="button"
                           onClick={() => abrirComprobante(c.storage_path)}
-                          className="flex flex-1 items-center gap-1 truncate text-left hover:underline"
+                          className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:underline"
                           title={c.nombre}
                         >
                           <span className="truncate">{c.nombre}</span>
@@ -368,25 +430,24 @@ export function GastoDialog({
                         >
                           <X className="size-3.5" />
                         </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <input
-                  ref={inputArchivo}
-                  type="file"
-                  accept="image/*,application/pdf"
-                  disabled={subiendo}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) adjuntar(f);
-                  }}
-                  className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:bg-card file:px-2.5 file:py-1 file:text-xs file:font-semibold"
-                />
-                {subiendo && <p className="text-xs text-muted-foreground">Subiendo…</p>}
-              </>
-            )}
-          </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <input
+                ref={inputArchivo}
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                disabled={subiendo}
+                onChange={(e) => adjuntarTodos(e.target.files)}
+                className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:bg-card file:px-2.5 file:py-1 file:text-xs file:font-semibold"
+              />
+              {subiendo && <p className="text-xs text-muted-foreground">Subiendo…</p>}
+            </>
+          )}
+        </div>
         </div>
 
         <PieDialogoCRUD

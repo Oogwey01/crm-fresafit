@@ -103,6 +103,8 @@ export async function sincronizarProductosTN(
         tiendanube_variant_id: v.id,
         imagen_url: imagenVariante ?? imagenes[0] ?? null,
         imagenes,
+        /* Solo si viene: un payload sin canonical_url no borra el guardado. */
+        ...(p.canonical_url?.trim() ? { tiendanube_permalink: p.canonical_url.trim() } : {}),
       };
       const existente = existentes.get(v.id);
       const nuevoStock = typeof v.stock === "number" ? Math.max(0, v.stock) : null;

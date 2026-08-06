@@ -65,6 +65,7 @@ import {
   type SkuTikTok,
 } from "@/lib/tiktok/api";
 import { tipoDesdeProducto } from "@/lib/inventario/tipo-producto";
+import { registrarStockLog, type EntradaStockLog } from "@/lib/inventario/stock-log";
 import { colorDeVariante } from "@/lib/talla";
 
 export type ResumenSyncTikTok = {
@@ -422,6 +423,11 @@ export async function sincronizarProductosTikTok(
   // vivo" de la rama ambigua, cuando el sku_id dueño todavía no está guardado
   // en `products` porque se acaba de vincular en este mismo loop.
   const reclamadaPorSkuId = new Map<string, string>();
+  /* Renglones para el historial de stock. Se escriben DESPUÉS de aplicar los
+     cambios: si la escritura falla, el ledger no debe contar un movimiento que
+     nunca ocurrió. Las fichas nuevas no entran (mismo criterio que Tienda Nube
+     y Mercado Libre: un alta no es un movimiento, es el punto de partida). */
+  const logs: EntradaStockLog[] = [];
   let vinculados = 0;
 
   for (const u of unidades) {
@@ -445,6 +451,18 @@ export async function sincronizarProductosTikTok(
       if (!soloTikTok) {
         if (u.stock !== existente.tiktok_stock) {
           cambios.push({ id: existente.id, fila: { tiktok_stock: u.stock } });
+          /* Canal `tiktok_shop` y no `crm`: lo que se movió es el inventario de
+             LA PUBLICACIÓN de TikTok, no el de bodega —que esta rama tiene
+             prohibido tocar—. Por eso también lleva origen propio: en el
+             historial hay que poder distinguir «TikTok movió su almacén» de
+             «el CRM igualó su stock al de un canal». */
+          logs.push({
+            producto_id: existente.id,
+            canal: "tiktok_shop",
+            origen: "tiktok_stock",
+            stock_anterior: existente.tiktok_stock, // null la primera vez que se observa
+            stock_nuevo: u.stock,
+          });
         }
         continue;
       }
@@ -461,6 +479,18 @@ export async function sincronizarProductosTikTok(
         ...(u.stock !== existente.stock ? { stock: u.stock } : {}),
       };
       cambios.push({ id: existente.id, fila });
+      /* Aquí sí se escribió `products.stock`, así que el canal es `crm` y el
+         origen el mismo que usan las otras syncs: el CRM igualó su número al
+         del canal que manda esta ficha. */
+      if (u.stock !== existente.stock) {
+        logs.push({
+          producto_id: existente.id,
+          canal: "crm",
+          origen: "tiktok_sync",
+          stock_anterior: existente.stock,
+          stock_nuevo: u.stock,
+        });
+      }
       continue;
     }
 
@@ -567,6 +597,10 @@ export async function sincronizarProductosTikTok(
      TikTok escriba encima de una ficha cuyo dueño es otro canal. */
   await aplicarCambiosProductos(admin, cambios);
   await registrarPublicaciones(publicaciones);
+  /* Un solo lote por corrida, como en las otras syncs: la pantalla agrupa los N
+     renglones de la misma pasada en un bloque en vez de pintarlos como N
+     cambios sueltos a la misma hora. */
+  await registrarStockLog(logs);
 
   return { creados: nuevos.length, actualizados: cambios.length - vinculados, vinculados };
 }

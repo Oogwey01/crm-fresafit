@@ -3,6 +3,7 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelReportes } from "@/components/reportes/panel";
 import type { AgenciaEmpresa, AgenciaReporteConEmpresa } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Reportes · Agencia Fresafit" };
 
@@ -12,6 +13,7 @@ export const metadata = { title: "Reportes · Agencia Fresafit" };
    cliente pregunta por su reporte. Los reportes propios de la marca están en
    /reportes. */
 export default async function ReportesAgenciaPage() {
+  await exigirModulo("agencia-reportes");
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 

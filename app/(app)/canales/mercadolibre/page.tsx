@@ -21,16 +21,20 @@ export default async function MercadoLibrePage() {
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase } = await usuarioActual();
 
-  /* Las dos consultas iban dobladas en `conColumnasOpcionales` mientras sus
-     migraciones (20260815000000_desempeno_envios_ml.sql para los plazos y
-     20260816000000_comision_canal.sql para los costos) podían faltar en la base.
-     Ya llevan tiempo aplicadas —de ahí salen los números que el negocio viene
-     mirando: el 3.9% real de demoras y el 28.8% que se lleva el canal—, así que
-     se piden directo. El andamiaje repetía la consulta ENTERA cuando fallaba, o
-     sea el doble de trabajo justo cuando la base ya iba mal. */
-  type FilaCosto = { total: number; comision: number | null; costo_envio: number | null };
+  /* Lo que se queda Mercado Libre sale ahora de `costos_canal`, y no de leer
+     `sale_orders` a pelo: esa tabla es dinero de arriba abajo y quedó cerrada a
+     dirección, así que una consulta directa le devolvería cero filas al
+     encargado del canal —que es justo quien tiene que ver esto—. La función
+     decide por dentro, con el mismo filtro de siempre (solo las órdenes que
+     traen comisión) y devuelve null si quien pregunta no puede verlo. */
+  type FilaCostos = {
+    ordenes: number;
+    total: number;
+    comision: number;
+    costo_envio: number;
+  } | null;
 
-  const [ventasRes, salud, estado, comisionesRes] = await Promise.all([
+  const [ventasRes, salud, estado, costosRes] = await Promise.all([
     supabase
       .from("sales")
       .select(
@@ -44,42 +48,25 @@ export default async function MercadoLibrePage() {
     /* Si Mercado Libre no contesta, el resto de la página sigue en pie. */
     saludML(),
     estadoMercadolibre(),
-    /* Lo que se queda Mercado Libre. Viene dentro de cada orden y se archiva al
-       importar, así que aquí solo se suma. */
-    supabase
-      .from("sale_orders")
-      .select("total, comision, costo_envio")
-      .eq("canal", "mercado_libre")
-      .gte("fecha", diasDesdeHoy(-DIAS_COMISION))
-      .neq("estado", "cancelled")
-      .limit(5000),
+    supabase.rpc("costos_canal", {
+      canal_f: "mercado_libre",
+      desde: diasDesdeHoy(-DIAS_COMISION),
+    }),
   ]);
 
-  /* Solo las órdenes que traen comisión: mezclar las que no la tienen (las
-     importadas antes de la migración) hundiría la tasa y haría creer que ML
-     cobra menos de lo que cobra. */
-  let ventaConDato = 0;
-  let comision = 0;
-  let flete = 0;
-  let ordenesConDato = 0;
-  for (const o of (comisionesRes.data ?? []) as FilaCosto[]) {
-    if (o.comision == null) continue;
-    ventaConDato += Number(o.total || 0);
-    comision += Number(o.comision);
-    flete += Number(o.costo_envio || 0);
-    ordenesConDato++;
-  }
-  const cargos = comision + flete;
+  const crudo = costosRes.data as FilaCostos;
+  const ventaConDato = Number(crudo?.total ?? 0);
+  const cargos = Number(crudo?.comision ?? 0) + Number(crudo?.costo_envio ?? 0);
   const costos =
-    ordenesConDato > 0
+    crudo && crudo.ordenes > 0
       ? {
           venta: Math.round(ventaConDato * 100) / 100,
-          comision: Math.round(comision * 100) / 100,
-          flete: Math.round(flete * 100) / 100,
+          comision: Math.round(Number(crudo.comision) * 100) / 100,
+          flete: Math.round(Number(crudo.costo_envio) * 100) / 100,
           /* La tasa es sobre TODO lo que se va, no solo la comisión: es lo que
              de verdad separa el precio de venta de lo que queda. */
           tasa: ventaConDato > 0 ? (cargos / ventaConDato) * 100 : 0,
-          ordenes: ordenesConDato,
+          ordenes: crudo.ordenes,
           dias: DIAS_COMISION,
         }
       : null;

@@ -26,6 +26,7 @@ import type {
   ESTADOS_COMPROBANTE,
   EspacioId,
 } from "@/lib/catalogos";
+import { esGestor } from "@/lib/catalogos";
 import type { DireccionEnvio } from "@/lib/canales/direccion";
 import type {
   BaseCalculoId,
@@ -76,7 +77,21 @@ export type Profile = {
   rol: RolId;
   area: AreaId | null;
   color: string;
+  /* ¿Entra al espacio Agencia? Es un permiso POR PERSONA y no por rol: la
+     Agencia la llevan cuatro, y entre ellos hay dos direcciones pero no las dos
+     que existen. Sin él, el selector Fresafit/Agencia ni aparece.
+     Opcional en el tipo porque varias consultas del CRM piden solo
+     `id, nombre, color` para pintar avatares. */
+  ve_agencia?: boolean;
+  /* Secciones que esta persona NO ve, por id de MODULOS. Lista negra: resta
+     sobre lo que su rol ya permite, nunca suma. Se reparte desde /equipo. */
+  modulos_ocultos?: string[];
 };
+
+/* Perfil con el correo de Auth al lado. Solo lo arma la pantalla de Equipo,
+   que lo lee con la llave de servicio: `profiles` no guarda el correo (vive en
+   auth.users) y nadie más lo necesita. */
+export type ProfileConCorreo = Profile & { email: string | null };
 /* Tarea (tabla `tasks`). Los nombres de columna son snake_case en Postgres. */
 export type Task = {
   id: string;
@@ -150,6 +165,19 @@ export function trabajaLaTarea(
   return t.responsable_id === userId || (t.coasignados ?? []).some((c) => c.id === userId);
 }
 
+/* ¿Manda sobre ESTA tarea? Un gestor manda en todo el tablero; quien la creó,
+   sobre la suya. Desde que cualquiera del equipo puede abrir tareas, el dueño de
+   un pendiente propio tiene que poder corregirlo y borrarlo sin perseguir a un
+   coordinador. Espejo de lo que aplica la BD (policy "tareas: editar" + trigger
+   `restringir_update_tarea`). */
+export function mandaEnLaTarea(
+  t: Pick<TaskConResponsable, "created_by">,
+  rol: string | null | undefined,
+  userId: string | null,
+): boolean {
+  return esGestor(rol) || (!!userId && t.created_by === userId);
+}
+
 /* ¿Esta tarea tiene novedades para mí? Sin marca de lectura, se considera vista:
    así las tareas viejas no aparecen todas con punto el primer día. */
 export function tieneNovedades(t: Pick<TaskConResponsable, "ultima_actividad_at" | "leido_at">): boolean {
@@ -193,6 +221,15 @@ export type TaskAttachment = {
   created_at: string;
 };
 
+/* ¿Este adjunto es una foto? Se mira el mime que mandó el navegador y, si no
+   llegó —los adjuntos viejos se guardaron sin él y algunos navegadores no lo
+   mandan—, la extensión del nombre. De esto depende que en la tarea se vea la
+   imagen o solo su nombre en un renglón. */
+const EXTENSIONES_IMAGEN = /\.(jpe?g|png|gif|webp|avif|heic|heif|bmp|svg)$/i;
+export function esImagenAdjunto(a: Pick<TaskAttachment, "tipo" | "nombre">): boolean {
+  return a.tipo?.startsWith("image/") || EXTENSIONES_IMAGEN.test(a.nombre ?? "");
+}
+
 export type TaskActivity = {
   id: string;
   task_id: string;
@@ -219,6 +256,11 @@ export type TaskDetalle = {
   enlaces: TaskLink[];
   adjuntos: TaskAttachment[];
   actividad: TaskActivity[];
+  /* ruta de Storage → enlace firmado de la MINIATURA, solo para los adjuntos
+     que son fotos. Se firman al cargar el detalle para poder verlas ahí mismo
+     sin abrir cada una; la imagen completa se pide aparte, al ampliarla. Una
+     ruta puede faltar (si su firma falló): entonces se pinta el nombre. */
+  miniaturas: Record<string, string>;
 };
 
 /* --- Módulo Inventario (Fase 1) --- */
@@ -249,7 +291,11 @@ export type Product = {
   nombre: string;
   tipo: TipoProductoId;
   variante: string | null;
-  costo: number | null;
+  /* Opcional porque NO sale de `products`: la columna quedó fuera del alcance
+     del token del navegador y llega desde la vista `producto_costos`, que la
+     sirve solo a quien lleva los egresos (ver 20260902000000). Ausente = no se
+     pidió; null = no hay costo capturado. */
+  costo?: number | null;
   precio: number | null;
   stock: number;
   stock_minimo: number;
@@ -267,8 +313,19 @@ export type Product = {
   sku: string | null;
   tiendanube_product_id: number | null;
   tiendanube_variant_id: number | null;
+  /* URL pública del producto en la tienda (canonical_url de la API, lo refresca
+     la sync del catálogo). Opcional porque solo lo pide la ficha del producto:
+     es la vista «como comprador» del enlace «Ver en Tienda Nube». null = la
+     sync no ha vuelto a correr desde que existe la columna. */
+  tiendanube_permalink?: string | null;
   meli_item_id: string | null;
   meli_variation_id: number | null;
+  /* URL pública de la publicación de ML (el permalink de su API, lo refresca la
+     sync del catálogo). Opcional porque solo lo pide la ficha del producto, que
+     es donde vive el enlace «Ver en Mercado Libre»; null = la sync no ha vuelto
+     a correr desde que existe la columna, y el enlace se arma de respaldo con
+     el id (MLM-…-_JM). */
+  meli_permalink?: string | null;
   /* Modalidad de envío de la publicación de ML: "fulfillment" (Mercado Full,
      el stock vive en un centro de ML), "cross_docking", "drop_off"… */
   meli_logistic_type: string | null;
@@ -326,7 +383,11 @@ export type StockLog = {
   stock_nuevo: number;
   creado_en: string;
   lote: string | null; // id de la operación que escribió este renglón junto a otros
+  /* Quién lo provocó. null = nadie: el cron, un webhook de venta, o un
+     movimiento anterior a que se guardara la autoría. */
+  created_by: string | null;
   producto: Pick<Product, "nombre" | "variante"> | null;
+  autor: Pick<Profile, "nombre"> | null; // join a profiles por created_by
 };
 
 /* Renglón de un pedido a proveedor (tabla `supplier_order_items`). */
@@ -424,7 +485,10 @@ export type Sale = {
   producto_id: string | null;
   descripcion: string | null;
   cantidad: number;
-  monto: number; // total del renglón
+  /* Total del renglón. Opcional porque NO sale de `sales`: la columna quedó
+     fuera del alcance del token del navegador y llega desde la vista
+     `ventas_montos`, que la sirve según el canal (ver 20260902000000). */
+  monto?: number | null;
   cliente_id: string | null;
   origen: "manual" | "csv" | "api";
   referencia_externa: string | null;
@@ -447,6 +511,9 @@ export type Sale = {
      métrica de demora que decide su exposición (lib/mercadolibre/desempeno.ts). */
   envio_limite_despacho: string | null;
   envio_despachado_en: string | null;
+  /* Id del shipment en Mercado Libre: con él se pide la etiqueta PDF a su API
+     (ruta /api/mercadolibre/etiqueta). Null en los demás canales. */
+  envio_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -528,6 +595,12 @@ export type PedidoEnvio = Pick<
      se busca el pedido; sin él había que ir al panel del canal a cruzarlo. */
   | "referencia_externa"
   | "envio_direccion"
+  /* Plazo de despacho (hoy solo lo deja la sync de Mercado Libre): quien empaca
+     decide por este dato, no por la fecha de compra. */
+  | "envio_limite_despacho"
+  | "envio_despachado_en"
+  /* Con el id del shipment, el botón de la guía abre la etiqueta PDF de ML. */
+  | "envio_id"
 > & {
   producto: Pick<Product, "id" | "nombre" | "variante"> | null;
   cliente: Pick<Customer, "id" | "nombre"> | null;
@@ -550,6 +623,14 @@ export type VentaDespacho = Pick<
   | "envio_despachado_en"
 >;
 
+/* Ficha tal como la consume el buscador del diálogo de venta. El `precio` es
+   opcional porque solo viaja para quien ve los ingresos: sin él, el diálogo deja
+   de autorrellenar el importe y se teclea. */
+export type ProductoParaVenta = Pick<
+  Product,
+  "id" | "nombre" | "variante" | "sku" | "activo"
+> & { precio?: number | null };
+
 /* Venta tal como la consume MÉTRICAS: sin los campos de envío ni las marcas de
    auditoría, que ese módulo no muestra (742 KB → 570 KB). */
 export type VentaMetricas = Pick<
@@ -558,7 +639,6 @@ export type VentaMetricas = Pick<
   | "fecha"
   | "canal"
   | "cantidad"
-  | "monto"
   | "descripcion"
   | "notas"
   | "origen"
@@ -566,6 +646,9 @@ export type VentaMetricas = Pick<
   | "cliente_id"
   | "referencia_externa"
 > & {
+  /* Ausente —no en cero— para quien no puede ver los ingresos: el servidor ni
+     siquiera pide la columna (ver `columnasVentaMetricas`). */
+  monto?: number | null;
   producto: Pick<Product, "id" | "nombre" | "variante" | "tipo"> | null;
 };
 
@@ -574,10 +657,16 @@ export type VentaMetricas = Pick<
    que bajar 25.000 renglones para obtenerlas, con un tope que dejaba fuera las
    ventas más viejas del año sin remedio. */
 export type ResumenMetricas = {
-  kpis: { total: number; piezas: number; ventas: number; ticket: number };
+  /* ¿Vinieron las cifras de dinero? La función de la base decide por quien
+     pregunta y lo dice aquí, para que el panel no tenga que adivinar si un
+     `null` es «no puedes verlo» o «no hubo ventas». */
+  dinero: boolean;
+  kpis: { total: number | null; piezas: number; ventas: number; ticket: number | null };
   /* Bruto por canal: órdenes cuando el canal las tiene, renglones como respaldo
-     (ver la cabecera de la migración 20260826000000). */
+     (ver la cabecera de la migración 20260826000000). Llega vacío sin permiso;
+     `unidades_por_canal` es el reemplazo que sí se puede enseñar. */
   bruto_por_canal: { canal: string; bruto: number }[];
+  unidades_por_canal: { canal: string; piezas: number; ventas: number }[];
   /* Un renglón por ficha vendida. Trae `variante` y `tipo` en crudo para que el
      desglose por categoría y talla siga resolviéndose al instante en pantalla. */
   por_producto: {
@@ -587,10 +676,10 @@ export type ResumenMetricas = {
     nombre: string | null;
     variante: string | null;
     tipo: TipoProductoId | null;
-    monto: number;
+    monto: number | null;
     piezas: number;
   }[];
-  por_dia: { fecha: string; total: number; ventas: number }[];
+  por_dia: { fecha: string; total: number | null; ventas: number }[];
   pagos: {
     pagos: { metodo: string; cantidad: number; monto: number }[];
     cupones: { codigo: string; usos: number; descuento: number }[];
@@ -598,6 +687,15 @@ export type ResumenMetricas = {
     conDatoDePago: number;
   };
   ordenes_periodo: number;
+};
+
+/* Permiso suelto para ver el dinero de UN canal (tabla `dinero_permisos_canal`).
+   La fila ES el permiso: no hay booleano que mantener en dos sitios. */
+export type DineroPermisoCanal = {
+  profile_id: string;
+  canal: CanalId;
+  otorgado_por: string | null;
+  created_at: string;
 };
 
 /* --- Módulo Clientes (Fase 4) --- */
@@ -628,7 +726,8 @@ export type Customer = {
 /* Cliente con sus números derivados de `sales` (no se guardan en la BD). */
 export type CustomerConStats = Customer & {
   compras: number; // nº de ventas
-  total: number; // total gastado
+  /* Total gastado. Null = quien mira no ve los ingresos (la RPC lo decide). */
+  total: number | null;
   ultimaCompra: string | null; // "AAAA-MM-DD"
   recurrente: boolean; // 2 o más compras
 };
@@ -944,6 +1043,10 @@ export type Conjunto = {
   titulo: string;
   categoria: string | null;
   talla: string | null;
+  /* Ficha de inventario del conjunto: dónde se acredita lo que se arma y qué
+     SKU se publica en los canales. NULL mientras el conjunto no exista como
+     producto vendible —el caso de los 84 que vinieron de la hoja—. */
+  producto_id: string | null;
   activo: boolean;
   notas: string | null;
   created_by: string | null;
@@ -961,6 +1064,38 @@ export type ConjuntoComponente = {
 };
 
 export type ConjuntoConComponentes = Conjunto & { componentes: ConjuntoComponente[] };
+
+/* Foto de una pieza en el momento de armar. Deshacer revierte ESTO y no la
+   receta de hoy: el conjunto se pudo editar entre una cosa y la otra. */
+export type ConjuntoArmadoPieza = {
+  producto_id: string;
+  sku: string | null;
+  nombre: string | null;
+  cantidad: number;
+  stock_anterior: number;
+  stock_nuevo: number;
+};
+
+/* Un armado de bodega (o su corrección). Agrupa en un renglón lo que en
+   `stock_log` son tres o cuatro, por el `lote` que comparten. */
+export type ConjuntoArmado = {
+  id: string;
+  conjunto_id: string | null;
+  sku_conjunto: string;
+  producto_id: string | null;
+  tipo: "armado" | "desarme";
+  cantidad: number;
+  lote: string;
+  detalle: ConjuntoArmadoPieza[];
+  nota: string | null;
+  revierte_a: string | null;
+  /* Cuándo dejó de deberle algo a los canales: se capturó a mano allá, o se
+     canceló con su desarme antes de subirse. NULL = pendiente. */
+  subido_en: string | null;
+  subido_por: string | null;
+  created_by: string | null;
+  created_at: string;
+};
 
 /* Cinturón personalizado en proceso. Todo es captura manual, incluida la foto
    del diseño que el cliente aprobó. */
@@ -981,6 +1116,8 @@ export type Personalizado = {
   foto_path: string | null;
   estado: EstadoPersonalizadoId;
   notas: string | null;
+  /* Quién lo lleva (Juanpi o Ulises): sin esto, el reparto vivía en WhatsApp. */
+  responsable_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -993,17 +1130,28 @@ export type EnvioFull = {
   nombre: string;
   estado: EstadoEnvioFullId;
   fecha_envio: string | null;
+  /* Guía del envío, toda capturada a mano: el CRM no habla con la paquetería.
+     `id_plataforma` es el Shipment ID de Amazon (o el ID de envío de ML). */
+  id_plataforma: string | null;
+  paqueteria: string | null;
+  tipo_envio: string | null;
+  num_guia: string | null;
+  fecha_llegada_estimada: string | null;
   notas: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
 };
 
+/* Las medidas van en centímetros y por separado —no en un texto "40x30x20"—
+   para poder sumar volumen y compararlas con los topes de la paquetería. */
 export type EnvioFullCaja = {
   id: string;
   envio_id: string;
   numero: number;
-  dimensiones: string | null;
+  largo_cm: number | null;
+  ancho_cm: number | null;
+  alto_cm: number | null;
   peso_kg: number | null;
 };
 

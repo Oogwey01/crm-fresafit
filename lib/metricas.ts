@@ -25,9 +25,13 @@ export const VENTAS_POR_PAGINA = 100;
 /* Lo que la tabla de ventas necesita de cada renglón (y el diálogo al editar).
    Vive aquí porque lo comparten la carga inicial de la página y la acción que
    trae las páginas siguientes: si las dos listas se separan, la tabla cambia de
-   forma a mitad del scroll. */
+   forma a mitad del scroll.
+
+   SIN `monto`, y no por descuido: la columna está fuera del alcance del token
+   del navegador (ver 20260902000000) y el importe se pide aparte, a la vista
+   `ventas_montos`, que decide por quién pregunta. Lo une `adjuntarMontos`. */
 export const COLUMNAS_VENTA_METRICAS =
-  "id, fecha, canal, cantidad, monto, descripcion, notas, origen," +
+  "id, fecha, canal, cantidad, descripcion, notas, origen," +
   " producto_id, cliente_id, referencia_externa," +
   " producto:products!producto_id(id, nombre, variante, tipo)";
 

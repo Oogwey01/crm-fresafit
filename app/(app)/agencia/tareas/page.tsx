@@ -2,6 +2,7 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { Board } from "@/components/tareas/board";
 import type { AgenciaEmpresa, TaskConResponsable, Profile, RolId } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Tareas · Agencia Fresafit" };
 
@@ -15,6 +16,7 @@ type FilaAsignado = { task_id: string; perfil: Pick<Profile, "id" | "nombre" | "
    estas tareas las trabaja quien atiende a cada cuenta, no quien cobra. Lo que
    sigue cerrado es cuánto paga cada cliente, no qué hay que hacerle. */
 export default async function TareasAgenciaPage() {
+  await exigirModulo("agencia-tareas");
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, user, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;

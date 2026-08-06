@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { autorizarCron, opcionesReimportacion, respuestaError } from "@/lib/canales/http";
+import {
+  autorizarCron,
+  conActorDePeticion,
+  opcionesReimportacion,
+  respuestaError,
+} from "@/lib/canales/http";
 import { conexionMercadolibre } from "@/lib/mercadolibre/api";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
 import { importarVentasML } from "@/lib/mercadolibre/ventas";
@@ -16,7 +21,7 @@ export async function GET(request: Request) {
   if (!cx) return NextResponse.json({ error: "Mercado Libre no está conectado." }, { status: 409 });
 
   try {
-    const resumen = await importacionCompletaML(cx);
+    const resumen = await conActorDePeticion(request, () => importacionCompletaML(cx));
     // Red de seguridad de ventas: reimporta la ventana reciente por si algún
     // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
     let ventas = null;

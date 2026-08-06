@@ -9,6 +9,7 @@ import type {
   AgenciaIngreso,
   Profile,
 } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Empresas · Agencia Fresafit" };
 
@@ -16,6 +17,7 @@ export const metadata = { title: "Empresas · Agencia Fresafit" };
    Solo dirección: la RLS ya lo impide, pero sin este corte el resto vería una
    pantalla vacía sin entender por qué. */
 export default async function EmpresasPage() {
+  await exigirModulo("agencia-empresas");
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 

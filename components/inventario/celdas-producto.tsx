@@ -26,7 +26,12 @@ export function PastillaTipo({ tipo }: { tipo: string }) {
 /* Miniatura de la portada (la subida en el CRM, si no la importada del canal).
    Se usa <img> plano en vez de next/image para no tener que allowlistar el
    hostname del CDN de Tienda Nube en next.config; para una miniatura es
-   suficiente. Cae a un placeholder cuando el producto no tiene foto. */
+   suficiente. Cae a un placeholder cuando el producto no tiene foto.
+
+   `object-contain` sobre fondo suave, no `cover`: las fotos del catálogo vienen
+   con fondo blanco y encuadre propio, y recortarlas para llenar el cuadro le
+   comía los bordes al producto —las asas y las correas de las mochilas—. Al
+   agrandarlas ese recorte se notaba el doble. */
 export function Miniatura({
   src,
   alt,
@@ -44,13 +49,18 @@ export function Miniatura({
           tam,
         )}
       >
-        <ImageIcon className="size-6" />
+        <ImageIcon className="size-6 md:size-8" />
       </div>
     );
   }
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={alt} loading="lazy" className={cn("shrink-0 rounded-lg border object-cover", tam)} />
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className={cn("shrink-0 rounded-lg border bg-muted/30 object-contain", tam)}
+    />
   );
 }
 

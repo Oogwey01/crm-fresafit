@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelFinanzas } from "@/components/finanzas/panel";
 import { construirSugerencias, type GastoPrevio } from "@/lib/finanzas/sugerencias";
-import type { ExpenseConComprobantes, RolId, Sale } from "@/lib/types";
+import type { ExpenseConComprobantes, RolId } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Finanzas · Fresafit" };
 
@@ -13,14 +15,20 @@ export const metadata = { title: "Finanzas · Fresafit" };
 const DIAS_VENTANA = 120;
 
 export default async function FinanzasPage() {
-  /* Guarda de rol: solo Dirección. La BD ya lo impide con RLS (no vería una
-     sola fila), pero se corta aquí para no mostrar un panel vacío y confuso.
-     usuarioActual() está cacheado: no repite el getUser() ni el perfil que ya
-     pidió el layout, así que la guarda ya no cuesta roundtrips extra. */
+  await exigirModulo("finanzas");
+  /* Guarda de rol: dirección y administración. La BD ya lo impide con RLS (no
+     vería una sola fila), pero se corta aquí para no mostrar un panel vacío y
+     confuso. usuarioActual() está cacheado: no repite el getUser() ni el perfil
+     que ya pidió el layout, así que la guarda ya no cuesta roundtrips extra. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
   if (!puedeAdministrar(rol)) redirect("/tareas");
 
+  /* Este módulo es de EGRESOS. Las ventas estaban aquí solo para poner las
+     salidas en contexto, y ese contexto es medio cierre: quien captura los
+     gastos no necesita saber contra cuánto se comparan. Para quien no ve los
+     ingresos la consulta ni se hace. */
+  const dinero = await vistaDinero();
   const desde = diasDesdeHoy(-DIAS_VENTANA);
 
   const [gastos, ventasRes, previosRes] = await Promise.all([
@@ -47,13 +55,11 @@ export default async function FinanzasPage() {
         error: { message: string } | null;
       }>,
     ),
-    /* Entradas = ventas (Fase 2). No hay tabla de ingresos: se derivan. */
-    supabase
-      .from("sales")
-      .select("fecha, monto")
-      .gte("fecha", desde)
-      .or("estado.is.null,estado.neq.cancelado") // los cancelados no son ingreso
-      .limit(5000),
+    /* Entradas = ventas (Fase 2). No hay tabla de ingresos: se derivan.
+       Ya sumadas por día en la base: `sales.monto` está fuera del alcance del
+       token (ver 20260902000000) y, de paso, cuatro meses de ventas eran hasta
+       5.000 filas viajando para hacer aquí una suma. */
+    dinero.ingresos ? supabase.rpc("ingresos_por_dia", { desde }) : null,
     /* Todo el historial, no solo la ventana: las sugerencias del alta viven de
        cuántas veces se ha capturado cada concepto. Son cinco columnas cortas,
        así que el payload es mínimo; el limit es explícito porque PostgREST
@@ -66,7 +72,21 @@ export default async function FinanzasPage() {
       .limit(1000),
   ]);
 
-  const ventas = (ventasRes.data ?? []) as Pick<Sale, "fecha" | "monto">[];
+  /* `null` —y no un array vacío— para que el panel distinga «no puedes verlas»
+     de «no hubo ventas»: con cero ventas el saldo sí es un dato. */
+  /* Si la función falla —lo más probable, que la migración aún no se haya
+     pegado— también se pasa `null`: un array vacío pintaría «Entradas $0» y un
+     saldo en rojo, que se leen como datos y no lo son. */
+  const ventas =
+    ventasRes && !ventasRes.error
+      ? ((ventasRes.data ?? []) as { fecha: string; total: number }[]).map((d) => ({
+          fecha: d.fecha,
+          monto: Number(d.total),
+        }))
+      : null;
+  if (ventasRes?.error) {
+    console.warn("[finanzas] ingresos_por_dia no disponible:", ventasRes.error.message);
+  }
   const sugerencias = construirSugerencias((previosRes.data ?? []) as GastoPrevio[]);
 
   return <PanelFinanzas gastos={gastos} ventas={ventas} sugerencias={sugerencias} />;

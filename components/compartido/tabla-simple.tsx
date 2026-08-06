@@ -1,4 +1,4 @@
-import { Fragment, type MouseEvent, type ReactNode } from "react";
+import { Fragment, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /* Tabla compartida con modo dual:
@@ -37,6 +37,7 @@ export function TablaSimple<T>({
   filaKey,
   titulo,
   filaClassName,
+  filaStyle,
   minW = "min-w-[760px]",
   vacio = "Sin datos.",
   onRowClick,
@@ -47,6 +48,10 @@ export function TablaSimple<T>({
   filaKey: (row: T) => string;
   titulo?: ReactNode; // rótulo de sección
   filaClassName?: (row: T) => string; // clases extra por fila/tarjeta
+  /* Estilo por fila, para lo que no se puede escribir como clase: el color de
+     un catálogo es un hex que llega en tiempo de ejecución, no una clase de
+     Tailwind. Pisa al fondo de la clase base (incluido el hover). */
+  filaStyle?: (row: T) => CSSProperties | undefined;
   minW?: string;
   vacio?: ReactNode;
   /* Si se pasa, TODA la fila (o tarjeta en móvil) es clickeable. Los clics sobre
@@ -94,6 +99,7 @@ export function TablaSimple<T>({
               <div
                 key={filaKey(row)}
                 onClick={onRowClick ? clicFila(row) : undefined}
+                style={filaStyle?.(row)}
                 className={cn(
                   "grid items-center gap-2 border-b px-6 py-3 text-sm last:border-b-0 hover:bg-accent/30",
                   cols,
@@ -129,6 +135,7 @@ export function TablaSimple<T>({
                  la tarjeta y con ella la pantalla, y el teléfono contestaba
                  alejando el zoom). El `[&>*]:max-w-full` lo devuelve al ancho
                  de la tarjeta para que su `truncate` sí recorte. */
+              style={filaStyle?.(row)}
               className={cn(
                 "overflow-hidden rounded-2xl border bg-card p-3.5 shadow-sm",
                 onRowClick && "cursor-pointer",

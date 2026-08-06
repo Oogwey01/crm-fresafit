@@ -2,7 +2,8 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { urlesFirmadas } from "@/lib/storage";
 import { PanelPersonalizados } from "@/components/personalizados/panel";
-import type { Personalizado } from "@/lib/types";
+import type { Personalizado, Profile } from "@/lib/types";
+import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Personalizados · Fresafit" };
 
@@ -13,19 +14,25 @@ export const metadata = { title: "Personalizados · Fresafit" };
    área de diseño: capturan el pedido, suben el diseño que el cliente aprobó y
    lo empujan hasta que se manda. La RLS ya lo acota al equipo interno. */
 export default async function PersonalizadosPage() {
+  await exigirModulo("personalizados");
   const { supabase } = await usuarioActual();
 
   /* La hoja de la que salió esto pasa de 500 renglones y sigue creciendo:
-     PostgREST corta en 1000 sin avisar, así que se pagina. */
-  const personalizados = await traerTodo<Personalizado>((desde, hasta) =>
-    supabase
-      .from("personalizados")
-      .select(
-        "id, cliente, tipo, modelo, talla, no_venta, canal, fecha_compra, fecha_produccion, fecha_limite, url, foto_path, estado, notas, created_by, created_at, updated_at",
-      )
-      .order("fecha_limite", { ascending: true, nullsFirst: false })
-      .range(desde, hasta),
-  );
+     PostgREST corta en 1000 sin avisar, así que se pagina. El equipo viaja para
+     el selector y el avatar de quién lleva cada pedido. */
+  const [personalizados, equipoRes] = await Promise.all([
+    traerTodo<Personalizado>((desde, hasta) =>
+      supabase
+        .from("personalizados")
+        .select(
+          "id, cliente, tipo, modelo, talla, no_venta, canal, fecha_compra, fecha_produccion, fecha_limite, url, foto_path, estado, notas, responsable_id, created_by, created_at, updated_at",
+        )
+        .order("fecha_limite", { ascending: true, nullsFirst: false })
+        .range(desde, hasta),
+    ),
+    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+  ]);
+  const equipo = (equipoRes.data ?? []) as Profile[];
 
   /* El bucket es privado, así que cada diseño necesita un enlace firmado. Se
      firman todos aquí para poder pintar la miniatura dentro de la tabla: es lo
@@ -45,5 +52,7 @@ export default async function PersonalizadosPage() {
     { ancho: 760, alto: 200 },
   );
 
-  return <PanelPersonalizados personalizados={personalizados} urlsDiseno={urlsDiseno} />;
+  return (
+    <PanelPersonalizados personalizados={personalizados} urlsDiseno={urlsDiseno} equipo={equipo} />
+  );
 }
