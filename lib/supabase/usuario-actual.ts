@@ -2,6 +2,19 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/lib/types";
 
+/* El `sub` (id del usuario) del payload de un JWT, SIN validar la firma: es
+   solo el dato tentativo con el que se adelanta la query del perfil. Ante
+   cualquier cosa rara devuelve null y se sigue por el camino lento. */
+function subDelToken(token: string | null | undefined): string | null {
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
+    return typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}
+
 /* Devuelve el cliente + usuario actual + su perfil, para gating server-side en
    los server actions de todos los módulos (defensa en profundidad sobre RLS).
 
@@ -17,11 +30,17 @@ export const usuarioActual = cache(async () => {
      cookie (getSession no valida, solo lee) y ambas salen EN PARALELO. Es
      seguro: la query viaja con el token real y RLS manda, y el resultado solo
      se usa si getUser() confirma ese mismo id; si no coincide —cookie
-     manipulada o sesión cambiada a media request— se repite con el id bueno. */
+     manipulada o sesión cambiada a media request— se repite con el id bueno.
+
+     El `sub` se decodifica del token A MANO y no leyendo `session.user`:
+     supabase-js envuelve esa propiedad en un Proxy que suelta el aviso
+     «could be insecure!» en CADA acceso, y aquí inundaba el log del server
+     con cada navegación. El uso es el mismo (dato tentativo, confirmado
+     después); solo cambia la puerta por la que se lee. */
   const {
     data: { session },
   } = await supabase.auth.getSession();
-  const idTentativo = session?.user?.id ?? null;
+  const idTentativo = subDelToken(session?.access_token);
 
   const consultaPerfil = (id: string) =>
     supabase
