@@ -1,5 +1,6 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { leerDatosIntegracion } from "@/lib/canales/integraciones";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { instanteDeCorte } from "@/lib/mercadolibre/desempeno";
 import { ESTADOS_PEDIDO_PENDIENTES } from "@/lib/catalogos";
@@ -17,23 +18,31 @@ export default async function PedidosPage() {
   const rol = (rolCrudo ?? "miembro") as RolId;
 
   /* Solo lo que AÚN DA TRABAJO: nuevo, preparando, enviado. Antes viajaban los
-     120 días completos —hasta 5.000 renglones, ~474 KB— y el 95% eran pedidos
+     120 días completos —miles de renglones, ~474 KB— y el 95% eran pedidos
      ya entregados que nadie iba a mirar al abrir. El histórico (entregados y
      cancelados de la misma ventana) lo pide el panel al cambiar de filtro, con
      `listarPedidosHistorico`. Las ventas históricas sin flujo de envío (estado
      null) siguen fuera, como siempre.
 
-     Esta consulta iba doblada en `conColumnasOpcionales` mientras las
-     migraciones de dirección y rastreo estaban recién escritas y podían faltar
-     en la base. Ya se aplicaron, así que se pide directo. */
-  const [pedidosRes, datosTN] = await Promise.all([
-    supabase
-      .from("sales")
-      .select(COLUMNAS_PEDIDO)
-      .in("estado", [...ESTADOS_PEDIDO_PENDIENTES])
-      .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
-      .order("fecha", { ascending: false })
-      .limit(5000),
+     Paginado con traerTodo: un `.limit(5000)` no protege de nada, porque
+     PostgREST corta en ~1000 filas SIN error y la temporada con más de mil
+     pendientes llegaría incompleta sin que nada lo delate. El `id` de
+     desempate es obligatorio: `fecha` se repite entre pedidos importados en
+     lote y sin criterio único las tandas duplican o saltan filas. */
+  const [pedidos, datosTN] = await Promise.all([
+    traerTodo<PedidoEnvio>((desde, hasta) =>
+      supabase
+        .from("sales")
+        .select(COLUMNAS_PEDIDO)
+        .in("estado", [...ESTADOS_PEDIDO_PENDIENTES])
+        .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
+        .order("fecha", { ascending: false })
+        .order("id")
+        .range(desde, hasta) as unknown as PromiseLike<{
+        data: PedidoEnvio[] | null;
+        error: { message: string } | null;
+      }>,
+    ),
     /* El panel de Tienda Nube vive en el subdominio de cada tienda, así que el
        enlace "ver la orden en el canal" necesita ese dato. Lo deja la sync en
        `integraciones.datos`; si aún no ha corrido, el enlace simplemente no
@@ -41,7 +50,6 @@ export default async function PedidosPage() {
     leerDatosIntegracion("tiendanube").catch(() => ({}) as Record<string, unknown>),
   ]);
 
-  const pedidos = (pedidosRes.data ?? []) as unknown as PedidoEnvio[];
   const dominioTN =
     typeof datosTN.dominio_admin === "string" ? datosTN.dominio_admin : null;
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { textoONulo } from "@/lib/validacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import {
@@ -18,22 +19,36 @@ const revalidar = () => RUTAS.forEach((r) => revalidatePath(r));
 /* El histórico de la ventana (entregados y cancelados): la página ya solo
    carga lo que da trabajo, y esto se pide UNA vez, cuando alguien cambia al
    filtro de «Todos» o «Entregados». Mismas columnas y misma ventana que la
-   carga inicial, para que un pedido se vea idéntico venga de donde venga. */
+   carga inicial, para que un pedido se vea idéntico venga de donde venga.
+
+   Paginado con traerTodo: los entregados de 120 días pasan de mil filas, y el
+   `.limit(5000)` que llevaba antes era mentira — PostgREST corta en ~1000 SIN
+   error, así que el filtro de «Entregados» mostraba una ventana mutilada. El
+   `id` desempata fechas repetidas de las importaciones en lote. */
 export async function listarPedidosHistorico(): Promise<
   { pedidos: PedidoEnvio[] } | { error: string }
 > {
   const cx = await exigirRol("interno", "Solo el equipo interno puede ver los pedidos.");
   if ("error" in cx) return cx;
 
-  const { data, error } = await cx.supabase
-    .from("sales")
-    .select(COLUMNAS_PEDIDO)
-    .in("estado", [...ESTADOS_PEDIDO_TERMINALES])
-    .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
-    .order("fecha", { ascending: false })
-    .limit(5000);
-  if (error) return { error: error.message };
-  return { pedidos: (data ?? []) as unknown as PedidoEnvio[] };
+  try {
+    const pedidos = await traerTodo<PedidoEnvio>((desde, hasta) =>
+      cx.supabase
+        .from("sales")
+        .select(COLUMNAS_PEDIDO)
+        .in("estado", [...ESTADOS_PEDIDO_TERMINALES])
+        .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
+        .order("fecha", { ascending: false })
+        .order("id")
+        .range(desde, hasta) as unknown as PromiseLike<{
+        data: PedidoEnvio[] | null;
+        error: { message: string } | null;
+      }>,
+    );
+    return { pedidos };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudo cargar el histórico." };
+  }
 }
 
 /* Cambio de estado del pedido en línea (nuevo → preparando → enviado → …). */
