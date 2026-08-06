@@ -1,7 +1,7 @@
 "use client";
 
 import { useDroppable } from "@dnd-kit/core";
-import { TaskCard } from "@/components/tareas/task-card";
+import { TaskCard } from "@/components/tareas/tarjeta-tarea";
 import type { TaskConResponsable, EstadoId } from "@/lib/types";
 import { cn } from "@/lib/utils";
 

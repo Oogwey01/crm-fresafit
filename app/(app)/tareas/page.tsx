@@ -2,7 +2,7 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { COLUMNAS_TAREA_CON_RESPONSABLE, LIMITE_PAPELERA } from "@/lib/tareas/consulta";
-import { Board } from "@/components/tareas/board";
+import { Board } from "@/components/tareas/tablero";
 import type { TaskConResponsable, Profile, RolId } from "@/lib/types";
 
 export const metadata = { title: "Tareas · Fresafit" };

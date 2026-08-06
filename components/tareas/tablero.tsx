@@ -34,9 +34,9 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
-import { Column } from "@/components/tareas/column";
-import { TaskCard } from "@/components/tareas/task-card";
-import { TaskDialog, type TaskInicial } from "@/components/tareas/task-dialog";
+import { Column } from "@/components/tareas/columna";
+import { TaskCard } from "@/components/tareas/tarjeta-tarea";
+import { TaskDialog, type TaskInicial } from "@/components/tareas/dialogo-tarea";
 
 /* Plantilla "pedir gráfico para el live": lo que el encargado de TikTok le
    encarga a diseño antes de cada live. La descripción es el checklist de lo que
@@ -54,10 +54,10 @@ const PLANTILLA_GRAFICO_LIVE: TaskInicial = {
   area: "diseno",
   etiquetas: ["grafico", "live"],
 };
-import { TaskFilters } from "@/components/tareas/task-filters";
+import { TaskFilters } from "@/components/tareas/filtros-tarea";
 import { FiltroEtiquetas } from "@/components/tareas/filtro-etiquetas";
 import { CargaPersonas } from "@/components/tareas/carga-personas";
-import { ExportButton } from "@/components/tareas/export-button";
+import { ExportButton } from "@/components/tareas/boton-exportar";
 import { VistaTabla } from "@/components/tareas/vista-tabla";
 import { VistaCalendario } from "@/components/tareas/vista-calendario";
 import { VistaMovil } from "@/components/tareas/vista-movil";

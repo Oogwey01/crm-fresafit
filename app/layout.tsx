@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Space_Grotesk, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { ThemeProvider } from "@/components/tema-provider";
+import { ThemeProvider } from "@/components/layout/tema-provider";
 
 const instrumentSans = Instrument_Sans({
   variable: "--font-sans",

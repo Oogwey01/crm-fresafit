@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
-import { Sidebar } from "@/components/sidebar";
-import { MobileNav } from "@/components/mobile-nav";
+import { Sidebar } from "@/components/layout/sidebar";
+import { MobileNav } from "@/components/layout/mobile-nav";
 import type { Notificacion } from "@/lib/types";
 
 /* Shell de la app protegida: sidebar + área principal.

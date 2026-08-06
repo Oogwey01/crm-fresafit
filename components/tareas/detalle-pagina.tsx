@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { TaskDetail } from "@/components/tareas/task-detail";
+import { TaskDetail } from "@/components/tareas/detalle-tarea";
 import { marcarTareaLeida } from "@/app/(app)/tareas/actions";
 import type { Profile, RolId, TaskConResponsable } from "@/lib/types";
 

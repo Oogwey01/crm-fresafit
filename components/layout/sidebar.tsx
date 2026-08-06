@@ -19,11 +19,11 @@ import {
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
-import { LogoFresafit } from "@/components/logo-fresafit";
+import { LogoFresafit } from "@/components/layout/logo-fresafit";
 import { AvisosPush } from "@/components/tareas/avisos-push";
 import { Notificaciones } from "@/components/tareas/notificaciones";
-import { TemaToggle } from "@/components/tema-toggle";
-import { SelectorEspacio } from "@/components/selector-espacio";
+import { TemaToggle } from "@/components/layout/tema-toggle";
+import { SelectorEspacio } from "@/components/layout/selector-espacio";
 import {
   ESPACIOS,
   MODULOS,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { LogoFresafit } from "@/components/logo-fresafit";
+import { LogoFresafit } from "@/components/layout/logo-fresafit";
 import { obtenerCanal, obtenerCategoriaGasto } from "@/lib/catalogos";
 import { formatearFecha, hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";

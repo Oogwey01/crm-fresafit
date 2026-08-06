@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { Menu } from "lucide-react";
-import { LogoFresafit } from "@/components/logo-fresafit";
+import { LogoFresafit } from "@/components/layout/logo-fresafit";
 import { Notificaciones } from "@/components/tareas/notificaciones";
 import type { Profile, Notificacion, EspacioId } from "@/lib/types";
-import { SidebarContent } from "@/components/sidebar";
+import { SidebarContent } from "@/components/layout/sidebar";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 /* Barra superior de navegación en móvil (oculta en escritorio, donde manda el

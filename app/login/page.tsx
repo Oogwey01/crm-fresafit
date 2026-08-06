@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { LogoFresafit } from "@/components/logo-fresafit";
+import { LogoFresafit } from "@/components/layout/logo-fresafit";
 import { cn } from "@/lib/utils";
 
 /* Marca de fresa (mismo trazo que el logo del sidebar), como SVG para que se
