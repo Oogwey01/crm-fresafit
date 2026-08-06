@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { registrarPago } from "@/app/(app)/agencia/actions";
+import { registrarPago } from "@/app/(app)/nomina/actions";
 import { periodoDeCorte } from "@/lib/agencia";
 import { hoyISO } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";

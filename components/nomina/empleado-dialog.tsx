@@ -20,7 +20,7 @@ import {
   editarEmpleado,
   borrarEmpleado,
   type EmpleadoInput,
-} from "@/app/(app)/agencia/actions";
+} from "@/app/(app)/nomina/actions";
 import {
   ESQUEMAS_PAGO,
   PERIODICIDADES_PAGO,

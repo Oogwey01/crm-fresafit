@@ -20,7 +20,7 @@ import {
   editarReporte,
   borrarReporte,
   type ReporteInput,
-} from "@/app/(app)/agencia/actions";
+} from "@/app/(app)/reportes/actions";
 import { formatearFecha } from "@/lib/fecha";
 import type { AgenciaEmpresa, AgenciaReporteConEmpresa } from "@/lib/types";
 

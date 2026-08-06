@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { EmpleadoDialog } from "@/components/nomina/empleado-dialog";
 import { PagoDialog } from "@/components/nomina/pago-dialog";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { marcarPagoPagado } from "@/app/(app)/agencia/actions";
+import { marcarPagoPagado } from "@/app/(app)/nomina/actions";
 import {
   PERIODICIDADES_PAGO,
   nombrePeriodo,
