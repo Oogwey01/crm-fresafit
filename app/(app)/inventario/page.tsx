@@ -8,7 +8,11 @@ import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelInventario, type AvisoConexion } from "@/components/inventario/panel";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 import { estadoPiloto } from "@/lib/inventario/piloto";
-import { FILTRO_PUESTA_AL_DIA, LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
+import {
+  COLUMNAS_STOCK_LOG,
+  FILTRO_PUESTA_AL_DIA,
+  LIMITE_MOVIMIENTOS,
+} from "@/lib/inventario/origenes";
 import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/inventario/reabastecimiento";
 import type {
   ProductConProveedor,
@@ -187,7 +191,9 @@ export default async function InventarioPage({
        `autor` es quien lo provocó: null en lo que hicieron el cron o un webhook. */
     supabase
       .from("stock_log")
-      .select("*, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)")
+      .select(
+        `${COLUMNAS_STOCK_LOG}, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)`,
+      )
       .not("origen", "in", FILTRO_PUESTA_AL_DIA)
       .order("creado_en", { ascending: false })
       .limit(LIMITE_MOVIMIENTOS),

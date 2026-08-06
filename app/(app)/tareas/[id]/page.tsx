@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { COLUMNAS_TAREA_CON_RESPONSABLE } from "@/lib/tareas/consulta";
 import { equipoCompleto } from "@/lib/supabase/consultas";
 import { DetalleTareaPagina } from "@/components/tareas/detalle-pagina";
 import type { AgenciaEmpresa, Profile, RolId, TaskConResponsable } from "@/lib/types";
@@ -29,7 +30,7 @@ export default async function TareaPage({
   const [tareaRes, equipo, asignadosRes, empresasRes] = await Promise.all([
     supabase
       .from("tasks")
-      .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+      .select(COLUMNAS_TAREA_CON_RESPONSABLE)
       .eq("id", id)
       .is("deleted_at", null)
       .maybeSingle(),

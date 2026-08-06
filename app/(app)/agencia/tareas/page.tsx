@@ -1,6 +1,7 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { COLUMNAS_TAREA_CON_RESPONSABLE, LIMITE_PAPELERA } from "@/lib/tareas/consulta";
 import { Board } from "@/components/tareas/board";
 import type { AgenciaEmpresa, TaskConResponsable, Profile, RolId } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
@@ -33,7 +34,7 @@ export default async function TareasAgenciaPage() {
       traerTodo<TaskConResponsable>((desde, hasta) =>
         supabase
           .from("tasks")
-          .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+          .select(COLUMNAS_TAREA_CON_RESPONSABLE)
           .eq("espacio", "agencia")
           .is("deleted_at", null)
           .order("created_at", { ascending: true })
@@ -47,11 +48,11 @@ export default async function TareasAgenciaPage() {
          entra a recuperar algo que se borró hace poco, no a arqueología. */
       supabase
         .from("tasks")
-        .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+        .select(COLUMNAS_TAREA_CON_RESPONSABLE)
         .eq("espacio", "agencia")
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
-        .limit(100),
+        .limit(LIMITE_PAPELERA),
       equipoCompleto(),
       /* Los clientes activos. Va como consulta aparte y NO como embed de `tasks`
          a propósito: son dos o tres filas que se reusan en cada tarjeta, y de

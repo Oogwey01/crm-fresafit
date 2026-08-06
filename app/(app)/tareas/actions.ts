@@ -700,6 +700,10 @@ export async function exportarRespaldo(): Promise<
        criterio ÚNICO, y `created_at` no lo es (una importación en lote guarda
        decenas de filas con el mismo instante). Sin el desempate, dos tandas
        podían repetir una fila y saltarse otra. */
+    /* Aquí el `*` es a propósito y NO hay que cambiarlo por COLUMNAS_TAREA:
+       esto es la copia de seguridad, y tiene que llevarse cualquier columna
+       que se agregue en el futuro sin que nadie se acuerde de venir a
+       apuntarla. Es justo lo contrario del criterio de las pantallas. */
     const [tareas, perfiles, comentarios, checklist, enlaces, adjuntos, actividad, equipoTarea, compartidas] =
       await Promise.all([
         traerTodo<Fila>((desde, hasta) =>

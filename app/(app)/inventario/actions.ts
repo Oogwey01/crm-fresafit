@@ -20,6 +20,7 @@ import { registrarStockLog } from "@/lib/inventario/stock-log";
 import { conActor } from "@/lib/inventario/actor";
 import { reconciliarInventario, type ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 import {
+  COLUMNAS_STOCK_LOG,
   FILTRO_PUESTA_AL_DIA,
   LIMITE_MOVIMIENTOS,
   LIMITE_PUESTAS_AL_DIA,
@@ -339,7 +340,7 @@ export async function movimientosProducto(
 
   let q = cx.supabase
     .from("stock_log")
-    .select("*, autor:profiles!created_by(nombre)")
+    .select(`${COLUMNAS_STOCK_LOG}, autor:profiles!created_by(nombre)`)
     .eq("producto_id", productoId);
   if (!incluirPuestasAlDia) q = q.not("origen", "in", FILTRO_PUESTA_AL_DIA);
 
@@ -368,7 +369,9 @@ export async function movimientosStock(opts: {
 
   let q = cx.supabase
     .from("stock_log")
-    .select("*, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)");
+    .select(
+        `${COLUMNAS_STOCK_LOG}, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)`,
+      );
   q =
     opts.vista === "reales"
       ? q.not("origen", "in", FILTRO_PUESTA_AL_DIA)

@@ -1,6 +1,7 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { COLUMNAS_TAREA_CON_RESPONSABLE, LIMITE_PAPELERA } from "@/lib/tareas/consulta";
 import { Board } from "@/components/tareas/board";
 import type { TaskConResponsable, Profile, RolId } from "@/lib/types";
 
@@ -34,7 +35,7 @@ export default async function TareasPage() {
       traerTodo<TaskConResponsable>((desde, hasta) =>
         supabase
           .from("tasks")
-          .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+          .select(COLUMNAS_TAREA_CON_RESPONSABLE)
           .eq("espacio", "fresafit")
           .is("deleted_at", null)
           .order("created_at", { ascending: true })
@@ -50,11 +51,11 @@ export default async function TareasPage() {
          recuperar algo que se borró hace poco, no a arqueología. */
       supabase
         .from("tasks")
-        .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+        .select(COLUMNAS_TAREA_CON_RESPONSABLE)
         .eq("espacio", "fresafit")
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
-        .limit(100),
+        .limit(LIMITE_PAPELERA),
       equipoCompleto(),
       // Resumen de subtareas por tarea (para el chip de progreso en las tarjetas).
       traerTodo<{ task_id: string; hecho: boolean }>((desde, hasta) =>

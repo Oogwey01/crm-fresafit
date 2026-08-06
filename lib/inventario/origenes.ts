@@ -244,3 +244,15 @@ export const FILTRO_PUESTA_AL_DIA = `(${ORIGENES_PUESTA_AL_DIA.map((o) => `"${o}
    de decenas y son para auditar los últimos días, no el trimestre. */
 export const LIMITE_MOVIMIENTOS = 250;
 export const LIMITE_PUESTAS_AL_DIA = 200;
+
+/* Columnas del ledger que se piden, en vez de un `*`. Son las mismas que hay
+   hoy, escritas a mano: `stock_log` es la tabla que más crece y la que más
+   probablemente reciba una columna nueva y gorda (un jsonb de diagnóstico, un
+   payload del canal), y con `*` esa columna se colaría a las tres pantallas
+   que la pintan sin que nadie lo pidiera. Es la misma disciplina con la que
+   /inventario excluye `imagenes` del catálogo (~950 KB).
+
+   El embed del producto y el del autor los pone cada consulta: la ficha de un
+   producto no necesita repetir su propio nombre en cada renglón. */
+export const COLUMNAS_STOCK_LOG =
+  "id, producto_id, canal, origen, stock_anterior, stock_nuevo, creado_en, lote, created_by";

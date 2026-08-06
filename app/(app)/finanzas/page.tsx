@@ -4,6 +4,7 @@ import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelFinanzas } from "@/components/finanzas/panel";
 import { construirSugerencias, type GastoPrevio } from "@/lib/finanzas/sugerencias";
+import { COLUMNAS_GASTO } from "@/lib/finanzas/consulta";
 import type { ExpenseConComprobantes } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
@@ -35,7 +36,7 @@ export default async function FinanzasPage() {
     traerTodo<ExpenseConComprobantes>((desdeFila, hastaFila) =>
       supabase
         .from("expenses")
-        .select("*, comprobantes:expense_receipts(*)")
+        .select(COLUMNAS_GASTO)
         .gte("fecha", desde)
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false })
