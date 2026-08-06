@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   autorizarCron,
+  basePublica,
   conActorDePeticion,
   opcionesReimportacion,
   respuestaError,
@@ -18,12 +19,13 @@ export async function GET(request: Request) {
   const cx = await conexionTiendanube();
   if (!cx) return NextResponse.json({ error: "Tienda Nube no está conectada." }, { status: 409 });
 
-  // Autocuración: con URL https pública, asegura los webhooks registrados
-  // (cubre el caso de haber conectado desde localhost antes del deploy).
-  const { origin } = new URL(request.url);
-  if (origin.startsWith("https://") && !origin.includes("localhost")) {
+  // Autocuración: asegura los webhooks apuntando a la base pública (cubre el
+  // caso de haber conectado desde localhost, y corrige URLs de deployment
+  // registradas por error). El alta es idempotente: PUT si la URL no coincide.
+  const base = basePublica(new URL(request.url).origin);
+  if (base) {
     try {
-      await registrarWebhooksTN(cx, origin);
+      await registrarWebhooksTN(cx, base);
     } catch (e) {
       console.error("[tiendanube] registro de webhooks:", e);
     }

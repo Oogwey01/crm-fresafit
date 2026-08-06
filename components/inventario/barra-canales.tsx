@@ -134,25 +134,40 @@ function ItemCanal({
   }
 
   return (
-    <DropdownMenuItem
-      disabled={sincronizando}
-      /* closeOnClick=false: el menú se cerraba antes de que apareciera la
-         confirmación, y con él desaparecía el contexto de qué se iba a
-         sincronizar. */
-      closeOnClick={false}
-      onClick={() =>
-        ejecutar(canal.sincronizar, {
-          confirmar: canal.confirmacion,
-          error: "No se pudo sincronizar. Revisa tu conexión.",
-          alExito: (r) => {
-            toast.success(r.detalle);
-          },
-        })
-      }
-    >
-      <RefreshCw className={cn(sincronizando && "animate-spin")} aria-hidden="true" />
-      {sincronizando ? "Sincronizando…" : `Sincronizar ${canal.etiquetaSync}`}
-    </DropdownMenuItem>
+    <>
+      <DropdownMenuItem
+        disabled={sincronizando}
+        /* closeOnClick=false: el menú se cerraba antes de que apareciera la
+           confirmación, y con él desaparecía el contexto de qué se iba a
+           sincronizar. */
+        closeOnClick={false}
+        onClick={() =>
+          ejecutar(canal.sincronizar, {
+            confirmar: canal.confirmacion,
+            error: "No se pudo sincronizar. Revisa tu conexión.",
+            alExito: (r) => {
+              toast.success(r.detalle);
+            },
+          })
+        }
+      >
+        <RefreshCw className={cn(sincronizando && "animate-spin")} aria-hidden="true" />
+        {sincronizando ? "Sincronizando…" : `Sincronizar ${canal.etiquetaSync}`}
+      </DropdownMenuItem>
+      {/* Volver a autorizar la app con el canal YA conectado: es como se emite
+          un token nuevo cuando se amplían los permisos (p. ej. el scope de
+          fulfillment orders de Tienda Nube). Antes el único "Conectar" se
+          escondía en cuanto el canal quedaba conectado y no había forma de
+          llegar al OAuth sin teclear la ruta a mano. */}
+      <DropdownMenuItem
+        onClick={() => {
+          window.location.href = `/api/${canal.id}/conectar`;
+        }}
+      >
+        <Icono aria-hidden="true" />
+        {`Reconectar ${canal.etiquetaSync}`}
+      </DropdownMenuItem>
+    </>
   );
 }
 

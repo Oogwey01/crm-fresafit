@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { basePublica } from "@/lib/canales/http";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
 import { guardarConexion, intercambiarCodigo, registrarWebhooksTN } from "@/lib/tiendanube/api";
 import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
@@ -17,12 +18,13 @@ export async function GET(request: Request) {
     const { token, storeId } = await intercambiarCodigo(code);
     await guardarConexion(token, storeId);
 
-    // Tienda Nube solo acepta webhooks en URLs https públicas; en local se
-    // omiten (el cron /api/tiendanube/sync los registra ya desplegado).
+    // Tienda Nube solo acepta webhooks en URLs https públicas; sin base
+    // pública se omiten (el cron /api/tiendanube/sync los registra después).
     let webhooks = "ok";
-    if (origin.startsWith("https://") && !origin.includes("localhost")) {
+    const base = basePublica(origin);
+    if (base) {
       try {
-        await registrarWebhooksTN({ token, storeId }, origin);
+        await registrarWebhooksTN({ token, storeId }, base);
       } catch (e) {
         console.error("[tiendanube] registro de webhooks:", e);
         webhooks = "pendientes";
