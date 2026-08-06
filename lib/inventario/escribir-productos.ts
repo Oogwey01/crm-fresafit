@@ -26,6 +26,7 @@
    ============================================================================ */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 /* Una ficha y las columnas que hay que cambiarle. */
 export type CambioProducto = { id: string; fila: Record<string, unknown> };
@@ -37,9 +38,8 @@ export type CambioProducto = { id: string; fila: Record<string, unknown> };
    los lotes empezarían a fallar. */
 const OBLIGATORIAS = ["nombre"] as const;
 
-/* Filas por viaje en el upsert. Mismo tamaño que el registro de publicaciones
-   que ya vive en estos syncs, para no cambiar el perfil de payload. */
-const TANDA_UPSERT = 200;
+/* Filas por viaje en el upsert: el tamaño compartido de lib/supabase/lotes. */
+const TANDA_UPSERT = TAM_LOTE_UPSERT;
 
 /* Updates sueltos en paralelo. Se conserva el 10 de antes: son pocos y no vale
    la pena empujar más conexiones simultáneas contra la base. */

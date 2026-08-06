@@ -20,6 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 /* Una orden tal como la reporta el panel del canal. */
 export type TotalOrden = {
@@ -152,11 +153,10 @@ export async function guardarTotalesOrden(ordenes: TotalOrden[]): Promise<number
   for (const o of ordenes) unicas.set(`${o.canal}:${o.referencia_orden}`, o);
 
   /* En tandas: reimportar el histórico son cientos de órdenes de una sentada. */
-  const LOTE = 300;
   const filas = [...unicas.values()].map(cuadrarDesglose);
   let guardadas = 0;
-  for (let i = 0; i < filas.length; i += LOTE) {
-    const tanda = filas.slice(i, i + LOTE);
+  for (let i = 0; i < filas.length; i += TAM_LOTE_UPSERT) {
+    const tanda = filas.slice(i, i + TAM_LOTE_UPSERT);
     let { data, error } = await admin
       .from("sale_orders")
       .upsert(tanda, { onConflict: "canal,referencia_orden" })

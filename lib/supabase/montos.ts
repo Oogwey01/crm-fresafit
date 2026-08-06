@@ -1,4 +1,5 @@
 import type { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { TAM_LOTE_IN } from "@/lib/supabase/lotes";
 
 /* ============================================================================
    lib/supabase/montos.ts — Los importes, por la puerta que valida
@@ -22,12 +23,9 @@ import type { usuarioActual } from "@/lib/supabase/usuario-actual";
    que repetir sus parámetros de tipo (que cambian con la versión de supabase-js). */
 type Cliente = Awaited<ReturnType<typeof usuarioActual>>["supabase"];
 
-/* PostgREST recibe el `.in()` por la URL (es un GET): con el catálogo entero
-   —1.100+ UUIDs— son ~40 KB de URL y el edge de Supabase la rechaza con un 400
-   pelón antes de llegar a la base. Y pedir la vista sin filtro tampoco sirve:
-   PostgREST corta en 1.000 filas sin avisar. Así que se trocea en lotes que
-   quepan en la URL y se piden en paralelo: mismo tiempo de pared que un viaje. */
-const IDS_POR_LOTE = 150;
+/* El `.in()` se trocea en lotes que quepan en la URL (ver lib/supabase/lotes)
+   y se piden en paralelo: mismo tiempo de pared que un viaje. Pedir la vista
+   sin filtro tampoco serviría: PostgREST corta en 1.000 filas sin avisar. */
 
 async function unir<T extends { id: string }, C extends string>(
   supabase: Cliente,
@@ -40,7 +38,7 @@ async function unir<T extends { id: string }, C extends string>(
 
   const ids = filas.map((f) => f.id);
   const lotes: string[][] = [];
-  for (let i = 0; i < ids.length; i += IDS_POR_LOTE) lotes.push(ids.slice(i, i + IDS_POR_LOTE));
+  for (let i = 0; i < ids.length; i += TAM_LOTE_IN) lotes.push(ids.slice(i, i + TAM_LOTE_IN));
 
   const resultados = await Promise.all(
     lotes.map((lote) => supabase.from(vista).select(`id, ${campo}`).in("id", lote)),

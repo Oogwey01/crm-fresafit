@@ -122,6 +122,8 @@ export async function urlesFirmadas(
     return mapa;
   }
 
+  /* Lote de la API de Storage (createSignedUrls), NO de PostgREST: los
+     tamaños de lib/supabase/lotes.ts no aplican aquí. */
   const LOTE = 40;
   const transform = {
     width: opciones.ancho,
