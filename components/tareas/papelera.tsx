@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Trash2, RotateCcw } from "lucide-react";
-import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { AREAS } from "@/lib/catalogos";
 import { restaurarTarea, eliminarDefinitivo } from "@/app/(app)/tareas/actions";
 import type { TaskConResponsable } from "@/lib/types";
@@ -21,22 +21,12 @@ import type { TaskConResponsable } from "@/lib/types";
    creó la tarea). */
 export function Papelera({ borradas }: { borradas: TaskConResponsable[] }) {
   const [abierto, setAbierto] = useState(false);
-  const [pending, startTransition] = useTransition();
+  /* El ritual de llamar a un action —transición, toast de error, toast de
+     éxito— lo pone el hook compartido; aquí iba copiado a mano. */
+  const { pending, ejecutar } = useAccionServidor();
 
-  function accion(fn: () => Promise<{ ok: true } | { error: string }>, okMsg: string) {
-    startTransition(async () => {
-      try {
-        const r = await fn();
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(okMsg);
-      } catch {
-        toast.error("Algo falló. Revisa tu conexión.");
-      }
-    });
-  }
+  const accion = (fn: () => Promise<{ ok: true } | { error: string }>, ok: string) =>
+    ejecutar(fn, { ok });
 
   return (
     <>
