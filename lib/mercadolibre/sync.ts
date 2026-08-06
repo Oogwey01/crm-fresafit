@@ -28,6 +28,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
+import { traerTodo } from "@/lib/canales/paginacion";
 import {
   conexionMercadolibre,
   listarItemsML,
@@ -637,14 +638,19 @@ export async function importacionCompletaML(cx?: ConexionML): Promise<ResumenSyn
   // Renglones solo-ML cuyo item ya no existe en el catálogo → inactivos.
   const admin = createAdminClient();
   const vivos = new Set(items.flatMap((i) => unidadesDe(i).map((u) => clave(u.itemId, u.variationId))));
-  const { data: enBase, error } = await admin
-    .from("products")
-    .select("id, meli_item_id, meli_variation_id")
-    .not("meli_item_id", "is", null)
-    .is("tiendanube_variant_id", null)
-    .eq("activo", true);
-  if (error) throw new Error(error.message);
-  const sobrantes = ((enBase ?? []) as FilaProducto[])
+  /* Paginado con traerTodo: PostgREST corta en ~1000 filas SIN error, y con la
+     lista a medias los sobrantes después del corte nunca se daban de baja. */
+  const enBase = await traerTodo<Pick<FilaProducto, "id" | "meli_item_id" | "meli_variation_id">>((desde, hasta) =>
+    admin
+      .from("products")
+      .select("id, meli_item_id, meli_variation_id")
+      .not("meli_item_id", "is", null)
+      .is("tiendanube_variant_id", null)
+      .eq("activo", true)
+      .order("id")
+      .range(desde, hasta),
+  );
+  const sobrantes = enBase
     .filter((f) => !vivos.has(clave(f.meli_item_id!, f.meli_variation_id)))
     .map((f) => f.id);
   if (sobrantes.length > 0) {

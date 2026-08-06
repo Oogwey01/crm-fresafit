@@ -698,15 +698,20 @@ export async function importacionCompletaTikTok(cx?: ConexionTikTok): Promise<Re
      ya no existe —y ahí es donde se leería y escribiría el stock cuando el
      piloto vuelva a encenderse—. */
   await repuntarPrincipales(vivos);
-  const { data: enBase, error } = await admin
-    .from("products")
-    .select("id, tiktok_sku_id")
-    .not("tiktok_sku_id", "is", null)
-    .is("tiendanube_variant_id", null)
-    .is("meli_item_id", null)
-    .eq("activo", true);
-  if (error) throw new Error(error.message);
-  const sobrantes = ((enBase ?? []) as { id: string; tiktok_sku_id: string }[])
+  /* Paginado con traerTodo: PostgREST corta en ~1000 filas SIN error, y con la
+     lista a medias los sobrantes después del corte nunca se daban de baja. */
+  const enBase = await traerTodo<{ id: string; tiktok_sku_id: string }>((desde, hasta) =>
+    admin
+      .from("products")
+      .select("id, tiktok_sku_id")
+      .not("tiktok_sku_id", "is", null)
+      .is("tiendanube_variant_id", null)
+      .is("meli_item_id", null)
+      .eq("activo", true)
+      .order("id")
+      .range(desde, hasta),
+  );
+  const sobrantes = enBase
     .filter((f) => !vivos.has(f.tiktok_sku_id))
     .map((f) => f.id);
   if (sobrantes.length > 0) {

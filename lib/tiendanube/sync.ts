@@ -10,6 +10,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
+import { traerTodo } from "@/lib/canales/paginacion";
 import {
   actualizarVarianteTN,
   conexionTiendanube,
@@ -266,16 +267,24 @@ export async function sincronizacionCompleta(cx?: ConexionTN): Promise<ResumenSy
 
   const admin = createAdminClient();
   const vivos = new Set(productos.flatMap((p) => p.variants.map((v) => v.id)));
-  const { data: sincronizados, error } = await admin
-    .from("products")
-    .select("id, tiendanube_variant_id")
-    .not("tiendanube_variant_id", "is", null)
-    .eq("activo", true);
-  if (error) throw new Error(error.message);
+  /* Paginado con traerTodo: las fichas con vínculo rondan el corte de ~1000 de
+     PostgREST, y con la lista a medias los sobrantes de la cola alfabética
+     nunca se daban de baja — quedaban «activos» apuntando a variantes que ya
+     no existen en la tienda. */
+  const sincronizados = await traerTodo<{ id: string; tiendanube_variant_id: number }>(
+    (desde, hasta) =>
+      admin
+        .from("products")
+        .select("id, tiendanube_variant_id")
+        .not("tiendanube_variant_id", "is", null)
+        .eq("activo", true)
+        .order("id")
+        .range(desde, hasta),
+  );
 
-  const sobrantes = (sincronizados ?? [])
-    .filter((f) => !vivos.has(f.tiendanube_variant_id as number))
-    .map((f) => f.id as string);
+  const sobrantes = sincronizados
+    .filter((f) => !vivos.has(f.tiendanube_variant_id))
+    .map((f) => f.id);
   if (sobrantes.length > 0) {
     const { error: errBaja } = await admin.from("products").update({ activo: false }).in("id", sobrantes);
     if (errBaja) throw new Error(errBaja.message);
