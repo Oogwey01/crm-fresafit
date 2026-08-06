@@ -15,6 +15,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { upsertClientesPorClave } from "@/lib/canales/clientes";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   aMonto,
@@ -48,9 +49,6 @@ export type ResumenVentasTikTok = {
      Se resuelven solas en la siguiente pasada de catálogo. */
   sin_dato: number;
 };
-
-const DIAS_PRIMERA_VEZ = 90;
-const DIAS_TRASLAPE = 7;
 
 /* Apagable desde Vercel sin tocar código: STOCK_TIKTOK_VENTAS=off.
    Encendido por defecto, a diferencia del hub de bodega: esto no compite con
@@ -223,39 +221,17 @@ async function mapaUnidades(skuIds: string[]): Promise<Map<string, string>> {
 
 /* Crea/actualiza clientes por buyer_email (única identidad que da TikTok). */
 async function sincronizarClientes(ordenes: OrdenTikTok[]): Promise<Map<string, string>> {
-  const admin = createAdminClient();
   const buyers = new Set<string>();
   for (const o of ordenes) if (o.buyer_email) buyers.add(o.buyer_email);
-  if (buyers.size === 0) return new Map();
 
-  const filas = [...buyers].map((email) => ({
-    tiktok_buyer_id: email,
-    nombre: email,
-    canal: "tiktok_shop",
-  }));
-  /* En tandas: reimportar el histórico son cientos de compradores, y un `.in()`
-     con todos arma una URL que el servidor rechaza con 400. Con la ventana corta
-     del cron diario no se notaba; al reparar el histórico se cayó entero. */
-  const LOTE = 200;
-  const lista = [...buyers];
-  const mapa = new Map<string, string>();
-
-  for (let i = 0; i < filas.length; i += LOTE) {
-    const { error } = await admin
-      .from("customers")
-      .upsert(filas.slice(i, i + LOTE), { onConflict: "tiktok_buyer_id" });
-    if (error) throw new Error(error.message);
-  }
-
-  for (let i = 0; i < lista.length; i += LOTE) {
-    const { data, error: errSel } = await admin
-      .from("customers")
-      .select("id, tiktok_buyer_id")
-      .in("tiktok_buyer_id", lista.slice(i, i + LOTE));
-    if (errSel) throw new Error(errSel.message);
-    for (const c of data ?? []) mapa.set(c.tiktok_buyer_id as string, c.id as string);
-  }
-  return mapa;
+  return upsertClientesPorClave<string>(
+    "tiktok_buyer_id",
+    [...buyers].map((email) => ({
+      tiktok_buyer_id: email,
+      nombre: email,
+      canal: "tiktok_shop",
+    })),
+  );
 }
 
 /* Inserta renglones nuevos, refresca estado y retira los de canceladas. */
@@ -492,7 +468,7 @@ export async function importarVentasTikTok(
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
   const desdeUnix = Math.floor(
-    ventanaDesde(ultimaSync, opts, DIAS_PRIMERA_VEZ, DIAS_TRASLAPE).getTime() / 1000,
+    ventanaDesde(ultimaSync, opts).getTime() / 1000,
   );
 
   const ordenes = await listarOrdenesTikTok(cx, desdeUnix);

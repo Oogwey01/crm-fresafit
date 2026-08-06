@@ -10,6 +10,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { upsertClientesPorClave } from "@/lib/canales/clientes";
 import {
   aMonto,
   guardarTotalesOrden,
@@ -40,11 +41,6 @@ export type ResumenVentasTN = {
   retiradas: number; // renglones eliminados por órdenes canceladas
   clientes: number; // clientes creados o actualizados desde las órdenes
 };
-
-/* Primera importación: últimos 90 días. Después: desde la última sync menos
-   un traslape de 7 días (los duplicados los absorbe el UNIQUE). */
-const DIAS_PRIMERA_VEZ = 90;
-const DIAS_TRASLAPE = 7;
 
 function esVendible(o: OrdenTN): boolean {
   return o.payment_status === "paid" && o.status !== "cancelled";
@@ -236,68 +232,27 @@ function filasDeOrden(
    correo → id de cliente del CRM. Así el historial de compras se llena solo:
    nadie captura clientes a mano. */
 async function sincronizarClientes(ordenes: OrdenTN[]): Promise<Map<string, string>> {
-  const admin = createAdminClient();
-
   /* Un cliente por correo; se queda con el nombre/teléfono de su orden más
      reciente (las órdenes llegan de la más nueva a la más vieja). De ahí sale
      también de dónde es, que es lo que permite ver a qué parte del país se
      vende más. */
-  const porCorreo = new Map<
-    string,
-    { nombre: string; telefono: string | null; ciudad: string | null; estado: string | null; cp: string | null }
-  >();
+  const porCorreo = new Map<string, Record<string, unknown>>();
   for (const o of ordenes) {
     const correo = correoDe(o);
     if (!correo || porCorreo.has(correo)) continue;
     const d = direccionDe(o);
     porCorreo.set(correo, {
+      correo,
       nombre: o.contact_name?.trim() || correo,
       telefono: o.contact_phone?.trim() || null,
       ciudad: d?.ciudad ?? null,
       estado: d?.estado ?? null,
       cp: d?.cp ?? null,
+      canal: "tienda_nube",
     });
   }
-  if (porCorreo.size === 0) return new Map();
 
-  const filas = [...porCorreo.entries()].map(([correo, c]) => ({
-    correo,
-    nombre: c.nombre,
-    telefono: c.telefono,
-    ciudad: c.ciudad,
-    estado: c.estado,
-    cp: c.cp,
-    canal: "tienda_nube",
-  }));
-
-  /* Upsert por correo: el contacto se refresca desde la tienda; `notas` no se
-     toca (es del equipo) porque no va en el payload.
-
-     En tandas: reimportar el histórico completo son cientos de compradores, y
-     un `.in()` con todos ellos arma una URL que el servidor rechaza con 400
-     (la misma lección que ya llevaba anotada el importador de Mercado Libre).
-     Con la ventana corta del cron diario nunca se notaba. */
-  const LOTE = 200;
-  const correos = [...porCorreo.keys()];
-  const mapa = new Map<string, string>();
-
-  for (let i = 0; i < filas.length; i += LOTE) {
-    const { error } = await admin
-      .from("customers")
-      .upsert(filas.slice(i, i + LOTE), { onConflict: "correo" });
-    if (error) throw new Error(error.message);
-  }
-
-  for (let i = 0; i < correos.length; i += LOTE) {
-    const { data, error: errSel } = await admin
-      .from("customers")
-      .select("id, correo")
-      .in("correo", correos.slice(i, i + LOTE));
-    if (errSel) throw new Error(errSel.message);
-    for (const c of data ?? []) mapa.set(c.correo as string, c.id as string);
-  }
-
-  return mapa;
+  return upsertClientesPorClave<string>("correo", [...porCorreo.values()]);
 }
 
 /* Mapa variante de Tienda Nube → id de producto del CRM. Con pocas variantes
@@ -518,7 +473,7 @@ export async function importarVentasTN(
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
-  const desde = ventanaDesde(ultimaSync, opts, DIAS_PRIMERA_VEZ, DIAS_TRASLAPE);
+  const desde = ventanaDesde(ultimaSync, opts);
 
   const ordenes = await listarOrdenesTN(cx, desde.toISOString());
   const resumen = await aplicarOrdenes(ordenes);

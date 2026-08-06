@@ -15,6 +15,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { upsertClientesPorClave } from "@/lib/canales/clientes";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
   aMonto,
@@ -48,11 +49,6 @@ export type ResumenVentasML = {
   retiradas: number; // renglones eliminados por órdenes canceladas
   clientes: number; // clientes creados o actualizados desde las órdenes
 };
-
-/* Primera importación: últimos 90 días. Después: desde la última sync menos
-   un traslape de 7 días (los duplicados los absorbe el UNIQUE). */
-const DIAS_PRIMERA_VEZ = 90;
-const DIAS_TRASLAPE = 7;
 
 function esVendible(o: OrdenML): boolean {
   return o.status === "paid";
@@ -353,8 +349,6 @@ async function mapaUnidades(itemIds: string[]): Promise<Map<string, string>> {
    escribirlo podría chocar con el índice único de `correo` (clientes de TN).
    El comprador se identifica solo por su buyer_id. */
 async function sincronizarClientes(ordenes: OrdenML[]): Promise<Map<number, string>> {
-  const admin = createAdminClient();
-
   /* Un cliente por buyer; se queda con el nombre de su orden más reciente
      (las órdenes llegan de la más nueva a la más vieja). */
   const porBuyer = new Map<number, string>();
@@ -363,36 +357,15 @@ async function sincronizarClientes(ordenes: OrdenML[]): Promise<Map<number, stri
     if (!b?.id || porBuyer.has(b.id)) continue;
     porBuyer.set(b.id, nombreComprador(o) || `ML ${b.id}`);
   }
-  if (porBuyer.size === 0) return new Map();
 
-  const filas = [...porBuyer.entries()].map(([buyerId, nombre]) => ({
-    mercadolibre_buyer_id: buyerId,
-    nombre,
-    canal: "mercado_libre",
-  }));
-
-  /* En tandas, por el mismo motivo que en los otros dos canales: reimportar el
-     histórico son ~1000 compradores y el `.in()` completo revienta la URL (400). */
-  const LOTE = 200;
-  const ids = [...porBuyer.keys()];
-  const mapa = new Map<number, string>();
-
-  for (let i = 0; i < filas.length; i += LOTE) {
-    const { error } = await admin
-      .from("customers")
-      .upsert(filas.slice(i, i + LOTE), { onConflict: "mercadolibre_buyer_id" });
-    if (error) throw new Error(error.message);
-  }
-
-  for (let i = 0; i < ids.length; i += LOTE) {
-    const { data, error: errSel } = await admin
-      .from("customers")
-      .select("id, mercadolibre_buyer_id")
-      .in("mercadolibre_buyer_id", ids.slice(i, i + LOTE));
-    if (errSel) throw new Error(errSel.message);
-    for (const c of data ?? []) mapa.set(c.mercadolibre_buyer_id as number, c.id as string);
-  }
-  return mapa;
+  return upsertClientesPorClave<number>(
+    "mercadolibre_buyer_id",
+    [...porBuyer.entries()].map(([buyerId, nombre]) => ({
+      mercadolibre_buyer_id: buyerId,
+      nombre,
+      canal: "mercado_libre",
+    })),
+  );
 }
 
 /* Inserta los renglones nuevos (ignora los ya importados) y retira los de
@@ -597,7 +570,7 @@ export async function importarVentasML(
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
-  const desde = ventanaDesde(ultimaSync, opts, DIAS_PRIMERA_VEZ, DIAS_TRASLAPE);
+  const desde = ventanaDesde(ultimaSync, opts);
 
   const ordenes = await listarOrdenesML(cx, desde.toISOString());
   const resumen = await aplicarOrdenes(cx, ordenes);

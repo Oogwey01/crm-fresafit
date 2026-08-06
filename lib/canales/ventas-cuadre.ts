@@ -87,12 +87,14 @@ export type RenglonRefrescado = {
 export type OpcionesImportacion = { completo?: boolean; dias?: number };
 
 /* Desde cuándo pedir órdenes. Con `dias` manda la ventana explícita; si no, es
-   la última sync menos el traslape, y en la primera corrida la ventana larga. */
+   la última sync menos el traslape, y en la primera corrida la ventana larga.
+   Los defaults (90 días la primera vez, 7 de traslape) eran una pareja de
+   constantes copiada al inicio de los tres importadores. */
 export function ventanaDesde(
   ultimaSync: string | null,
   opts: OpcionesImportacion | undefined,
-  diasPrimeraVez: number,
-  diasTraslape: number,
+  diasPrimeraVez = 90,
+  diasTraslape = 7,
 ): Date {
   if (opts?.dias && opts.dias > 0) {
     const d = new Date();
