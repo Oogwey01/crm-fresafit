@@ -1,4 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { saludML } from "@/lib/canales/salud";
 import { estadoMercadolibre } from "@/lib/mercadolibre/api";
 import { agruparDespachos, instanteDeCorte, resumirDespachos } from "@/lib/mercadolibre/desempeno";
@@ -34,25 +35,35 @@ export default async function MercadoLibrePage() {
     costo_envio: number;
   } | null;
 
-  const [ventasRes, salud, estado, costosRes] = await Promise.all([
+  const [ventas, salud, estado, costosRes] = await Promise.all([
     /* Solo lo que puede terminar en el tablero: renglones CON plazo y SIN
-       despachar. Antes bajaban los 30 días completos —hasta 3.000 renglones—
+       despachar. Antes bajaban los 30 días completos —miles de renglones—
        para que `agruparDespachos` tirara casi todos: los sin plazo se saltan
        (situacionDespacho da null) y los ya despachados («tarde»/«cumplido»)
        no entran en `resumirDespachos`, que solo cuenta pendientes. El filtro
-       en la base deja la misma pantalla con una fracción del payload. */
-    supabase
-      .from("sales")
-      .select(
-        "id, fecha, cantidad, descripcion, estado, num_guia, url_orden," +
-          " referencia_externa, envio_limite_despacho, envio_despachado_en",
-      )
-      .eq("canal", "mercado_libre")
-      .gte("fecha", diasDesdeHoy(-DIAS_DESPACHO))
-      .not("envio_limite_despacho", "is", null)
-      .is("envio_despachado_en", null)
-      .order("fecha", { ascending: false })
-      .limit(3000),
+       en la base deja la misma pantalla con una fracción del payload.
+
+       Paginado con traerTodo: el `.limit(3000)` que llevaba no protegía de
+       nada —PostgREST corta en ~1000 SIN error— y justo un pico de rezago,
+       cuando más pendientes hay, es cuando el tablero no puede mentir. */
+    traerTodo<VentaDespacho>((desde, hasta) =>
+      supabase
+        .from("sales")
+        .select(
+          "id, fecha, cantidad, descripcion, estado, num_guia, url_orden," +
+            " referencia_externa, envio_limite_despacho, envio_despachado_en",
+        )
+        .eq("canal", "mercado_libre")
+        .gte("fecha", diasDesdeHoy(-DIAS_DESPACHO))
+        .not("envio_limite_despacho", "is", null)
+        .is("envio_despachado_en", null)
+        .order("fecha", { ascending: false })
+        .order("id")
+        .range(desde, hasta) as unknown as PromiseLike<{
+        data: VentaDespacho[] | null;
+        error: { message: string } | null;
+      }>,
+    ),
     /* Si Mercado Libre no contesta, el resto de la página sigue en pie. */
     saludML(),
     estadoMercadolibre(),
@@ -78,8 +89,6 @@ export default async function MercadoLibrePage() {
           dias: DIAS_COMISION,
         }
       : null;
-
-  const ventas = (ventasRes.data ?? []) as unknown as VentaDespacho[];
 
   /* Un solo instante para toda la pantalla: si cada fila leyera la hora por su
      cuenta, dos pedidos con el mismo plazo podrían salir clasificados distinto. */
