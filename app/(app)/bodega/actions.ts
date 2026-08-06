@@ -710,15 +710,27 @@ export async function guardarInsumo(id: string | null, input: InsumoInput): Prom
       link: textoONulo(p.link),
     }));
 
-  const { error: errBorrar } = await cx.supabase
+  /* Se insertan las nuevas ANTES de podar las viejas: al revés, un fallo entre
+     las dos sentencias dejaba el insumo sin ninguna presentación —y con ella se
+     va el precio de compra—. Así lo peor es que se dupliquen, que se ve. */
+  const { data: previas, error: errPrevias } = await cx.supabase
     .from("insumo_presentaciones")
-    .delete()
+    .select("id")
     .eq("insumo_id", insumoId);
-  if (errBorrar) return { error: errBorrar.message };
+  if (errPrevias) return { error: errPrevias.message };
 
   if (validas.length) {
     const { error: errIns } = await cx.supabase.from("insumo_presentaciones").insert(validas);
     if (errIns) return { error: errIns.message };
+  }
+
+  const viejas = (previas ?? []).map((p) => p.id as string);
+  if (viejas.length) {
+    const { error: errBorrar } = await cx.supabase
+      .from("insumo_presentaciones")
+      .delete()
+      .in("id", viejas);
+    if (errBorrar) return { error: errBorrar.message };
   }
 
   revalidar();

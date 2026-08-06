@@ -135,12 +135,21 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
   };
 
   let pedidoId = id;
+  /* Los renglones de una edición se reemplazan por el conjunto nuevo. Se
+     apuntan los viejos para borrarlos DESPUÉS de insertar los nuevos: al revés
+     —borrar y luego insertar—, un fallo entre las dos sentencias dejaba el
+     pedido sin ningún renglón. Así lo peor es que se vean duplicados, que salta
+     a la vista y se arregla volviendo a guardar. */
+  let viejos: string[] = [];
   if (id) {
-    const { error } = await cx.supabase.from("supplier_orders").update(fila).eq("id", id);
-    if (error) return { error: error.message };
-    // Los renglones se reemplazan por el conjunto nuevo (edición simple).
-    const { error: delErr } = await cx.supabase.from("supplier_order_items").delete().eq("pedido_id", id);
-    if (delErr) return { error: delErr.message };
+    /* El update del pedido y la lectura de sus renglones no dependen entre sí. */
+    const [actualizado, previos] = await Promise.all([
+      cx.supabase.from("supplier_orders").update(fila).eq("id", id),
+      cx.supabase.from("supplier_order_items").select("id").eq("pedido_id", id),
+    ]);
+    if (actualizado.error) return { error: actualizado.error.message };
+    if (previos.error) return { error: previos.error.message };
+    viejos = (previos.data ?? []).map((r) => r.id as string);
   } else {
     const { data, error } = await cx.supabase
       .from("supplier_orders")
@@ -162,6 +171,14 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     }));
   const { error: itemsErr } = await cx.supabase.from("supplier_order_items").insert(items);
   if (itemsErr) return { error: itemsErr.message };
+
+  if (viejos.length) {
+    const { error: podaErr } = await cx.supabase
+      .from("supplier_order_items")
+      .delete()
+      .in("id", viejos);
+    if (podaErr) return { error: podaErr.message };
+  }
 
   revalidar();
   return { ok: true };

@@ -346,18 +346,18 @@ export async function reasignarTarea(id: string, responsableId: string | null): 
     const area = data?.area as AreaId | null;
     if (area) patch.area = area;
   }
-  const { error } = await cx.supabase.from("tasks").update(patch).eq("id", id);
-  if (error) return { error: error.message };
+  /* El update de la tarea y la salida del acompañante no dependen entre sí:
+     juntos en un solo viaje de pared.
 
-  /* Si quien pasa a principal venía como acompañante, se sale de la tabla: ya
-     está en `responsable_id` y si no, saldría con el avatar repetido. */
-  if (responsableId) {
-    await cx.supabase
-      .from("task_assignees")
-      .delete()
-      .eq("task_id", id)
-      .eq("user_id", responsableId);
-  }
+     Lo segundo es porque quien pasa a principal, si venía como acompañante, ya
+     está en `responsable_id`: dejarlo en la tabla le repetiría el avatar. */
+  const [actualizada] = await Promise.all([
+    cx.supabase.from("tasks").update(patch).eq("id", id),
+    responsableId
+      ? cx.supabase.from("task_assignees").delete().eq("task_id", id).eq("user_id", responsableId)
+      : Promise.resolve(null),
+  ]);
+  if (actualizada.error) return { error: actualizada.error.message };
 
   revalidarTareas();
   empujarAvisos();
@@ -845,14 +845,24 @@ export async function compartirTarea(taskId: string, userIds: string[]): Promise
   if (!user) return { error: "No autenticado." };
   if (!esGestor(rol)) return { error: "Solo dirección o coordinación puede compartir tareas." };
 
-  // Reemplaza el conjunto de compartidos por el nuevo.
-  const { error: delErr } = await supabase.from("task_shares").delete().eq("task_id", taskId);
-  if (delErr) return { error: delErr.message };
+  /* Reemplaza el conjunto de compartidos por el nuevo, insertando ANTES de
+     podar. Al revés —borrar todo y luego insertar— un fallo entre las dos
+     sentencias dejaba la tarea sin ningún compartido, que es pérdida de datos;
+     así lo peor que puede pasar es que sobre alguien, que se ve y se corrige.
+     El upsert absorbe a quien ya estaba (la llave es el par tarea+persona). */
   if (userIds.length) {
     const filas = userIds.map((uid) => ({ task_id: taskId, user_id: uid }));
-    const { error } = await supabase.from("task_shares").insert(filas);
+    const { error } = await supabase
+      .from("task_shares")
+      .upsert(filas, { onConflict: "task_id,user_id" });
     if (error) return { error: error.message };
   }
+
+  let poda = supabase.from("task_shares").delete().eq("task_id", taskId);
+  if (userIds.length) poda = poda.not("user_id", "in", `(${userIds.join(",")})`);
+  const { error: delErr } = await poda;
+  if (delErr) return { error: delErr.message };
+
   revalidarTareas();
   return { ok: true };
 }
