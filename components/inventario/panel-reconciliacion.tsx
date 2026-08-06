@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { revisarDescuadres } from "@/app/(app)/inventario/actions";
+import { formatearFechaHora } from "@/lib/fecha";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { PanelPiloto } from "@/components/inventario/panel-piloto";
@@ -14,16 +15,6 @@ import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 import type { ConteoConProducto, ProductConProveedor, Profile } from "@/lib/types";
 
-function fechaCorta(iso: string): string {
-  // timeZone fija: el servidor (UTC) y el navegador deben pintar lo mismo.
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Mexico_City",
-  });
-}
 
 /* Pestaña de reconciliación completa. El resultado de la revisión vive aquí:
    se corre a demanda (lee los catálogos en vivo de cada canal), así que se
@@ -97,7 +88,7 @@ export function PanelReconciliacion({
           </Button>
           {ultimaRevision && (
             <span className="text-[12px] text-muted-foreground">
-              Última revisión: {fechaCorta(ultimaRevision)}
+              Última revisión: {formatearFechaHora(ultimaRevision)}
             </span>
           )}
         </div>

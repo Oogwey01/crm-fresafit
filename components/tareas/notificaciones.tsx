@@ -9,17 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { marcarNotificacionLeida, marcarTodasLeidas } from "@/app/(app)/tareas/actions";
+import { formatearFechaHora } from "@/lib/fecha";
 import type { Notificacion } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function fmt(iso: string) {
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 /* Campana de notificaciones: badge de no-leídas + feed. Vive en el pie del
    sidebar (y su versión móvil). El origen de los datos es la tabla
@@ -98,7 +91,7 @@ export function Notificaciones({ notificaciones }: { notificaciones: Notificacio
                   )}
                   <span className={cn("flex-1 text-sm", !n.leida && "font-medium")}>{n.texto}</span>
                 </div>
-                <span className="pl-4 text-[11px] text-muted-foreground">{fmt(n.created_at)}</span>
+                <span className="pl-4 text-[11px] text-muted-foreground">{formatearFechaHora(n.created_at)}</span>
               </button>
             ))
           )}

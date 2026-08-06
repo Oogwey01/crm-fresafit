@@ -39,7 +39,7 @@ import {
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";
 import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
-import { isoALocalInput, localInputAIso, formatearFecha, esVencida } from "@/lib/fecha";
+import { isoALocalInput, localInputAIso, formatearFecha, formatearFechaHora, esVencida } from "@/lib/fecha";
 import {
   editarTarea,
   moverTarea,
@@ -190,14 +190,6 @@ function Dato({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-function fmtFechaHora(iso: string) {
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 export function TaskDetail({
   tarea,
@@ -813,7 +805,7 @@ export function TaskDetail({
                           <div className={cn("min-w-0 flex-1 rounded-2xl px-3 py-2", mio ? "bg-primary/10" : "bg-muted/60")}>
                             <div className="mb-0.5 flex items-center gap-2 text-xs text-muted-foreground">
                               <b className="text-foreground">{nombrePorId(c.autor)}</b>
-                              <span>{fmtFechaHora(c.created_at)}</span>
+                              <span>{formatearFechaHora(c.created_at)}</span>
                               {(gestor || mio) && (
                                 <button className="ml-auto hover:text-destructive"
                                   onClick={() => accion(() => borrarComentario(c.id))}>✕</button>
@@ -1031,7 +1023,7 @@ export function TaskDetail({
                           aria-hidden="true"
                         />
                         <b className="text-foreground">{nombrePorId(a.autor)}</b> {a.texto}
-                        <div className="text-[11px] text-muted-foreground/70">{fmtFechaHora(a.created_at)}</div>
+                        <div className="text-[11px] text-muted-foreground/70">{formatearFechaHora(a.created_at)}</div>
                       </li>
                     ))}
                   </ol>

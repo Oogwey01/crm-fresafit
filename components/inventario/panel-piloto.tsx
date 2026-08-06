@@ -1,5 +1,6 @@
 import { CheckCircle2, CircleAlert, FlaskConical, Lock, PenLine } from "lucide-react";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
+import { formatearFechaHora } from "@/lib/fecha";
 import { cortoOrigen } from "@/lib/inventario/origenes";
 import { cn } from "@/lib/utils";
 
@@ -25,16 +26,6 @@ const NOMBRE_CANAL: Record<string, string> = {
    tener su propia copia a medias —sin cancelaciones, sin reparaciones, sin
    TikTok— y mostraba el nombre crudo justo en los movimientos menos habituales,
    que son los que uno viene a mirar aquí. */
-
-function hora(iso: string): string {
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Hermosillo",
-  });
-}
 
 function Chip({ children, tono = "neutro" }: { children: React.ReactNode; tono?: "neutro" | "ok" | "aviso" }) {
   return (
@@ -150,7 +141,7 @@ export function PanelPiloto({ estado }: { estado: EstadoPiloto }) {
                     <Celda valor={f.stock_ml} crm={f.stock_crm} />
                   </td>
                   <td className="py-2 text-xs text-muted-foreground">
-                    {f.visto_en ? hora(f.visto_en) : "sin datos aún"}
+                    {f.visto_en ? formatearFechaHora(f.visto_en) : "sin datos aún"}
                   </td>
                 </tr>
               ))}
@@ -181,7 +172,7 @@ export function PanelPiloto({ estado }: { estado: EstadoPiloto }) {
           <ul className="flex flex-col gap-1">
             {estado.movimientos.slice(0, 8).map((m) => (
               <li key={m.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px]">
-                <span className="text-xs tabular-nums text-muted-foreground">{hora(m.creado_en)}</span>
+                <span className="text-xs tabular-nums text-muted-foreground">{formatearFechaHora(m.creado_en)}</span>
                 <span className="font-medium">{m.sku ?? "—"}</span>
                 <span className="text-muted-foreground">{NOMBRE_CANAL[m.canal] ?? m.canal}</span>
                 <span className="tabular-nums">

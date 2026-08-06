@@ -27,6 +27,7 @@ import {
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
 import { formatearMXN } from "@/lib/moneda";
+import { formatearFechaHora } from "@/lib/fecha";
 import { LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
 import { movimientosStock } from "@/app/(app)/inventario/actions";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
@@ -148,16 +149,6 @@ function valorCompacto(n: number): string {
   return formatearMXN(n);
 }
 
-function fechaCorta(iso: string): string {
-  // timeZone fija: el servidor (UTC) y el navegador deben pintar lo mismo.
-  return new Date(iso).toLocaleString("es-MX", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Mexico_City",
-  });
-}
 
 /* Búsqueda + los 4 filtros del catálogo, con la lista filtrada y el resumen de
    filtros activos que la tabla usa para explicar por qué salió vacía. */
@@ -490,7 +481,7 @@ export function PanelInventario({
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             {canalesSincronizados.length > 0 && (
               <span
-                title={canalesSincronizados.map((c) => `${c.nombre} · ${fechaCorta(c.ultimaSync)}`).join("\n")}
+                title={canalesSincronizados.map((c) => `${c.nombre} · ${formatearFechaHora(c.ultimaSync)}`).join("\n")}
                 className="inline-flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs text-muted-foreground"
               >
                 <span className="size-1.5 rounded-full bg-green-500" />
@@ -498,7 +489,7 @@ export function PanelInventario({
                   ? `${canalesSincronizados[0].nombre} sincronizado`
                   : `${canalesSincronizados.length} canales sincronizados`}
                 {" · "}
-                {fechaCorta(canalesSincronizados[0].ultimaSync)}
+                {formatearFechaHora(canalesSincronizados[0].ultimaSync)}
               </span>
             )}
             {!escrituraCanales && canalesConectados > 0 && (
