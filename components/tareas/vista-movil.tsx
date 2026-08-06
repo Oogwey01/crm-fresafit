@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AlertTriangle, ChevronDown, Info, Plus } from "lucide-react";
-import { AREAS, ROLES, obtenerPrioridad } from "@/lib/catalogos";
+import { AREAS, ESTADOS, ROLES, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida, formatearFecha } from "@/lib/fecha";
 import { trabajaLaTarea, type EstadoId, type RolId, type TaskConResponsable } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -23,14 +23,21 @@ const CHIP =
 const CHIP_ACTIVO = "bg-foreground text-background";
 const CHIP_INACTIVO = "border bg-card text-foreground";
 
-/* Pastilla de estado — tintes suaves tomados del diseño móvil. */
-const ESTILO_ESTADO: Record<EstadoId, { nombre: string; bg: string; color: string; dot: string }> = {
-  por_hacer: { nombre: "Por hacer", bg: "#F1F3F6", color: "#5A6474", dot: "#94A3B8" },
-  en_proceso: { nombre: "En proceso", bg: "#FEF3E2", color: "#B45309", dot: "#F59E0B" },
-  atorado: { nombre: "Atorado", bg: "#FEE9DC", color: "#C2410C", dot: "#F97316" },
-  en_revision: { nombre: "En revisión", bg: "#F1ECFE", color: "#6D28D9", dot: "#8B5CF6" },
-  hecho: { nombre: "Hecho", bg: "#E9F8F1", color: "#0E8A5F", dot: "#12B981" },
+/* Pastilla de estado. Solo los tintes suaves (fondo y texto) son del diseño
+   móvil; el nombre y el punto de color salen de ESTADOS (lib/catalogos.ts)
+   para que esta vista no se desvíe de la tabla y el calendario — el verde de
+   «hecho» ya se había desviado una vez. */
+const TINTE_ESTADO: Record<EstadoId, { bg: string; color: string }> = {
+  por_hacer: { bg: "#F1F3F6", color: "#5A6474" },
+  en_proceso: { bg: "#FEF3E2", color: "#B45309" },
+  atorado: { bg: "#FEE9DC", color: "#C2410C" },
+  en_revision: { bg: "#F1ECFE", color: "#6D28D9" },
+  hecho: { bg: "#E9F8F1", color: "#0E8A5F" },
 };
+
+const ESTILO_ESTADO = Object.fromEntries(
+  ESTADOS.map((e) => [e.id, { nombre: e.nombre, dot: e.color, ...TINTE_ESTADO[e.id] }]),
+) as Record<EstadoId, { nombre: string; bg: string; color: string; dot: string }>;
 
 export function VistaMovil({
   tareas,
