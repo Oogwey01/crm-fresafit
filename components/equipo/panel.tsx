@@ -15,6 +15,7 @@ import {
   MODULO_PORTADA,
   ROLES,
   esDireccion,
+  obtenerRol,
   modulosDelRol,
   obtenerArea,
   puedeAdministrar,
@@ -122,13 +123,13 @@ export function PanelEquipo({
                       v &&
                       v !== p.rol &&
                       ejecutar(() => cambiarRol(p.id, v as RolId), {
-                        ok: `${p.nombre} ahora es ${ROLES.find((r) => r.id === v)?.nombre}.`,
+                        ok: `${p.nombre} ahora es ${obtenerRol(v)?.nombre}.`,
                       })
                     }
                   >
                     <SelectTrigger className="w-full bg-background">
                       <SelectValue>
-                        {(v: string) => ROLES.find((r) => r.id === v)?.nombre ?? "Rol"}
+                        {(v: string) => obtenerRol(v)?.nombre ?? "Rol"}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
@@ -178,7 +179,7 @@ export function PanelEquipo({
 
               {/* Qué puede hacer, en palabras del catálogo de roles. */}
               <p className="rounded-lg bg-muted/50 px-3 py-2 text-[12.5px] leading-relaxed text-muted-foreground">
-                {ROLES.find((r) => r.id === p.rol)?.desc}
+                {obtenerRol(p.rol)?.desc}
               </p>
 
               {/* Acceso a la Agencia: permiso por persona, no por rol. */}

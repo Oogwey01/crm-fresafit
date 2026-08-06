@@ -298,7 +298,7 @@ export function GastoDialog({
               >
                 <SelectTrigger className="w-full">
                   <SelectValue>
-                    {(v: string) => CATEGORIAS_GASTO.find((c) => c.id === v)?.nombre ?? "Categoría"}
+                    {(v: string) => obtenerCategoriaGasto(v)?.nombre ?? "Categoría"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>

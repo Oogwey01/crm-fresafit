@@ -25,6 +25,17 @@ export function formatearMXNCorto(monto: number | null | undefined): string {
   return `${signo}$${Math.round(abs)}`;
 }
 
+/* "1.7k", "32k", "1.2M" — la misma escalera que formatearMXNCorto pero sin el
+   signo de pesos: seguidores, piezas, conteos. */
+export function formatearNumeroCorto(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  const abs = Math.abs(n);
+  const signo = n < 0 ? "-" : "";
+  if (abs >= 1_000_000) return `${signo}${recortar(abs / 1_000_000, abs >= 10_000_000)}M`;
+  if (abs >= 1_000) return `${signo}${recortar(abs / 1_000, abs >= 10_000)}k`;
+  return `${signo}${Math.round(abs)}`;
+}
+
 /* Un decimal, salvo que sobre ("1.0k" se lee peor que "1k"). */
 function recortar(valor: number, entero: boolean): string {
   if (entero) return String(Math.round(valor));

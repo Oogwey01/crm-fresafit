@@ -26,6 +26,7 @@ import {
   type TotalOrden,
 } from "@/lib/canales/ventas-cuadre";
 import { diaMX } from "@/lib/fecha";
+import type { EstadoPedidoId } from "@/lib/types";
 import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
 import {
   conexionTiktok,
@@ -85,7 +86,9 @@ function estaCancelada(o: OrdenTikTok): boolean {
   return o.status === "CANCELLED";
 }
 
-type EstadoPedido = "nuevo" | "preparando" | "enviado" | "entregado";
+/* El subconjunto que escriben los importadores: "cancelado" nunca se guarda —
+   una orden cancelada retira sus renglones en vez de marcarse. */
+type EstadoPedido = Exclude<EstadoPedidoId, "cancelado">;
 function estadoDe(o: OrdenTikTok): EstadoPedido {
   switch (o.status) {
     case "DELIVERED":

@@ -20,15 +20,9 @@ import {
   obtenerTierInfluencer,
 } from "@/lib/catalogos";
 import { formatearFecha } from "@/lib/fecha";
+import { formatearNumeroCorto } from "@/lib/moneda";
 import type { EtapaInfluencerId, Influencer, InfluencerEntrega, InfluencerEvaluacion } from "@/lib/types";
 
-/* Miles con punto: "32000" se lee mucho peor que "32.0k" en una tabla. */
-function seguidoresCorto(n: number | null): string {
-  if (n == null) return "—";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
-  return String(n);
-}
 
 /* ¿Ya se le acabaron los dos meses de prueba? */
 function pruebaVencida(inicio: string | null): boolean {
@@ -74,13 +68,13 @@ export function TablaInfluencers({
             {i.ig_usuario && (
               <span className="inline-flex items-center gap-1">
                 <AtSign className="size-3.5" strokeWidth={1.8} />
-                {i.ig_usuario} · {seguidoresCorto(i.ig_seguidores)}
+                {i.ig_usuario} · {formatearNumeroCorto(i.ig_seguidores)}
               </span>
             )}
             {i.tiktok_usuario && (
               <span className="inline-flex items-center gap-1">
                 <Music2 className="size-3.5" strokeWidth={1.8} />
-                {i.tiktok_usuario} · {seguidoresCorto(i.tiktok_seguidores)}
+                {i.tiktok_usuario} · {formatearNumeroCorto(i.tiktok_seguidores)}
               </span>
             )}
           </div>

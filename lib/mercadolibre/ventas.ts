@@ -26,6 +26,7 @@ import {
   type TotalOrden,
 } from "@/lib/canales/ventas-cuadre";
 import { diaMX } from "@/lib/fecha";
+import type { EstadoPedidoId } from "@/lib/types";
 import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
 import { urlOrdenML } from "@/lib/pedidos/rastreo";
 import {
@@ -79,7 +80,9 @@ function nombreComprador(o: OrdenML): string | null {
   return nombre || b.nickname?.trim() || null;
 }
 
-type EstadoPedido = "nuevo" | "preparando" | "enviado" | "entregado";
+/* El subconjunto que escriben los importadores: "cancelado" nunca se guarda —
+   una orden cancelada retira sus renglones en vez de marcarse. */
+type EstadoPedido = Exclude<EstadoPedidoId, "cancelado">;
 type InfoEnvio = {
   estado: EstadoPedido;
   paqueteria: string | null;

@@ -325,7 +325,7 @@ export function VentaDialog({
               >
                 <SelectTrigger className="w-full">
                   <SelectValue>
-                    {(v: string) => CANALES.find((c) => c.id === v)?.nombre ?? "Canal"}
+                    {(v: string) => obtenerCanal(v)?.nombre ?? "Canal"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>

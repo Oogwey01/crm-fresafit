@@ -26,7 +26,7 @@ import {
   type ParamsReorden,
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
-import { formatearMXN } from "@/lib/moneda";
+import { formatearMXNCorto } from "@/lib/moneda";
 import { formatearFechaHora } from "@/lib/fecha";
 import { LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
 import { movimientosStock } from "@/app/(app)/inventario/actions";
@@ -143,11 +143,6 @@ const CANALES_MOV = [
    redirect de OAuth (?tiendanube=… / ?mercadolibre=… / ?tiktok=…). */
 export type AvisoConexion = { tipo: "ok" | "error" | "info"; mensaje: string };
 
-/* Valor compacto para la tarjeta KPI: "$684K" en vez de "$684,231.00". */
-function valorCompacto(n: number): string {
-  if (n >= 1000) return `$${Math.round(n / 1000)}K`;
-  return formatearMXN(n);
-}
 
 
 /* Búsqueda + los 4 filtros del catálogo, con la lista filtrada y el resumen de
@@ -559,7 +554,7 @@ export function PanelInventario({
         {valorInventario !== null && (
           <StatCard
             etiqueta="Valor inventario"
-            valor={valorCompacto(valorInventario)}
+            valor={formatearMXNCorto(valorInventario)}
             icono={DollarSign}
             className="hidden md:block"
           />

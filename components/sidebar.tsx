@@ -27,8 +27,8 @@ import { SelectorEspacio } from "@/components/selector-espacio";
 import {
   ESPACIOS,
   MODULOS,
-  ROLES,
   espacioDeRuta,
+  obtenerRol,
   puedeVerModulo,
   type EspacioId,
 } from "@/lib/catalogos";
@@ -95,7 +95,7 @@ export function SidebarContent({
 }) {
   const pathname = usePathname();
   const rolNombre =
-    ROLES.find((r) => r.id === profile?.rol)?.nombre ?? "Miembro";
+    obtenerRol(profile?.rol ?? "")?.nombre ?? "Miembro";
   const nombre = profile?.nombre || email;
 
   /* Qué módulos existen para esta persona. La regla vive en el catálogo
