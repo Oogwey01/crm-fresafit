@@ -1,4 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { catalogoProveedores, equipoCompleto } from "@/lib/supabase/consultas";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { adjuntarCostos } from "@/lib/supabase/montos";
 import { estadoCanales } from "@/lib/canales/integraciones";
@@ -12,11 +13,9 @@ import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/i
 import type {
   ProductConProveedor,
   FotoDeFicha,
-  Supplier,
   RolId,
   StockLog,
   ConteoConProducto,
-  Profile,
 } from "@/lib/types";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
@@ -126,11 +125,11 @@ export default async function InventarioPage({
   const [
     productosRes,
     fotosRes,
-    proveedoresRes,
+    proveedores,
     movimientosRes,
     ventasRes,
     enCaminoRes,
-    equipoRes,
+    equipo,
     reconSnapRes,
     conteosRes,
     canales,
@@ -175,7 +174,7 @@ export default async function InventarioPage({
         .order("orden")
         .range(desde, hasta),
     ),
-    supabase.from("suppliers").select("*").order("nombre"),
+    catalogoProveedores(),
     /* Historial de movimientos de stock. Solo los REALES: las puestas al día
        —el CRM copiando el número que ya tenía el canal— son el 93% de la tabla
        y sepultaban a las ventas y a la mercancía recibida. Se piden aparte,
@@ -204,7 +203,7 @@ export default async function InventarioPage({
        «Qué pedir» siga descontando lo que ya viene en camino. */
     supabase.rpc("unidades_en_camino"),
     // Equipo (para los selectores de "quién contó/corroboró" en el conteo físico).
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    equipoCompleto(),
     // Última reconciliación guardada: se muestra al instante (la lectura en vivo
     // de los canales es lo que tarda; se refresca con «Revisar ahora» o el cron).
     supabase.from("reconciliacion_snapshots").select("resumen, creado_en").eq("id", "actual").maybeSingle(),
@@ -230,11 +229,9 @@ export default async function InventarioPage({
     ...p,
     fotos_propias: fotosPorProducto[p.id] ?? [],
   }));
-  const proveedores = (proveedoresRes.data ?? []) as Supplier[];
   const movimientos = (movimientosRes.data ?? []) as unknown as StockLog[];
   const ventas = (ventasRes.data ?? []) as unknown as VentaReorden[];
   const conteos = (conteosRes.data ?? []) as unknown as ConteoConProducto[];
-  const equipo = (equipoRes.data ?? []) as Profile[];
   const snap = reconSnapRes.data as { resumen: ResumenReconciliacion; creado_en: string } | null;
   const reconciliacionInicial = snap
     ? { resumen: snap.resumen, creadoEn: snap.creado_en }

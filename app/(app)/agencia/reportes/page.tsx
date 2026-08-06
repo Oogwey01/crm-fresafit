@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { empresasAgenciaActivas } from "@/lib/supabase/consultas";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelReportes } from "@/components/reportes/panel";
-import type { AgenciaEmpresa, AgenciaReporteConEmpresa } from "@/lib/types";
+import type { AgenciaReporteConEmpresa } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Reportes · Agencia Fresafit" };
@@ -17,7 +18,7 @@ export default async function ReportesAgenciaPage() {
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 
-  const [reportesRes, empresasRes] = await Promise.all([
+  const [reportesRes, empresas] = await Promise.all([
     supabase
       .from("reportes")
       .select("*, empresa:agencia_empresas!empresa_id(id, nombre, color)")
@@ -25,13 +26,13 @@ export default async function ReportesAgenciaPage() {
       .order("periodo_hasta", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(300),
-    supabase.from("agencia_empresas").select("*").eq("activa", true).order("nombre"),
+    empresasAgenciaActivas(),
   ]);
 
   return (
     <PanelReportes
       reportes={(reportesRes.data ?? []) as unknown as AgenciaReporteConEmpresa[]}
-      empresas={(empresasRes.data ?? []) as AgenciaEmpresa[]}
+      empresas={empresas}
     />
   );
 }

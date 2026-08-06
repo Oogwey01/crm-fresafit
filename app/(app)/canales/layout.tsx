@@ -1,10 +1,11 @@
 import { Suspense } from "react";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 import { esDireccion } from "@/lib/catalogos";
 import { TabsCanales } from "@/components/canales/tabs-canales";
 import { DialogoPermisosDinero } from "@/components/canales/dialogo-permisos-dinero";
-import type { DineroPermisoCanal, Profile } from "@/lib/types";
+import type { DineroPermisoCanal } from "@/lib/types";
 
 /* Quién ve el dinero de cada plataforma lo reparte dirección, y desde aquí
    porque es donde ya está mirando el canal (mismo criterio que puso el
@@ -16,13 +17,13 @@ import type { DineroPermisoCanal, Profile } from "@/lib/types";
    del canal. El botón aterriza cuando esté. */
 async function BotonPermisosDinero() {
   const { supabase } = await usuarioActual();
-  const [permisosRes, equipoRes] = await Promise.all([
+  const [permisosRes, equipo] = await Promise.all([
     supabase.from("dinero_permisos_canal").select("profile_id, canal, otorgado_por, created_at"),
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    equipoCompleto(),
   ]);
   return (
     <DialogoPermisosDinero
-      equipo={(equipoRes.data ?? []) as Profile[]}
+      equipo={equipo}
       permisos={(permisosRes.data ?? []) as DineroPermisoCanal[]}
     />
   );

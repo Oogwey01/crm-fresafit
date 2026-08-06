@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { catalogoProductosActivo } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { textoONulo } from "@/lib/validacion";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
@@ -236,26 +237,14 @@ export async function catalogoVenta(): Promise<
      ventas de productos fuera de catálogo. */
   const conPrecio = (await vistaDinero()).ingresos;
 
-  /* Paginado con traerTodo: el catálogo pasa de mil fichas y los clientes de
-     dos mil quinientos, y PostgREST corta en ~1000 filas SIN error. Sin esto,
-     el buscador del diálogo «no encontraba» a la mitad de los clientes —los
-     que caían después del corte alfabético— sin ninguna señal de que faltaban.
-     El `id` desempata nombres repetidos entre tandas. */
+  /* Paginado: el catálogo pasa de mil fichas y los clientes de dos mil
+     quinientos, y PostgREST corta en ~1000 filas SIN error. Sin esto, el
+     buscador del diálogo «no encontraba» a la mitad de los clientes —los que
+     caían después del corte alfabético— sin ninguna señal de que faltaban. */
   type ClienteLigero = Pick<Customer, "id" | "nombre" | "correo" | "telefono">;
   try {
     const [productos, clientes] = await Promise.all([
-      traerTodo<ProductoParaVenta>((desde, hasta) =>
-        cx.supabase
-          .from("products")
-          .select(`id, nombre, variante, sku, activo${conPrecio ? ", precio" : ""}`)
-          .eq("activo", true)
-          .order("nombre")
-          .order("id")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: ProductoParaVenta[] | null;
-          error: { message: string } | null;
-        }>,
-      ),
+      catalogoProductosActivo(conPrecio),
       traerTodo<ClienteLigero>((desde, hasta) =>
         cx.supabase
           .from("customers")

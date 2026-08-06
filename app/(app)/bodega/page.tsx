@@ -1,4 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
@@ -12,7 +13,6 @@ import type {
   InsumoMovimiento,
   InsumoPermiso,
   Product,
-  Profile,
   RecepcionBodega,
   RecepcionConItems,
   RecepcionItem,
@@ -69,7 +69,7 @@ export default async function BodegaPage() {
     insumosCrudos,
     movimientosRes,
     permisosRes,
-    equipoRes,
+    equipo,
     productos,
   ] = await Promise.all([
     supabase
@@ -134,7 +134,7 @@ export default async function BodegaPage() {
       .order("created_at", { ascending: false })
       .limit(200),
     supabase.from("insumo_permisos").select("profile_id, puede_descontar, otorgado_por, created_at"),
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    equipoCompleto(),
     /* Catálogo liviano: solo lo necesario para emparejar SKUs y ver el stock. */
     traerTodo<ProductoLigeroFila>((desde, hasta) =>
       supabase
@@ -243,7 +243,7 @@ export default async function BodegaPage() {
       insumos={insumos}
       movimientos={(movimientosRes.data ?? []) as InsumoMovimiento[]}
       permisos={permisos}
-      equipo={(equipoRes.data ?? []) as Profile[]}
+      equipo={equipo}
       productos={productos}
       puedeMoverInsumos={puedeMoverInsumos}
       admin={puedeAdministrar(rol)}

@@ -1,7 +1,8 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { PanelPersonalizados } from "@/components/personalizados/panel";
-import type { Personalizado, Profile } from "@/lib/types";
+import type { Personalizado } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Personalizados · Fresafit" };
@@ -19,7 +20,7 @@ export default async function PersonalizadosPage() {
   /* La hoja de la que salió esto pasa de 500 renglones y sigue creciendo:
      PostgREST corta en 1000 sin avisar, así que se pagina. El equipo viaja para
      el selector y el avatar de quién lleva cada pedido. */
-  const [personalizados, equipoRes] = await Promise.all([
+  const [personalizados, equipo] = await Promise.all([
     traerTodo<Personalizado>((desde, hasta) =>
       supabase
         .from("personalizados")
@@ -29,9 +30,8 @@ export default async function PersonalizadosPage() {
         .order("fecha_limite", { ascending: true, nullsFirst: false })
         .range(desde, hasta),
     ),
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    equipoCompleto(),
   ]);
-  const equipo = (equipoRes.data ?? []) as Profile[];
 
   /* El bucket es privado, pero la página ya NO firma las miniaturas: firmarlas
      todas —una por una, porque la firma con transform no admite lote— eran

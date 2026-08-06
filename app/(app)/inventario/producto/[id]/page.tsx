@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { catalogoProveedores } from "@/lib/supabase/consultas";
 import { leerDatosIntegracion } from "@/lib/canales/integraciones";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { adjuntarCostos } from "@/lib/supabase/montos";
@@ -16,7 +17,7 @@ import {
 } from "@/lib/inventario/reabastecimiento";
 import { compararTallas, tallaDeVariante } from "@/lib/talla";
 import { FichaProductoPagina } from "@/components/inventario/ficha-producto-pagina";
-import type { FotoDeFicha, ProductConProveedor, RolId, Supplier } from "@/lib/types";
+import type { FotoDeFicha, ProductConProveedor, RolId } from "@/lib/types";
 
 export const metadata = { title: "Producto · Fresafit" };
 
@@ -76,7 +77,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
   const prefijo = nombreBase(producto.nombre);
   const sku = producto.sku?.trim();
 
-  const [familiaRes, fotosRes, mismoSkuRes, proveedoresRes, datosTN] = await Promise.all([
+  const [familiaRes, fotosRes, mismoSkuRes, proveedores, datosTN] = await Promise.all([
     supabase.from("products").select(COLUMNAS).ilike("nombre", `${prefijo}%`).limit(60),
     supabase
       .from("product_photos")
@@ -88,7 +89,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
     sku
       ? supabase.from("products").select(COLUMNAS).eq("sku", sku).limit(30)
       : Promise.resolve({ data: null }),
-    supabase.from("suppliers").select("*").order("nombre"),
+    catalogoProveedores(),
     /* El admin de Tienda Nube vive en el subdominio de cada tienda: el enlace
        «Ver en Tienda Nube» necesita ese dato. Lo deja la sync en
        `integraciones.datos`; si aún no ha corrido, el enlace no aparece. */
@@ -148,7 +149,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
       hermanas={hermanas}
       grupo={grupo}
       ventanaDias={VENTANA_REORDEN}
-      proveedores={(proveedoresRes.data ?? []) as Supplier[]}
+      proveedores={proveedores}
       gestor={esGestor(rol)}
       dinero={dinero}
       escrituraCanales={ESCRITURA_CANALES}

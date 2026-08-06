@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { empresasAgenciaActivas } from "@/lib/supabase/consultas";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelCobros } from "@/components/agencia/panel-cobros";
-import type { AgenciaContrato, AgenciaEmpresa, AgenciaIngresoConEmpresa } from "@/lib/types";
+import type { AgenciaContrato, AgenciaIngresoConEmpresa } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Cobros · Agencia Fresafit" };
@@ -14,7 +15,7 @@ export default async function CobrosPage() {
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 
-  const [ingresosRes, empresasRes, contratosRes] = await Promise.all([
+  const [ingresosRes, empresas, contratosRes] = await Promise.all([
     supabase
       .from("agencia_ingresos")
       .select("*, empresa:agencia_empresas!empresa_id(id, nombre, color)")
@@ -23,14 +24,14 @@ export default async function CobrosPage() {
       .order("periodo_hasta", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(500),
-    supabase.from("agencia_empresas").select("*").eq("activa", true).order("nombre"),
+    empresasAgenciaActivas(),
     supabase.from("agencia_contratos").select("*").eq("activo", true),
   ]);
 
   return (
     <PanelCobros
       ingresos={(ingresosRes.data ?? []) as unknown as AgenciaIngresoConEmpresa[]}
-      empresas={(empresasRes.data ?? []) as AgenciaEmpresa[]}
+      empresas={empresas}
       contratos={(contratosRes.data ?? []) as AgenciaContrato[]}
     />
   );

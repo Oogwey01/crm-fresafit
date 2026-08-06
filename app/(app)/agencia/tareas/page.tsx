@@ -1,4 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { Board } from "@/components/tareas/board";
 import type { AgenciaEmpresa, TaskConResponsable, Profile, RolId } from "@/lib/types";
@@ -25,7 +26,7 @@ export default async function TareasAgenciaPage() {
      /tareas: se piden sin filtro (son de TODAS las tareas, de los dos espacios)
      y PostgREST corta en 1000 filas sin avisar. Con una tanda basta mientras no
      se llegue a ese número, así que no cuesta consultas de más. */
-  const [tareasCrudas, borradasRes, equipoRes, empresasRes, checklist, lecturas, asignados] =
+  const [tareasCrudas, borradasRes, equipo, empresasRes, checklist, lecturas, asignados] =
     await Promise.all([
       /* Paginadas igual que en /tareas: las abiertas crecen con el uso y el
          techo de PostgREST quitaría las tarjetas más viejas sin avisar. */
@@ -51,7 +52,7 @@ export default async function TareasAgenciaPage() {
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
         .limit(100),
-      supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+      equipoCompleto(),
       /* Los clientes activos. Va como consulta aparte y NO como embed de `tasks`
          a propósito: son dos o tres filas que se reusan en cada tarjeta, y de
          paso el tablero sigue cargando aunque la RLS de agencia_empresas cambie.
@@ -124,7 +125,6 @@ export default async function TareasAgenciaPage() {
 
   const tareas = tareasCrudas.map(conEquipo);
   const borradas = ((borradasRes.data ?? []) as unknown as TaskConResponsable[]).map(conEquipo);
-  const equipo = (equipoRes.data ?? []) as Profile[];
 
   const checklistPorTarea: Record<string, { total: number; hechos: number }> = {};
   for (const c of checklist) {

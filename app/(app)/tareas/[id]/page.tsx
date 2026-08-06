@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { DetalleTareaPagina } from "@/components/tareas/detalle-pagina";
 import type { AgenciaEmpresa, Profile, RolId, TaskConResponsable } from "@/lib/types";
 
@@ -25,14 +26,14 @@ export default async function TareaPage({
   const { supabase, user, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  const [tareaRes, equipoRes, asignadosRes, empresasRes] = await Promise.all([
+  const [tareaRes, equipo, asignadosRes, empresasRes] = await Promise.all([
     supabase
       .from("tasks")
       .select("*, responsable:profiles!responsable_id(id, nombre, color)")
       .eq("id", id)
       .is("deleted_at", null)
       .maybeSingle(),
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    equipoCompleto(),
     /* Aparte del select de la tarea para que la página siga abriendo aunque la
        migración de coasignados no se haya aplicado todavía. */
     supabase
@@ -79,7 +80,7 @@ export default async function TareaPage({
       </Link>
       <DetalleTareaPagina
         tarea={tarea}
-        equipo={(equipoRes.data ?? []) as Profile[]}
+        equipo={equipo}
         rol={rol}
         currentUserId={user?.id ?? ""}
         enfocarComentario={comentario === "1"}

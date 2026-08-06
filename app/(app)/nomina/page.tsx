@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelNomina } from "@/components/nomina/panel";
 import type {
   AgenciaEmpresa,
   NominaEmpleadoConEmpresa,
   NominaPagoConEmpleado,
-  Profile,
 } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
@@ -23,14 +23,14 @@ export default async function NominaFresafitPage() {
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 
-  const [empleadosRes, equipoRes] = await Promise.all([
+  const [empleadosRes, equipo] = await Promise.all([
     supabase
       .from("nomina_empleados")
       .select("*, empresa:agencia_empresas!empresa_id(id, nombre, color)")
       .is("empresa_id", null)
       .order("activo", { ascending: false })
       .order("monto", { ascending: false }),
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    equipoCompleto(),
   ]);
 
   const empleados = (empleadosRes.data ?? []) as unknown as NominaEmpleadoConEmpresa[];
@@ -54,7 +54,7 @@ export default async function NominaFresafitPage() {
       empleados={empleados}
       pagos={(pagosRes.data ?? []) as unknown as NominaPagoConEmpleado[]}
       empresas={[] as AgenciaEmpresa[]}
-      equipo={(equipoRes.data ?? []) as Profile[]}
+      equipo={equipo}
     />
   );
 }

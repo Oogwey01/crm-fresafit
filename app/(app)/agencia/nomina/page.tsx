@@ -1,12 +1,11 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { empresasAgenciaActivas, equipoCompleto } from "@/lib/supabase/consultas";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelNomina } from "@/components/nomina/panel";
 import type {
-  AgenciaEmpresa,
   NominaEmpleadoConEmpresa,
   NominaPagoConEmpleado,
-  Profile,
 } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
@@ -19,15 +18,15 @@ export default async function NominaAgenciaPage() {
   const { supabase, rol } = await usuarioActual();
   if (!puedeAdministrar(rol)) redirect("/tareas");
 
-  const [empleadosRes, empresasRes, equipoRes] = await Promise.all([
+  const [empleadosRes, empresas, equipo] = await Promise.all([
     supabase
       .from("nomina_empleados")
       .select("*, empresa:agencia_empresas!empresa_id(id, nombre, color)")
       .not("empresa_id", "is", null)
       .order("activo", { ascending: false })
       .order("nombre"),
-    supabase.from("agencia_empresas").select("*").eq("activa", true).order("nombre"),
-    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+    empresasAgenciaActivas(),
+    equipoCompleto(),
   ]);
 
   const empleados = (empleadosRes.data ?? []) as unknown as NominaEmpleadoConEmpresa[];
@@ -48,8 +47,8 @@ export default async function NominaAgenciaPage() {
       ambito="agencia"
       empleados={empleados}
       pagos={(pagosRes.data ?? []) as unknown as NominaPagoConEmpleado[]}
-      empresas={(empresasRes.data ?? []) as AgenciaEmpresa[]}
-      equipo={(equipoRes.data ?? []) as Profile[]}
+      empresas={empresas}
+      equipo={equipo}
     />
   );
 }

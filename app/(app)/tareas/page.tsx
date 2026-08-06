@@ -1,4 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
+import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { Board } from "@/components/tareas/board";
 import type { TaskConResponsable, Profile, RolId } from "@/lib/types";
@@ -21,7 +22,7 @@ export default async function TareasPage() {
      de "hay algo nuevo" que no se apagan, solo en las tareas más viejas. Van
      paginadas con traerTodo, que mientras quepan en una tanda sigue costando
      una sola consulta. */
-  const [tareasCrudas, borradasRes, equipoRes, checklist, lecturas, asignados] =
+  const [tareasCrudas, borradasRes, equipo, checklist, lecturas, asignados] =
     await Promise.all([
       /* Solo las de Fresafit: las de la agencia tienen su propio tablero en
          /agencia/tareas y mezclarlas obligaba a filtrar de cabeza.
@@ -54,7 +55,7 @@ export default async function TareasPage() {
         .not("deleted_at", "is", null)
         .order("deleted_at", { ascending: false })
         .limit(100),
-      supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+      equipoCompleto(),
       // Resumen de subtareas por tarea (para el chip de progreso en las tarjetas).
       traerTodo<{ task_id: string; hecho: boolean }>((desde, hasta) =>
         supabase.from("task_checklist").select("task_id, hecho").order("id").range(desde, hasta),
@@ -108,7 +109,6 @@ export default async function TareasPage() {
 
   const tareas = tareasCrudas.map(conEquipo);
   const borradas = ((borradasRes.data ?? []) as unknown as TaskConResponsable[]).map(conEquipo);
-  const equipo = (equipoRes.data ?? []) as Profile[];
 
   /* {task_id: {total, hechos}} — el resumen que alimenta el chip de subtareas. */
   const checklistPorTarea: Record<string, { total: number; hechos: number }> = {};
