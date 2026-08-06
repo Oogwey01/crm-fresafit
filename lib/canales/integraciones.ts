@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Canal } from "@/lib/canales/tipos";
+import type { Json } from "@/lib/supabase/tipos-bd";
 
 /* Acceso compartido a la tabla `integraciones` (una fila por canal). Antes
    cada canal tenía copiado el select de `datos`, el merge-update y el estado
@@ -27,7 +28,7 @@ export async function mezclarDatosIntegracion(
   const datos = base ?? (await leerDatosIntegracion(id));
   await admin
     .from("integraciones")
-    .update({ datos: { ...datos, ...parche } })
+    .update({ datos: { ...datos, ...parche } as Json })
     .eq("id", id);
 }
 

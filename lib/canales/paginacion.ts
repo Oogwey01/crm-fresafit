@@ -18,17 +18,26 @@ const TANDAS_POR_OLEADA = 3;
    siguientes salen en OLEADAS en paralelo hasta que alguna venga corta. Antes
    eran estrictamente secuenciales: el catálogo (2 tandas) y los clientes (3)
    pagaban cada tanda como un viaje completo más. */
+/* `data` se recibe como `unknown` y el caller declara la forma con <T>. Es a
+   propósito: los builders de supabase-js infieren la fila del esquema, pero los
+   selects con embeds o con la lista de columnas armada al vuelo se rinden y
+   devuelven otra cosa. Con la firma estricta, cada llamada tenía que escribir
+   un `as unknown as PromiseLike<…>` de cinco renglones; el cast vive aquí una
+   vez, y el tipo que importa —el de las filas que salen— lo sigue poniendo
+   quien llama. */
 export async function traerTodo<T>(
   consulta: (desde: number, hasta: number) => PromiseLike<{
-    data: T[] | null;
+    data: unknown;
     error: { message: string } | null;
   }>,
   tam = 1000,
 ): Promise<T[]> {
+  const filasDe = (r: { data: unknown }): T[] => (r.data ?? []) as T[];
+
   const primera = await consulta(0, tam - 1);
   if (primera.error) throw new Error(primera.error.message);
-  const filas: T[] = [...(primera.data ?? [])];
-  if ((primera.data ?? []).length < tam) return filas;
+  const filas: T[] = [...filasDe(primera)];
+  if (filasDe(primera).length < tam) return filas;
 
   for (let base = tam; ; base += tam * TANDAS_POR_OLEADA) {
     const tandas = await Promise.all(
@@ -38,10 +47,10 @@ export async function traerTodo<T>(
     );
     for (const tanda of tandas) {
       if (tanda.error) throw new Error(tanda.error.message);
-      filas.push(...(tanda.data ?? []));
+      filas.push(...filasDe(tanda));
       /* Tanda corta = se acabaron las filas; las que la siguen en la oleada
          vienen vacías por definición del mismo orden. */
-      if ((tanda.data ?? []).length < tam) return filas;
+      if (filasDe(tanda).length < tam) return filas;
     }
   }
 }

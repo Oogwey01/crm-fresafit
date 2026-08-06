@@ -8,6 +8,7 @@
    solo refresca lo que el canal sabe del comprador. */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { TablesInsert } from "@/lib/supabase/tipos-bd";
 import { TAM_LOTE_IN, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 type ColumnaClienteCanal = "correo" | "mercadolibre_buyer_id" | "tiktok_buyer_id";
@@ -17,7 +18,7 @@ type ColumnaClienteCanal = "correo" | "mercadolibre_buyer_id" | "tiktok_buyer_id
    tres importadores la tratan como no-fatal: la venta se registra igual). */
 export async function upsertClientesPorClave<K extends string | number>(
   columnaConflicto: ColumnaClienteCanal,
-  filas: Record<string, unknown>[],
+  filas: TablesInsert<"customers">[],
 ): Promise<Map<K, string>> {
   if (filas.length === 0) return new Map();
   const admin = createAdminClient();

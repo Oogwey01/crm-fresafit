@@ -7,6 +7,7 @@
 
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import type { TablesUpdate } from "@/lib/supabase/tipos-bd";
 import { textoONulo } from "@/lib/validacion";
 import { revalidar } from "@/app/(app)/bodega/acciones/comun";
 import type {
@@ -174,7 +175,10 @@ export async function marcarChecklistFull(
   if ("error" in cx) return cx;
   const { error } = await cx.supabase
     .from("envio_full_items")
-    .update({ [campo]: valor })
+    /* La clave es dinámica y TypeScript la ve como índice genérico; el
+       tipo de la tabla lo fija el cast, y `campo` ya está acotado a las tres
+       columnas booleanas en la firma. */
+    .update({ [campo]: valor } as TablesUpdate<"envio_full_items">)
     .eq("id", id);
   if (error) return { error: error.message };
   revalidar();

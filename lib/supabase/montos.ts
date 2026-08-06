@@ -31,7 +31,9 @@ async function unir<T extends { id: string }, C extends string>(
   supabase: Cliente,
   filas: T[],
   pedir: boolean,
-  vista: string,
+  /* Acotado a las dos vistas que existen: con un `string` suelto, un dedazo en
+     el nombre no se notaba hasta que la consulta volvía vacía en producción. */
+  vista: "ventas_montos" | "producto_costos",
   campo: C,
 ): Promise<(T & { [K in C]?: number | null })[]> {
   if (!pedir || filas.length === 0) return filas as (T & { [K in C]?: number | null })[];

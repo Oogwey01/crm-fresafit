@@ -38,10 +38,7 @@ export default async function PedidosPage() {
         .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
         .order("fecha", { ascending: false })
         .order("id")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: PedidoEnvio[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     ),
     /* El panel de Tienda Nube vive en el subdominio de cada tienda, así que el
        enlace "ver la orden en el canal" necesita ese dato. Lo deja la sync en

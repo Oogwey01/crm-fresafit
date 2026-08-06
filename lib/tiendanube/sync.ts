@@ -8,6 +8,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { TablesInsert } from "@/lib/supabase/tipos-bd";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
@@ -78,7 +79,7 @@ export async function sincronizarProductosTN(
   const existentes = new Map<number, FilaExistente>();
   for (const fila of filas) existentes.set(fila.tiendanube_variant_id, fila);
 
-  const nuevos: Record<string, unknown>[] = [];
+  const nuevos: TablesInsert<"products">[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
   // Stock que cambió en TN y cuya fila también vive en Mercado Libre → hub.
   const propagarAML: FilaVinculada[] = [];
@@ -95,7 +96,7 @@ export async function sincronizarProductosTN(
       const variante = (v.values ?? []).map(texto).filter(Boolean).join(" / ") || null;
       // Portada de la variante: su imagen propia si la tiene, si no la del producto.
       const imagenVariante = v.image_id ? (p.images ?? []).find((i) => i.id === v.image_id)?.src : null;
-      const fila: Record<string, unknown> = {
+      const fila: TablesInsert<"products"> = {
         nombre,
         variante,
         precio: numero(v.price),

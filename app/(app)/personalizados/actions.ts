@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { TablesInsert, TablesUpdate } from "@/lib/supabase/tipos-bd";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
@@ -82,7 +83,7 @@ export async function cambiarEstadoPersonalizado(
 
   /* Al mandarlo a producción se estampa la fecha si nadie la puso: ese día es
      justo el dato que la hoja nunca tenía. */
-  const cambio: Record<string, unknown> = { estado };
+  const cambio: TablesUpdate<"personalizados"> = { estado };
   if (estado === "produccion") {
     const { data } = await cx.supabase
       .from("personalizados")
@@ -214,7 +215,7 @@ export async function importarPersonalizados(
     ),
   );
 
-  const nuevas: Record<string, unknown>[] = [];
+  const nuevas: TablesInsert<"personalizados">[] = [];
   let omitidos = 0;
   for (const f of utiles) {
     const k = llave(f.no_venta, f.cliente);

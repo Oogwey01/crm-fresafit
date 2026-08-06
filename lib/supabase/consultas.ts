@@ -91,10 +91,7 @@ export const catalogoProductosActivo = cache(
         .eq("activo", true)
         .order("nombre")
         .order("id")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: ProductoParaVenta[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     );
   },
 );

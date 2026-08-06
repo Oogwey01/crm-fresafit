@@ -56,10 +56,7 @@ export default async function ClientesPage() {
         )
         .order("nombre")
         .order("id")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: Customer[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     ),
     /* Estadísticas por cliente calculadas en Postgres: antes se bajaban hasta
        10.000 ventas con join solo para sumarlas aquí (y se serializaban

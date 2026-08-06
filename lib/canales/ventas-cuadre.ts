@@ -20,6 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { Json } from "@/lib/supabase/tipos-bd";
 import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 /* Una orden tal como la reporta el panel del canal. */
@@ -171,7 +172,14 @@ export async function guardarTotalesOrden(ordenes: TotalOrden[]): Promise<number
     if (error && /comision|costo_envio/i.test(error.message)) {
       console.warn("[ventas] faltan las columnas de costo; se guarda sin ellas.");
       const sinCostos = tanda.map((o) => {
-        const copia: Partial<TotalOrden> = { ...o };
+        /* Omit y no Partial: quitar dos columnas opcionales deja una fila que
+           sigue siendo válida para el insert, y `Partial` la volvía «todo
+           opcional» —incluidas `canal` y `referencia_orden`, que son la llave
+           del upsert—. */
+        const copia: Omit<TotalOrden, "comision" | "costo_envio"> & {
+          comision?: number | null;
+          costo_envio?: number | null;
+        } = { ...o };
         delete copia.comision;
         delete copia.costo_envio;
         return copia;
@@ -204,7 +212,9 @@ export async function refrescarRenglones(
   const cuentas = await porLotes(filas, TAM, async (tanda) => {
     const { data, error } = await admin.rpc("sincronizar_renglones_venta", {
       p_canal: canal,
-      p_filas: tanda,
+      /* La RPC recibe un jsonb: el tipo generado es `Json` y estas filas son
+         objetos planos serializables, que es justo lo que pide. */
+      p_filas: tanda as unknown as Json,
     });
     if (error) throw new Error(error.message);
     return Number(data) || 0;

@@ -41,10 +41,7 @@ export default async function FinanzasPage() {
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false })
         .order("id")
-        .range(desdeFila, hastaFila) as unknown as PromiseLike<{
-        data: ExpenseConComprobantes[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desdeFila, hastaFila),
     ),
     /* Entradas = ventas (Fase 2). No hay tabla de ingresos: se derivan.
        Ya sumadas por día en la base: `sales.monto` está fuera del alcance del

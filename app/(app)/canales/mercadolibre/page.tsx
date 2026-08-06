@@ -59,10 +59,7 @@ export default async function MercadoLibrePage() {
         .is("envio_despachado_en", null)
         .order("fecha", { ascending: false })
         .order("id")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: VentaDespacho[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     ),
     /* Si Mercado Libre no contesta, el resto de la página sigue en pie. */
     saludML(),

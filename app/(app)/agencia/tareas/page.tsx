@@ -39,10 +39,7 @@ export default async function TareasAgenciaPage() {
           .is("deleted_at", null)
           .order("created_at", { ascending: true })
           .order("id")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: TaskConResponsable[] | null;
-          error: { message: string } | null;
-        }>,
+          .range(desde, hasta),
       ),
       /* Papelera acotada a las 100 más recientes, igual que en /tareas: se
          entra a recuperar algo que se borró hace poco, no a arqueología. */
@@ -80,10 +77,7 @@ export default async function TareasAgenciaPage() {
           .select("task_id, perfil:profiles!user_id(id, nombre, color)")
           .order("task_id")
           .order("user_id")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: FilaAsignado[] | null;
-          error: { message: string } | null;
-        }>,
+          .range(desde, hasta),
       ).catch((e: unknown) => {
         console.warn(
           "[agencia/tareas] task_assignees no disponible:",

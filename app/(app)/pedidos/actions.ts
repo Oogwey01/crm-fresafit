@@ -40,10 +40,7 @@ export async function listarPedidosHistorico(): Promise<
         .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
         .order("fecha", { ascending: false })
         .order("id")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: PedidoEnvio[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     );
     return { pedidos };
   } catch (e) {

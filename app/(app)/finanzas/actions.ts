@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { TablesInsert } from "@/lib/supabase/tipos-bd";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import {
@@ -94,7 +95,7 @@ export async function importarGastos(
     ),
   );
 
-  const nuevos: Record<string, unknown>[] = [];
+  const nuevos: TablesInsert<"expenses">[] = [];
   let omitidos = 0;
   for (const f of utiles) {
     const k = llave(f.concepto, f.fecha, f.monto);

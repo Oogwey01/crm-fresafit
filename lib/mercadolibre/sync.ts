@@ -26,6 +26,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { TablesInsert } from "@/lib/supabase/tipos-bd";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
@@ -288,7 +289,7 @@ export async function sincronizarItemsML(
   );
   for (const f of candidatas) porSku.set(f.sku!, [...(porSku.get(f.sku!) ?? []), f]);
 
-  const nuevos: Record<string, unknown>[] = [];
+  const nuevos: TablesInsert<"products">[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
   const alinearML: FilaVinculada[] = []; // al vincular, el CRM manda → empujar a ML
   /* Publicaciones que se salieron del número del CRM y hay que devolver a él

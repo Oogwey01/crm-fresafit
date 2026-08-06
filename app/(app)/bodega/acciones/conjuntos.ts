@@ -231,7 +231,9 @@ export async function armarConjunto(
   const { data, error } = await cx.supabase.rpc("armar_conjunto", {
     cid: conjuntoId,
     n: cantidad,
-    p_nota: textoONulo(nota ?? ""),
+    /* Se omite si viene vacía: `p_nota` es `default null` en la función y su
+       cuerpo hace coalesce, así que omitirla y mandar null es lo mismo. */
+    p_nota: textoONulo(nota ?? "") ?? undefined,
   });
   if (error) return { error: error.message };
 

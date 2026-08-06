@@ -54,10 +54,7 @@ export default async function ProveedoresPage() {
         .from("products")
         .select("id, nombre, variante, sku, activo, proveedor_id")
         .order("nombre")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: ProductoLigeroProv[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     ).then((catalogo) => adjuntarCostos(supabase, catalogo, true)),
   ]);
 

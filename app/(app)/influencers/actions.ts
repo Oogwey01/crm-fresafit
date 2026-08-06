@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { TablesInsert, TablesUpdate } from "@/lib/supabase/tipos-bd";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
@@ -71,7 +72,7 @@ export async function guardarInfluencer(
      nadie lo pidiera. Se conserva el que ya tenía. Al dar de alta sí va —ahí el
      número lo pone quien captura—. Los PORCENTAJES no entran aquí: son las
      condiciones que el coordinador negocia, y sí las ve. */
-  const cambios: Record<string, unknown> = { ...fila };
+  const cambios: TablesUpdate<"influencers"> = { ...fila };
   if (!(await vistaDinero()).egresos) delete cambios.credito_mensual;
 
   const { error } = id
@@ -100,7 +101,7 @@ export async function cambiarEtapaInfluencer(
     .single();
   if (errorLectura) return { error: errorLectura.message };
 
-  const cambio: Record<string, unknown> = { etapa };
+  const cambio: TablesUpdate<"influencers"> = { etapa };
   const tier = obtenerTierInfluencer(actual?.tier);
   if (etapa === "activo" && tier) {
     if (actual?.descuento_pct == null) cambio.descuento_pct = tier.descuentoPct;
@@ -207,7 +208,7 @@ export async function guardarEvaluacion(input: EvaluacionInput): Promise<Resulta
      que cuidar `ventas_monto`: quien no ve los ingresos no lo recibió al abrir
      el formulario, así que reevaluar el mes lo dejaría en nulo. Omitirlo del
      upsert conserva el que hubiera —el ON CONFLICT solo pisa lo que va listado—. */
-  const filaEval: Record<string, unknown> = {
+  const filaEval: TablesInsert<"influencer_evaluaciones"> = {
     influencer_id: input.influencer_id,
     periodo,
     usos_codigo: input.usos_codigo,

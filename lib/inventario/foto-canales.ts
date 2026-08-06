@@ -20,6 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { TablesInsert } from "@/lib/supabase/tipos-bd";
 import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 import { leerCanales, stockEnCanales } from "@/lib/inventario/reconciliacion";
 
@@ -66,7 +67,7 @@ export async function tomarFotoCanales(): Promise<ResumenFoto> {
 
   const ahora = new Date().toISOString();
   const actuales: (FilaCanal & { visto_en: string })[] = [];
-  const cambios: Record<string, unknown>[] = [];
+  const cambios: TablesInsert<"stock_canal_log">[] = [];
   const estables: DesviacionEstable[] = [];
   let nuevos = 0;
 

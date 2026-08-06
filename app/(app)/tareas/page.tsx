@@ -40,10 +40,7 @@ export default async function TareasPage() {
           .is("deleted_at", null)
           .order("created_at", { ascending: true })
           .order("id")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: TaskConResponsable[] | null;
-          error: { message: string } | null;
-        }>,
+          .range(desde, hasta),
       ),
       /* Papelera (RLS sigue limitando qué borradas ve cada quien). Acotada a
          las 100 más recientes: viajaba COMPLETA en cada carga del tablero y
@@ -81,10 +78,7 @@ export default async function TareasPage() {
           .select("task_id, perfil:profiles!user_id(id, nombre, color)")
           .order("task_id")
           .order("user_id")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: FilaAsignado[] | null;
-          error: { message: string } | null;
-        }>,
+          .range(desde, hasta),
       ).catch((e: unknown) => {
         console.warn("[tareas] task_assignees no disponible:", e instanceof Error ? e.message : e);
         return [] as FilaAsignado[];

@@ -3,6 +3,7 @@
 /* Acciones de los cobros. Ver el barril en ../actions.ts. */
 
 import { exigirRol } from "@/lib/supabase/guardia";
+import type { TablesUpdate } from "@/lib/supabase/tipos-bd";
 import { textoONulo } from "@/lib/validacion";
 import { calcularCorte, nombrePeriodo } from "@/lib/agencia";
 import type { Resultado } from "@/lib/acciones";
@@ -122,7 +123,7 @@ export async function cambiarEstadoIngreso(
   if ("error" in cx) return cx;
 
   const ahora = new Date().toISOString();
-  const patch: Record<string, unknown> = { estado };
+  const patch: TablesUpdate<"agencia_ingresos"> = { estado };
   if (estado === "cobrado") {
     patch.cobrado_at = ahora;
     patch.pagado_at = null;
@@ -148,7 +149,7 @@ export async function editarIngreso(
   const cx = await exigirRol("admin", SOLO_ADMINISTRACION);
   if ("error" in cx) return cx;
 
-  const fila: Record<string, unknown> = {};
+  const fila: TablesUpdate<"agencia_ingresos"> = {};
   if (patch.concepto !== undefined) {
     if (!patch.concepto.trim()) return { error: "El concepto no puede quedar vacío." };
     fila.concepto = patch.concepto.trim();

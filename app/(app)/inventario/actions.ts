@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { TablesUpdate } from "@/lib/supabase/tipos-bd";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { adjuntarCostos } from "@/lib/supabase/montos";
@@ -236,7 +237,7 @@ export async function guardarProducto(id: string | null, input: ProductoInput): 
        así que el formulario lo manda vacío: dejarlo pasar lo pondría en nulo sin
        que nadie lo pidiera. Se conserva el que ya tenía. Al dar de alta sí van
        —ahí el número lo pone quien captura—, y por eso esto solo pasa al editar. */
-    const cambios: Record<string, unknown> = { ...fila };
+    const cambios: TablesUpdate<"products"> = { ...fila };
     if (vinculado) delete cambios.stock;
     if (!dinero.egresos) delete cambios.costo;
     if (!dinero.ingresos) delete cambios.precio;

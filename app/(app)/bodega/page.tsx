@@ -122,10 +122,7 @@ export default async function BodegaPage() {
           .from("insumos")
           .select(columnasInsumo(dinero.egresos))
           .order("nombre")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: InsumoConPresentaciones[] | null;
-          error: { message: string } | null;
-        }>,
+          .range(desde, hasta),
       ),
     ),
     supabase

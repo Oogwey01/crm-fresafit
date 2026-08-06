@@ -102,17 +102,14 @@ export default async function MetricasPage() {
     supabase.rpc("metricas_resumen", {
       desde: rangos.actual.desde,
       hasta: rangos.actual.hasta,
-      canal_f: null,
     }),
     supabase.rpc("metricas_resumen", {
       desde: rangos.anterior.desde,
       hasta: rangos.anterior.hasta,
-      canal_f: null,
     }),
     supabase.rpc("metricas_resumen", {
       desde: ventana.desde,
       hasta: ventana.hasta,
-      canal_f: null,
     }),
     /* Primera página de la tabla de ventas: los renglones sueltos siguen
        haciendo falta para revisarlos y corregirlos uno a uno. El resto las pide

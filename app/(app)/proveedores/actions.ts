@@ -137,7 +137,11 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     notas: textoONulo(input.notas),
   };
 
-  let pedidoId = id;
+  /* El id del pedido, ya sea el que se editó o el que acaba de nacer. Se
+     declara sin `| null` a propósito: los renglones y los pagos de abajo lo
+     necesitan sí o sí, y con el tipo laxo un camino que no lo asignara pasaba
+     desapercibido hasta reventar en la base. */
+  let pedidoId: string;
   /* Los renglones de una edición se reemplazan por el conjunto nuevo. Se
      apuntan los viejos para borrarlos DESPUÉS de insertar los nuevos: al revés
      —borrar y luego insertar—, un fallo entre las dos sentencias dejaba el
@@ -152,7 +156,8 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     ]);
     if (actualizado.error) return { error: actualizado.error.message };
     if (previos.error) return { error: previos.error.message };
-    viejos = (previos.data ?? []).map((r) => r.id as string);
+    viejos = (previos.data ?? []).map((r) => r.id);
+    pedidoId = id;
   } else {
     const { data, error } = await cx.supabase
       .from("supplier_orders")
@@ -253,7 +258,10 @@ export async function registrarPagoPedido(
 
   const monto = Number(formData.get("monto"));
   if (!Number.isFinite(monto) || monto < 0) return { error: "El monto no es válido." };
-  const fecha = textoONulo(String(formData.get("fecha") || ""));
+  /* `undefined` y no `null` cuando viene vacía: la columna es
+     `date not null default current_date`, así que omitirla deja que Postgres
+     ponga hoy — mandarle null reventaba el insert con violación de NOT NULL. */
+  const fecha = textoONulo(String(formData.get("fecha") || "")) ?? undefined;
   const nota = textoONulo(String(formData.get("nota") || ""));
 
   // Comprobante opcional: se sube primero; si falla el insert, se limpia.

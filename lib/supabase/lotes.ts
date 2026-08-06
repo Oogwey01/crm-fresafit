@@ -41,15 +41,19 @@ export async function porLotes<T, R>(
 
 /* Lectura por `.in()` troceada: el caso más común de porLotes. El caller arma
    la consulta con el lote de claves; los builders de supabase-js no son
-   reutilizables entre llamadas, por eso recibe una función. */
+   reutilizables entre llamadas, por eso recibe una función.
+
+   `data` llega como `unknown` y la forma la declara quien llama con <F>, por el
+   mismo motivo que en `traerTodo`: los selects con embeds o con las columnas
+   armadas al vuelo no los infiere supabase-js. */
 export async function traerPorLotes<K, F>(
   claves: K[],
-  consulta: (lote: K[]) => PromiseLike<{ data: F[] | null; error: { message: string } | null }>,
+  consulta: (lote: K[]) => PromiseLike<{ data: unknown; error: { message: string } | null }>,
 ): Promise<F[]> {
   const tandas = await porLotes(claves, TAM_LOTE_IN, async (lote) => {
     const { data, error } = await consulta(lote);
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return (data ?? []) as F[];
   });
   return tandas.flat();
 }

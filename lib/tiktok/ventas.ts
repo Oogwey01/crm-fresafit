@@ -276,8 +276,17 @@ async function aplicarOrdenes(
     insertadas = data?.length ?? 0;
 
     /* Con `ignoreDuplicates`, `data` son SOLO las ventas nuevas: un reintento de
-       webhook o el traslape del cron no vuelven a descontar. */
-    const movidas = await descontarVentas(admin, data ?? [], vendibles, selloEspejo);
+       webhook o el traslape del cron no vuelven a descontar.
+
+       Las que vinieran sin `referencia_externa` se quedan fuera: es la llave
+       con la que el descuento casa el renglón con su orden, y sin ella no hay
+       de dónde sacar el SKU. En la práctica siempre viene —la arma
+       `filasDeOrden`—, pero la columna la permite nula y descontar a ciegas
+       movería el stock del producto equivocado. */
+    const conReferencia = (data ?? []).filter(
+      (v): v is typeof v & { referencia_externa: string } => !!v.referencia_externa,
+    );
+    const movidas = await descontarVentas(admin, conReferencia, vendibles, selloEspejo);
     descontadas = movidas.movidas;
     sinDato = movidas.sinDato;
 

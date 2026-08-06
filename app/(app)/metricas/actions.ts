@@ -140,9 +140,12 @@ export type DatosMetricas = {
   dias: ResumenMetricas["por_dia"];
 };
 
-/* Un canal vacío significa «todas las plataformas»: el RPC recibe null. */
-function canalONulo(canal: string | null | undefined): string | null {
-  return !canal || canal === "todas" ? null : canal;
+/* Un canal vacío significa «todas las plataformas». Se OMITE el argumento en
+   vez de mandar null: `canal_f` está declarado `default null` en la función y
+   su cuerpo pregunta `canal_f is null`, así que omitirlo es exactamente lo
+   mismo — y es lo que espera la firma generada de la RPC. */
+function canalONulo(canal: string | null | undefined): string | undefined {
+  return !canal || canal === "todas" ? undefined : canal;
 }
 
 export async function obtenerMetricas(
@@ -251,10 +254,7 @@ export async function catalogoVenta(): Promise<
           .select("id, nombre, correo, telefono")
           .order("nombre")
           .order("id")
-          .range(desde, hasta) as unknown as PromiseLike<{
-          data: ClienteLigero[] | null;
-          error: { message: string } | null;
-        }>,
+          .range(desde, hasta),
       ),
     ]);
     return { ok: true, productos, clientes };

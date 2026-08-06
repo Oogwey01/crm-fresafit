@@ -51,10 +51,7 @@ export default async function TikTokPage() {
         .from("products")
         .select(columnasFicha)
         .order("nombre")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: FichaCanal[] | null;
-        error: { message: string } | null;
-      }>,
+        .range(desde, hasta),
     ).catch((e: Error) => {
       console.warn("[canales/tiktok] catálogo no disponible:", e.message);
       return [] as FichaCanal[];
@@ -76,7 +73,6 @@ export default async function TikTokPage() {
       ? supabase.rpc("metricas_resumen", {
           desde: diasDesdeHoy(-DIAS),
           hasta: hoyISO(),
-          canal_f: null,
         })
       : null,
     estadoTiktok(),

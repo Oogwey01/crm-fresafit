@@ -51,6 +51,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { TablesInsert } from "@/lib/supabase/tipos-bd";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { traerPorLotes } from "@/lib/supabase/lotes";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
@@ -404,7 +405,7 @@ export async function sincronizarProductosTikTok(
   );
   for (const f of candidatas) porSku.set(f.sku!, [...(porSku.get(f.sku!) ?? []), f]);
 
-  const nuevos: Record<string, unknown>[] = [];
+  const nuevos: TablesInsert<"products">[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
   /* Publicaciones a registrar: la principal de cada ficha y las secundarias que
      esta corrida descubrió. Es el mapa que usa la importación de ventas. */
@@ -461,7 +462,7 @@ export async function sincronizarProductosTikTok(
 
       /* Ficha que vive SOLO en TikTok: aquí TikTok sí es la única fuente de
          verdad, así que aporta todo (ficha, fotos, estado y su propio stock). */
-      const fila: Record<string, unknown> = {
+      const fila: TablesInsert<"products"> = {
         nombre: u.nombre,
         variante: u.variante,
         precio: u.precio,
