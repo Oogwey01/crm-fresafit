@@ -47,7 +47,7 @@ import type {
   SupplierOrderConDetalle,
 } from "@/lib/types";
 import { DatePicker } from "@/components/compartido/date-picker";
-import type { ProductoProveedor } from "@/components/proveedores/tipos";
+import type { ProductoProveedor } from "@/lib/proveedores/tipos";
 
 const PRODUCTO_LIBRE = "libre";
 

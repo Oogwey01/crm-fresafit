@@ -1,6 +1,7 @@
 "use client";
 
-import { equipoDeTarea, type TaskConResponsable, type Profile } from "@/lib/types";
+import { type TaskConResponsable, type Profile } from "@/lib/types";
+import { equipoDeTarea } from "@/lib/tareas/reglas";
 import { cn } from "@/lib/utils";
 
 /* Barra de "carga por persona": un chip por integrante con su número de tareas

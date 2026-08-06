@@ -23,7 +23,7 @@ import {
 import type { ItemInicialPedido } from "@/components/proveedores/pedido-prov-dialog";
 import { formatearMXN } from "@/lib/moneda";
 import { cn } from "@/lib/utils";
-import type { ProductoProveedor } from "@/components/proveedores/tipos";
+import type { ProductoProveedor } from "@/lib/proveedores/tipos";
 
 /* Los dos formatos en los que el equipo arma sus pedidos en Excel. Cambian tanto
    entre sí que un solo parser adivinando columnas se equivocaría: el de ropa es

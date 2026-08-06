@@ -5,7 +5,8 @@ import { traerTodo } from "@/lib/canales/paginacion";
 import { estadoTiktok } from "@/lib/tiktok/api";
 import { finanzasTikTok } from "@/lib/tiktok/finanzas";
 import { saludCatalogoTikTok, type FichaCanal } from "@/lib/tiktok/salud-catalogo";
-import { PanelTikTok, type PesoCanal } from "@/components/canales/panel-tiktok";
+import { PanelTikTok } from "@/components/canales/panel-tiktok";
+import type { PesoCanal } from "@/lib/canales/tipos";
 import { diasDesdeHoy, hoyISO } from "@/lib/fecha";
 import type { ResumenMetricas } from "@/lib/types";
 

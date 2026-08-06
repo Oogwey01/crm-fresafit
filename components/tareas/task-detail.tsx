@@ -68,7 +68,7 @@ import type {
   TaskAttachment,
   TaskDetalle,
 } from "@/lib/types";
-import { trabajaLaTarea, mandaEnLaTarea, esImagenAdjunto } from "@/lib/types";
+import { trabajaLaTarea, mandaEnLaTarea, esImagenAdjunto } from "@/lib/tareas/reglas";
 import { cn, iniciales } from "@/lib/utils";
 import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";

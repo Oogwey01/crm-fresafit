@@ -14,7 +14,7 @@ import { TablaPedidosProv } from "@/components/proveedores/tabla-pedidos-prov";
 import { PedidoProvDialog, type ItemInicialPedido } from "@/components/proveedores/pedido-prov-dialog";
 import { ImportarRenglonesPedido } from "@/components/proveedores/importar-renglones-pedido";
 import { ImportarFactura } from "@/components/proveedores/importar-factura";
-import type { ProductoProveedor } from "@/components/proveedores/tipos";
+import type { ProductoProveedor } from "@/lib/proveedores/tipos";
 import { formatearMXN } from "@/lib/moneda";
 import type { Supplier, SupplierOrderConDetalle } from "@/lib/types";
 

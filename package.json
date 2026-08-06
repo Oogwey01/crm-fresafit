@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "gen:types": "supabase gen types typescript --linked --schema public > lib/supabase/tipos-bd.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

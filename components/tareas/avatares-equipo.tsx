@@ -1,7 +1,7 @@
 "use client";
 
 import { iniciales, cn } from "@/lib/utils";
-import { equipoDeTarea } from "@/lib/types";
+import { equipoDeTarea } from "@/lib/tareas/reglas";
 import type { Profile, TaskConResponsable } from "@/lib/types";
 
 /* Quién trabaja una tarea, en una línea: la responsable con su nombre y las

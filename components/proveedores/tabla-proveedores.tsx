@@ -2,7 +2,7 @@
 
 import type { Supplier } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
-import type { ProductoProveedor } from "@/components/proveedores/tipos";
+import type { ProductoProveedor } from "@/lib/proveedores/tipos";
 
 const COLS = "grid-cols-[minmax(160px,1fr)_100px_130px_180px_90px_100px_minmax(110px,1fr)]";
 

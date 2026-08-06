@@ -18,7 +18,7 @@ import {
   urlesFirmadas,
 } from "@/lib/storage";
 import { textoONulo } from "@/lib/validacion";
-import { esImagenAdjunto } from "@/lib/types";
+import { esImagenAdjunto } from "@/lib/tareas/reglas";
 import type {
   AreaId,
   EspacioId,

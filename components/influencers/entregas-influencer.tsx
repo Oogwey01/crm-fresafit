@@ -34,7 +34,7 @@ import type { VistaDinero } from "@/lib/permisos-dinero";
 import { cn } from "@/lib/utils";
 import { aNumero } from "@/lib/validacion";
 import type { Influencer, InfluencerEntrega, InfluencerEvaluacion } from "@/lib/types";
-import type { ProductoLigero } from "@/components/influencers/panel";
+import type { ProductoLigero } from "@/lib/influencers/tipos";
 
 const PRODUCTO_LIBRE = "libre";
 

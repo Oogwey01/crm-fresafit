@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatCard } from "@/components/compartido/stat-card";
+import type { ProductoLigero } from "@/lib/influencers/tipos";
 import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { InfluencerDialog } from "@/components/influencers/influencer-dialog";
 import { TablaInfluencers } from "@/components/influencers/tabla-influencers";
@@ -23,12 +24,7 @@ import { formatearMXN } from "@/lib/moneda";
 import type { VistaDinero } from "@/lib/permisos-dinero";
 import { cn } from "@/lib/utils";
 import { norm } from "@/lib/importar/tsv";
-import type {
-  Influencer,
-  InfluencerEntrega,
-  InfluencerEvaluacion,
-  Product,
-} from "@/lib/types";
+import type { Influencer, InfluencerEntrega, InfluencerEvaluacion } from "@/lib/types";
 
 /* Las tres preguntas del programa: a quién estamos viendo, quién ya trabaja con
    nosotros y cómo le fue este mes. */
@@ -44,10 +40,6 @@ type Pestana = (typeof PESTANAS)[number][0];
 const ETAPAS_ACTIVAS = ["activo", "pausado"];
 
 /* El precio es opcional: solo viaja para quien ve los ingresos. */
-export type ProductoLigero = Pick<Product, "id" | "nombre" | "variante" | "sku"> & {
-  precio?: number | null;
-};
-
 export function PanelInfluencers({
   influencers,
   entregas,

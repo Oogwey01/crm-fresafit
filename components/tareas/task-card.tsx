@@ -5,7 +5,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, Building2, CheckSquare, ChevronLeft, ChevronRight } from "lucide-react";
 import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
-import { tieneNovedades, type TaskConResponsable, type EstadoId } from "@/lib/types";
+import { type TaskConResponsable, type EstadoId } from "@/lib/types";
+import { tieneNovedades } from "@/lib/tareas/reglas";
 import { cn } from "@/lib/utils";
 import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
 

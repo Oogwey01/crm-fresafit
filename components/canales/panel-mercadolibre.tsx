@@ -4,6 +4,7 @@ import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
 import { formatearFechaHora } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
+import type { CostosCanal } from "@/lib/canales/tipos";
 import {
   COLOR_NIVEL,
   NOMBRE_NIVEL,
@@ -30,18 +31,6 @@ import { cn } from "@/lib/utils";
    ============================================================================ */
 
 /* Lo que cobra la plataforma por vender, ya sumado. */
-export type CostosCanal = {
-  venta: number;
-  comision: number;
-  /* Lo que cuesta el flete al vendedor: en Mercado Libre el comprador suele
-     pagar 0 y esta parte sí sale de la cuenta. */
-  flete: number;
-  /* Comisión + flete sobre la venta. */
-  tasa: number;
-  ordenes: number;
-  dias: number;
-};
-
 const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 
 /* "en 3 h", "hace 2 d": lo que queda (o lo que ya se pasó) para el plazo. */

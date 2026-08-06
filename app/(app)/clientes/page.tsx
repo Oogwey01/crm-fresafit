@@ -6,7 +6,7 @@ import { esGestor } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { PanelClientes } from "@/components/clientes/panel";
 import { PanelInfluencers } from "@/components/influencers/panel";
-import type { ProductoLigero } from "@/components/influencers/panel";
+import type { ProductoLigero } from "@/lib/influencers/tipos";
 import type {
   Customer,
   CustomerConStats,

@@ -4,6 +4,7 @@ import { Bloque, Dato } from "@/components/compartido/bloque-dato";
 import { SinConexion, UltimaSync } from "@/components/canales/estado-canal";
 import { formatearMXN } from "@/lib/moneda";
 import type { FinanzasTikTok } from "@/lib/tiktok/finanzas";
+import type { PesoCanal } from "@/lib/canales/tipos";
 import type {
   FichaCanal,
   PrecioDispar,
@@ -25,18 +26,6 @@ import { cn } from "@/lib/utils";
    dos cosas que no están en ningún otro lado: cuánto pesa el canal, y dónde el
    catálogo partido nos está costando dinero (mismo SKU, dos precios).
    ============================================================================ */
-
-export type PesoCanal = {
-  /* Null = quien mira no ve el dinero de este canal. */
-  monto: number | null;
-  piezas: number;
-  renglones: number;
-  /* Qué porcentaje del negocio entró por aquí en el periodo. Null también para
-     el encargado del canal: es una división entre el total de TODOS, así que
-     enseñarla junto al vendido de TikTok deja despejar la venta de los demás. */
-  participacion: number | null;
-  dias: number;
-};
 
 function nombreFicha(f: FichaCanal) {
   return f.variante ? `${f.nombre} · ${f.variante}` : f.nombre;

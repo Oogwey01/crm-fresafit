@@ -27,6 +27,7 @@ import {
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
 import { formatearMXNCorto } from "@/lib/moneda";
+import type { AvisoConexion } from "@/lib/canales/tipos";
 import { formatearFechaHora } from "@/lib/fecha";
 import { LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
 import { movimientosStock } from "@/app/(app)/inventario/actions";
@@ -139,9 +140,6 @@ const CANALES_MOV = [
   ["tiktok_shop", "TikTok Shop"],
 ] as const;
 
-/* Aviso que la page arma en el servidor a partir de los query params del
-   redirect de OAuth (?tiendanube=… / ?mercadolibre=… / ?tiktok=…). */
-export type AvisoConexion = { tipo: "ok" | "error" | "info"; mensaje: string };
 
 
 

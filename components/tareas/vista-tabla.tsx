@@ -11,13 +11,8 @@ import {
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { AREAS, ESTADOS, PRIORIDADES, obtenerEstado, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida, formatearFecha, formatearFechaHora } from "@/lib/fecha";
-import {
-  tieneNovedades,
-  trabajaLaTarea,
-  type TaskConResponsable,
-  type EstadoId,
-  type PrioridadId,
-} from "@/lib/types";
+import { type TaskConResponsable, type EstadoId, type PrioridadId } from "@/lib/types";
+import { tieneNovedades, trabajaLaTarea } from "@/lib/tareas/reglas";
 import { cn } from "@/lib/utils";
 import { AvataresEquipo } from "@/components/tareas/avatares-equipo";
 import { ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";

@@ -5,7 +5,8 @@ import { adjuntarCostos } from "@/lib/supabase/montos";
 import { estadoCanales } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
-import { PanelInventario, type AvisoConexion } from "@/components/inventario/panel";
+import { PanelInventario } from "@/components/inventario/panel";
+import type { AvisoConexion } from "@/lib/canales/tipos";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
 import { estadoPiloto } from "@/lib/inventario/piloto";
 import {

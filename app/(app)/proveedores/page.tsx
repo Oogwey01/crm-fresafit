@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { catalogoProveedores } from "@/lib/supabase/consultas";
+import type { ProductoLigeroProv } from "@/lib/proveedores/tipos";
 import { adjuntarCostos } from "@/lib/supabase/montos";
 import { esDireccion } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { paramsReordenDesdeEnv } from "@/lib/inventario/reabastecimiento";
 import { PanelProveedores } from "@/components/proveedores/panel";
-import type { Product, SupplierOrderConDetalle } from "@/lib/types";
+import type { SupplierOrderConDetalle } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Proveedores · Fresafit" };
@@ -69,8 +70,3 @@ export default async function ProveedoresPage() {
     />
   );
 }
-
-export type ProductoLigeroProv = Pick<
-  Product,
-  "id" | "nombre" | "variante" | "sku" | "activo" | "proveedor_id"
->;

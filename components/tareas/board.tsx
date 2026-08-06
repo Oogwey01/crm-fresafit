@@ -22,17 +22,8 @@ import {
   reasignarTarea,
   reasignarEmpresa,
 } from "@/app/(app)/tareas/actions";
-import {
-  trabajaLaTarea,
-  mandaEnLaTarea,
-  type TaskConResponsable,
-  type Profile,
-  type EstadoId,
-  type EspacioId,
-  type PrioridadId,
-  type RolId,
-  type AgenciaEmpresa,
-} from "@/lib/types";
+import { type TaskConResponsable, type Profile, type EstadoId, type EspacioId, type PrioridadId, type RolId, type AgenciaEmpresa } from "@/lib/types";
+import { trabajaLaTarea, mandaEnLaTarea } from "@/lib/tareas/reglas";
 import { Button } from "@/components/ui/button";
 import {
   Select,

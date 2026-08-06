@@ -20,7 +20,7 @@ import { formatearMXN } from "@/lib/moneda";
 import type { FacturaExtraida } from "@/lib/facturas/extraer";
 import type { ItemInicialPedido } from "@/components/proveedores/pedido-prov-dialog";
 import { cn } from "@/lib/utils";
-import type { ProductoProveedor } from "@/components/proveedores/tipos";
+import type { ProductoProveedor } from "@/lib/proveedores/tipos";
 
 /* Renglón ya leído, editable antes de pasar al pedido. */
 type Renglon = {
