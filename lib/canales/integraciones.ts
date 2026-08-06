@@ -1,10 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { Canal } from "@/lib/canales/tipos";
 
 /* Acceso compartido a la tabla `integraciones` (una fila por canal). Antes
    cada canal tenía copiado el select de `datos`, el merge-update y el estado
    para la UI. */
 
-export type CanalIntegracion = "tiendanube" | "mercadolibre" | "tiktok";
+/* Alias del tipo compartido: los ids de `integraciones` son los slugs. */
+export type CanalIntegracion = Canal;
 
 /* El blob `datos` de la fila del canal ({} si no existe la fila). */
 export async function leerDatosIntegracion(id: CanalIntegracion): Promise<Record<string, unknown>> {

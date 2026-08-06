@@ -2,6 +2,7 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { puedeAdministrar } from "@/lib/catalogos";
 import { traerTodo } from "@/lib/canales/paginacion";
+import type { CanalVenta } from "@/lib/canales/tipos";
 import { PanelBodega } from "@/components/bodega/panel";
 import type {
   ConjuntoArmado,
@@ -258,7 +259,4 @@ export type ProductoLigeroFila = Pick<
 
 /* Dónde está publicada la ficha de cada conjunto, por id de producto. Sirve
    para decir en qué tiendas hay que capturar a mano lo que se armó. */
-export type CanalesFicha = Record<
-  string,
-  { tienda_nube: boolean; mercado_libre: boolean; tiktok_shop: boolean }
->;
+export type CanalesFicha = Record<string, Record<CanalVenta, boolean>>;

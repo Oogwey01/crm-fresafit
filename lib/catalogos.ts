@@ -9,6 +9,8 @@
    EQUIPO_SEED es la referencia para sembrarlos (ver scripts/seed.mjs).
    ============================================================================ */
 
+import { SLUG_A_CANAL_VENTA } from "@/lib/canales/tipos";
+
 /* --- Estados del tablero (las 4 columnas del Kanban). El orden = orden de columnas.
    `color` se usa para la pastilla de estado en la vista de tabla y el calendario. */
 export const ESTADOS = [
@@ -200,9 +202,9 @@ export const CANALES = [
    `activo: false` = la pestaña se ve pero no navega, para que el orden del plan
    esté a la vista en lugar de aparecer de sorpresa. --- */
 export const PANELES_CANAL = [
-  { id: "mercadolibre", nombre: "Mercado Libre", href: "/canales/mercadolibre", canal: "mercado_libre", activo: true },
-  { id: "tiendanube", nombre: "Tienda Nube", href: "/canales/tiendanube", canal: "tienda_nube", activo: true },
-  { id: "tiktok", nombre: "TikTok Shop", href: "/canales/tiktok", canal: "tiktok_shop", activo: true },
+  { id: "mercadolibre", nombre: "Mercado Libre", href: "/canales/mercadolibre", canal: SLUG_A_CANAL_VENTA.mercadolibre, activo: true },
+  { id: "tiendanube", nombre: "Tienda Nube", href: "/canales/tiendanube", canal: SLUG_A_CANAL_VENTA.tiendanube, activo: true },
+  { id: "tiktok", nombre: "TikTok Shop", href: "/canales/tiktok", canal: SLUG_A_CANAL_VENTA.tiktok, activo: true },
 ] as const;
 
 /* --- Bodega ---------------------------------------------------------------

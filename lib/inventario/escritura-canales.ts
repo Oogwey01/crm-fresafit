@@ -46,7 +46,9 @@
    recomienda volver por `simulacro` antes que por `canales`.
    ───────────────────────────────────────────────────────────────────────────── */
 
-export type CanalEscritura = "tiendanube" | "mercadolibre" | "tiktok";
+import type { Canal } from "@/lib/canales/tipos";
+
+export type CanalEscritura = Canal;
 
 export type ModoEscritura = "off" | "simulacro" | "canales";
 

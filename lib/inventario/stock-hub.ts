@@ -41,8 +41,9 @@ import {
   puedeEscribir,
   type CanalEscritura,
 } from "@/lib/inventario/escritura-canales";
+import { SLUG_A_CANAL_VENTA, type OrigenStock } from "@/lib/canales/tipos";
 
-export type OrigenStock = "crm" | "tiendanube" | "mercadolibre" | "tiktok";
+export type { OrigenStock };
 
 /* Etiqueta de `origen` para el ledger según el canal que disparó el empuje. */
 const ORIGEN_LOG: Record<OrigenStock, string> = {
@@ -224,11 +225,8 @@ const NOMBRE_CANAL: Record<CanalEscritura, string> = {
   tiktok: "TikTok Shop",
 };
 
-const CANAL_LOG = {
-  tiendanube: "tienda_nube",
-  mercadolibre: "mercado_libre",
-  tiktok: "tiktok_shop",
-} as const;
+/* El nombre que lleva el canal en los ledgers es el de venta, no el slug. */
+const CANAL_LOG = SLUG_A_CANAL_VENTA;
 
 async function empujar(e: Empuje): Promise<void> {
   const { canal, fila, avisos } = e;
