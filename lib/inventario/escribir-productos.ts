@@ -26,7 +26,7 @@
    ============================================================================ */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
+import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 /* Una ficha y las columnas que hay que cambiarle. */
 export type CambioProducto = { id: string; fila: Record<string, unknown> };
@@ -74,13 +74,13 @@ export async function aplicarCambiosProductos(
     completos.set(firma, [...(completos.get(firma) ?? []), { id, ...fila }]);
   }
 
+  /* Cada grupo de firma va en tandas, y las tandas en oleadas paralelas: era un
+     bucle anidado estrictamente secuencial (grupos × tandas). */
   for (const grupo of completos.values()) {
-    for (let i = 0; i < grupo.length; i += TANDA_UPSERT) {
-      const { error } = await admin
-        .from("products")
-        .upsert(grupo.slice(i, i + TANDA_UPSERT), { onConflict: "id" });
+    await porLotes(grupo, TANDA_UPSERT, async (tanda) => {
+      const { error } = await admin.from("products").upsert(tanda, { onConflict: "id" });
       if (error) throw new Error(error.message);
-    }
+    });
   }
 
   for (let i = 0; i < parciales.length; i += TANDA_UPDATE) {

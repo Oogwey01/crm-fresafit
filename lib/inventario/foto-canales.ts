@@ -20,6 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 import { leerCanales, stockEnCanales } from "@/lib/inventario/reconciliacion";
 
 export type ResumenFoto = {
@@ -118,16 +119,20 @@ export async function tomarFotoCanales(): Promise<ResumenFoto> {
     }
   }
 
-  for (let i = 0; i < actuales.length; i += 500) {
-    const { error } = await admin
-      .from("stock_canal")
-      .upsert(actuales.slice(i, i + 500), { onConflict: "producto_id" });
-    if (error) throw new Error(error.message);
-  }
-  for (let i = 0; i < cambios.length; i += 500) {
-    const { error } = await admin.from("stock_canal_log").insert(cambios.slice(i, i + 500));
-    if (error) throw new Error(error.message);
-  }
+  /* La foto y su bitácora no dependen la una de la otra, y cada una va en
+     tandas paralelas: eran dos bucles secuenciales, uno detrás del otro. */
+  await Promise.all([
+    porLotes(actuales, TAM_LOTE_UPSERT, async (tanda) => {
+      const { error } = await admin
+        .from("stock_canal")
+        .upsert(tanda, { onConflict: "producto_id" });
+      if (error) throw new Error(error.message);
+    }),
+    porLotes(cambios, TAM_LOTE_UPSERT, async (tanda) => {
+      const { error } = await admin.from("stock_canal_log").insert(tanda);
+      if (error) throw new Error(error.message);
+    }),
+  ]);
 
   return { productos: actuales.length, cambios: cambios.length, nuevos, estables };
 }

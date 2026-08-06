@@ -52,6 +52,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { traerPorLotes } from "@/lib/supabase/lotes";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import {
@@ -372,30 +373,25 @@ export async function sincronizarProductosTikTok(
   // como publicación viva y le creó una ficha fantasma con su stock viejo.
   const unidadPorSkuId = new Map(unidades.map((u) => [u.skuId, u]));
 
-  // 1) Filas ya vinculadas a estos SKUs (la publicación PRINCIPAL de la ficha).
-  const vinculadas = new Map<string, FilaProducto>();
-  for (let i = 0; i < skuIds.length; i += 100) {
-    const { data, error } = await admin
-      .from("products")
-      .select(CAMPOS_FILA)
-      .in("tiktok_sku_id", skuIds.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const f of (data ?? []) as FilaProducto[]) vinculadas.set(f.tiktok_sku_id!, f);
-  }
+  /* Los dos primeros bloques no dependen entre sí y cada uno iba troceado en un
+     bucle secuencial de tandas: juntos, y con las tandas en oleadas paralelas.
 
-  /* 1b) Publicaciones SECUNDARIAS ya registradas: el mismo artículo puede tener
+     1) Filas ya vinculadas a estos SKUs (la publicación PRINCIPAL de la ficha).
+     1b) Publicaciones SECUNDARIAS ya registradas: el mismo artículo puede tener
      varias fichas en TikTok (una borrada y resubida, un borrador, otro título) y
      todas llevan el mismo seller_sku. Ya tienen dueño en el CRM, así que aquí no
      hay ficha que crear ni que actualizar: solo la principal manda. */
-  const yaMapeadas = new Set<string>();
-  for (let i = 0; i < skuIds.length; i += 100) {
-    const { data, error } = await admin
-      .from("tiktok_publicaciones")
-      .select("tiktok_sku_id")
-      .in("tiktok_sku_id", skuIds.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const p of (data ?? []) as { tiktok_sku_id: string }[]) yaMapeadas.add(p.tiktok_sku_id);
-  }
+  const [filasVinculadas, filasMapeadas] = await Promise.all([
+    traerPorLotes<string, FilaProducto>(skuIds, (lote) =>
+      admin.from("products").select(CAMPOS_FILA).in("tiktok_sku_id", lote),
+    ),
+    traerPorLotes<string, { tiktok_sku_id: string }>(skuIds, (lote) =>
+      admin.from("tiktok_publicaciones").select("tiktok_sku_id").in("tiktok_sku_id", lote),
+    ),
+  ]);
+  const vinculadas = new Map<string, FilaProducto>();
+  for (const f of filasVinculadas) vinculadas.set(f.tiktok_sku_id!, f);
+  const yaMapeadas = new Set(filasMapeadas.map((p) => p.tiktok_sku_id));
 
   // 2) Candidatas por SKU para las unidades aún sin vínculo. Se traen TODAS las
   //    fichas con ese sku, vinculadas o no: las libres se pueden adoptar; las
@@ -403,14 +399,10 @@ export async function sincronizarProductosTikTok(
   const pendientes = unidades.filter((u) => !vinculadas.has(u.skuId) && !yaMapeadas.has(u.skuId));
   const skusBuscados = [...new Set(pendientes.filter((u) => u.sku).map((u) => u.sku as string))];
   const porSku = new Map<string, FilaProducto[]>();
-  for (let i = 0; i < skusBuscados.length; i += 100) {
-    const { data, error } = await admin
-      .from("products")
-      .select(CAMPOS_FILA)
-      .in("sku", skusBuscados.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const f of (data ?? []) as FilaProducto[]) porSku.set(f.sku!, [...(porSku.get(f.sku!) ?? []), f]);
-  }
+  const candidatas = await traerPorLotes<string, FilaProducto>(skusBuscados, (lote) =>
+    admin.from("products").select(CAMPOS_FILA).in("sku", lote),
+  );
+  for (const f of candidatas) porSku.set(f.sku!, [...(porSku.get(f.sku!) ?? []), f]);
 
   const nuevos: Record<string, unknown>[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];

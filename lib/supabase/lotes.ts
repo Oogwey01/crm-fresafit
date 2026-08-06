@@ -15,3 +15,41 @@
 
 export const TAM_LOTE_IN = 150;
 export const TAM_LOTE_UPSERT = 200;
+
+/* Cuántos lotes viajan a la vez. Los bucles que esto sustituye eran
+   estrictamente secuenciales —cada tanda pagaba su viaje completo—, y un
+   Promise.all sin tope abriría cien conexiones contra la base de golpe.
+   Cuatro es el mismo criterio de oleadas que usa traerTodo. */
+const LOTES_EN_PARALELO = 4;
+
+/* Trocea `lista` en lotes de `tam` y corre `tarea` sobre cada uno, en oleadas
+   paralelas. Devuelve los resultados en el orden de la lista. */
+export async function porLotes<T, R>(
+  lista: T[],
+  tam: number,
+  tarea: (lote: T[]) => Promise<R>,
+): Promise<R[]> {
+  const lotes: T[][] = [];
+  for (let i = 0; i < lista.length; i += tam) lotes.push(lista.slice(i, i + tam));
+
+  const resultados: R[] = [];
+  for (let i = 0; i < lotes.length; i += LOTES_EN_PARALELO) {
+    resultados.push(...(await Promise.all(lotes.slice(i, i + LOTES_EN_PARALELO).map(tarea))));
+  }
+  return resultados;
+}
+
+/* Lectura por `.in()` troceada: el caso más común de porLotes. El caller arma
+   la consulta con el lote de claves; los builders de supabase-js no son
+   reutilizables entre llamadas, por eso recibe una función. */
+export async function traerPorLotes<K, F>(
+  claves: K[],
+  consulta: (lote: K[]) => PromiseLike<{ data: F[] | null; error: { message: string } | null }>,
+): Promise<F[]> {
+  const tandas = await porLotes(claves, TAM_LOTE_IN, async (lote) => {
+    const { data, error } = await consulta(lote);
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  });
+  return tandas.flat();
+}

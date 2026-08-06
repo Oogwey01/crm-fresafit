@@ -20,7 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
+import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 /* Una orden tal como la reporta el panel del canal. */
 export type TotalOrden = {
@@ -198,16 +198,16 @@ export async function refrescarRenglones(
   const admin = createAdminClient();
 
   /* En tandas: el histórico de 90 días son miles de renglones y un solo jsonb
-     con todo haría la petición innecesariamente grande. */
+     con todo haría la petición innecesariamente grande. Las tandas viajan en
+     oleadas paralelas; antes iban una detrás de otra. */
   const TAM = 500;
-  let actualizadas = 0;
-  for (let i = 0; i < filas.length; i += TAM) {
+  const cuentas = await porLotes(filas, TAM, async (tanda) => {
     const { data, error } = await admin.rpc("sincronizar_renglones_venta", {
       p_canal: canal,
-      p_filas: filas.slice(i, i + TAM),
+      p_filas: tanda,
     });
     if (error) throw new Error(error.message);
-    actualizadas += Number(data) || 0;
-  }
-  return actualizadas;
+    return Number(data) || 0;
+  });
+  return cuentas.reduce((a, b) => a + b, 0);
 }

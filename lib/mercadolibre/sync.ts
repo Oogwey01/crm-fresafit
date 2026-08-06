@@ -29,6 +29,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { traerPorLotes } from "@/lib/supabase/lotes";
 import {
   conexionMercadolibre,
   listarItemsML,
@@ -239,49 +240,41 @@ export async function sincronizarItemsML(
   const unidades = items.flatMap(unidadesDe);
   const itemIds = [...new Set(unidades.map((u) => u.itemId))];
 
-  // 1) Filas ya vinculadas a estas unidades (consulta en tandas).
-  const vinculadas = new Map<string, FilaProducto>();
-  for (let i = 0; i < itemIds.length; i += 100) {
-    const { data, error } = await admin
-      .from("products")
-      .select(CAMPOS_FILA)
-      .in("meli_item_id", itemIds.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const f of (data ?? []) as FilaProducto[]) {
-      vinculadas.set(clave(f.meli_item_id!, f.meli_variation_id), f);
-    }
-  }
-
-  // 2) Publicaciones ya registradas de estas unidades. Incluye las SECUNDARIAS
-  //    (las que ML clonó para su catálogo), que no tienen fila propia en
-  //    `products` sino que cuelgan de la ficha de su gemela.
-  const publicadas = new Map<string, Publicacion>();
-  const productoPorUnidadInv = new Map<string, string>(); // user_product_id → producto
-  for (let i = 0; i < itemIds.length; i += 100) {
-    const { data, error } = await admin
-      .from("meli_publicaciones")
-      .select("meli_item_id, meli_variation_id, producto_id, meli_user_product_id, principal")
-      .in("meli_item_id", itemIds.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const p of (data ?? []) as Publicacion[]) {
-      publicadas.set(clave(p.meli_item_id, p.meli_variation_id), p);
-    }
-  }
-  // Unidades de inventario que ya tienen dueño: si llega una publicación gemela,
-  // se cuelga de esa ficha en vez de crear una nueva.
+  /* Los tres primeros bloques no dependen entre sí y cada uno va troceado por
+     el techo de URL de PostgREST: antes eran tres bucles secuenciales de
+     tandas, o sea decenas de viajes uno tras otro. Ahora las tandas viajan en
+     oleadas paralelas y los tres bloques, juntos. */
   const userProducts = [...new Set(unidades.map((u) => u.userProductId).filter(Boolean))] as string[];
-  for (let i = 0; i < userProducts.length; i += 100) {
-    const { data, error } = await admin
-      .from("products")
-      .select("id, meli_user_product_id")
-      .in("meli_user_product_id", userProducts.slice(i, i + 100));
-    if (error) throw new Error(error.message);
-    for (const f of data ?? []) {
-      productoPorUnidadInv.set(f.meli_user_product_id as string, f.id as string);
-    }
-  }
+  const [filasVinculadas, filasPublicadas, filasUnidadInv] = await Promise.all([
+    // 1) Filas ya vinculadas a estas unidades.
+    traerPorLotes<string, FilaProducto>(itemIds, (lote) =>
+      admin.from("products").select(CAMPOS_FILA).in("meli_item_id", lote),
+    ),
+    // 2) Publicaciones ya registradas de estas unidades. Incluye las SECUNDARIAS
+    //    (las que ML clonó para su catálogo), que no tienen fila propia en
+    //    `products` sino que cuelgan de la ficha de su gemela.
+    traerPorLotes<string, Publicacion>(itemIds, (lote) =>
+      admin
+        .from("meli_publicaciones")
+        .select("meli_item_id, meli_variation_id, producto_id, meli_user_product_id, principal")
+        .in("meli_item_id", lote),
+    ),
+    // Unidades de inventario que ya tienen dueño: si llega una publicación gemela,
+    // se cuelga de esa ficha en vez de crear una nueva.
+    traerPorLotes<string, { id: string; meli_user_product_id: string }>(userProducts, (lote) =>
+      admin.from("products").select("id, meli_user_product_id").in("meli_user_product_id", lote),
+    ),
+  ]);
 
-  // 3) Candidatas por SKU para las unidades aún sin vínculo.
+  const vinculadas = new Map<string, FilaProducto>();
+  for (const f of filasVinculadas) vinculadas.set(clave(f.meli_item_id!, f.meli_variation_id), f);
+  const publicadas = new Map<string, Publicacion>();
+  for (const p of filasPublicadas) publicadas.set(clave(p.meli_item_id, p.meli_variation_id), p);
+  const productoPorUnidadInv = new Map<string, string>(); // user_product_id → producto
+  for (const f of filasUnidadInv) productoPorUnidadInv.set(f.meli_user_product_id, f.id);
+
+  /* 3) Candidatas por SKU para las unidades aún sin vínculo. Va después porque
+     necesita saber cuáles quedaron sin vincular en el paso 1. */
   const skusBuscados = [
     ...new Set(
       unidades
@@ -290,17 +283,10 @@ export async function sincronizarItemsML(
     ),
   ];
   const porSku = new Map<string, FilaProducto[]>();
-  for (let i = 0; i < skusBuscados.length; i += 100) {
-    const { data, error } = await admin
-      .from("products")
-      .select(CAMPOS_FILA)
-      .in("sku", skusBuscados.slice(i, i + 100))
-      .is("meli_item_id", null);
-    if (error) throw new Error(error.message);
-    for (const f of (data ?? []) as FilaProducto[]) {
-      porSku.set(f.sku!, [...(porSku.get(f.sku!) ?? []), f]);
-    }
-  }
+  const candidatas = await traerPorLotes<string, FilaProducto>(skusBuscados, (lote) =>
+    admin.from("products").select(CAMPOS_FILA).in("sku", lote).is("meli_item_id", null),
+  );
+  for (const f of candidatas) porSku.set(f.sku!, [...(porSku.get(f.sku!) ?? []), f]);
 
   const nuevos: Record<string, unknown>[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];

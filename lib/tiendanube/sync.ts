@@ -11,6 +11,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { aplicarCambiosProductos } from "@/lib/inventario/escribir-productos";
 import { mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
+import { traerPorLotes } from "@/lib/supabase/lotes";
 import {
   actualizarVarianteTN,
   conexionTiendanube,
@@ -64,17 +65,18 @@ export async function sincronizarProductosTN(
     bajo_pedido: boolean;
   };
   const idsVariantes = productos.flatMap((p) => p.variants.map((v) => v.id));
-  const existentes = new Map<number, FilaExistente>();
-  for (let i = 0; i < idsVariantes.length; i += 200) {
-    const { data, error } = await admin
+  /* Troceado por el techo de URL de PostgREST, en oleadas paralelas: era un
+     bucle secuencial que pagaba cada tanda como un viaje completo. */
+  const filas = await traerPorLotes<number, FilaExistente>(idsVariantes, (lote) =>
+    admin
       .from("products")
       .select(
         "id, tiendanube_variant_id, stock, meli_item_id, meli_variation_id, meli_logistic_type, bajo_pedido",
       )
-      .in("tiendanube_variant_id", idsVariantes.slice(i, i + 200));
-    if (error) throw new Error(error.message);
-    for (const fila of (data ?? []) as FilaExistente[]) existentes.set(fila.tiendanube_variant_id, fila);
-  }
+      .in("tiendanube_variant_id", lote),
+  );
+  const existentes = new Map<number, FilaExistente>();
+  for (const fila of filas) existentes.set(fila.tiendanube_variant_id, fila);
 
   const nuevos: Record<string, unknown>[] = [];
   const cambios: { id: string; fila: Record<string, unknown> }[] = [];
