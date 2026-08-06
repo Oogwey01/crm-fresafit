@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { invalidar, TAGS } from "@/lib/supabase/cache";
 import { exigirRol } from "@/lib/supabase/guardia";
 import {
   archivoDeFormData,
@@ -28,6 +29,8 @@ const RUTAS = ["/proveedores", "/inventario"];
 
 function revalidar() {
   for (const r of RUTAS) revalidatePath(r);
+  /* La lista de proveedores está cacheada entre requests (lib/supabase/cache). */
+  invalidar(TAGS.proveedores);
 }
 
 export type ProveedorInput = {

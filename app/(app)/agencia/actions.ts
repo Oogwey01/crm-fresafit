@@ -9,6 +9,7 @@
    ============================================================================ */
 
 import { revalidatePath } from "next/cache";
+import { invalidar, TAGS } from "@/lib/supabase/cache";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
 import { calcularCorte, nombrePeriodo } from "@/lib/agencia";
@@ -34,7 +35,11 @@ const RUTAS = [
   "/nomina",
   "/reportes",
 ];
-const revalidar = () => RUTAS.forEach((r) => revalidatePath(r));
+const revalidar = () => {
+  RUTAS.forEach((r) => revalidatePath(r));
+  /* Las cuentas activas están cacheadas entre requests (lib/supabase/cache). */
+  invalidar(TAGS.agencia);
+};
 
 const SOLO_ADMINISTRACION =
   "Solo dirección o administración puede ver y mover la información de la Agencia.";

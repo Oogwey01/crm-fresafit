@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { invalidar, TAGS } from "@/lib/supabase/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { AREAS, MODULO_PORTADA, ROLES, obtenerModulo } from "@/lib/catalogos";
@@ -11,6 +12,9 @@ import type { AreaId, RolId } from "@/lib/types";
    refrescara /equipo la barra lateral seguiría mostrando lo de antes. */
 function revalidarTodo() {
   revalidatePath("/", "layout");
+  /* El picker de equipo está cacheado entre requests (lib/supabase/cache.ts):
+     sin esto, un cambio de rol o de área tardaría hasta una hora en verse. */
+  invalidar(TAGS.equipo);
 }
 
 /* Solo dirección toca esta pantalla: es la que reparte el acceso de los demás.
