@@ -2,7 +2,7 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { leerDatosIntegracion } from "@/lib/canales/integraciones";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
-import { instanteDeCorte } from "@/lib/mercadolibre/desempeno";
+import { instanteDeCorte } from "@/lib/canales/despacho";
 import { ESTADOS_PEDIDO_PENDIENTES } from "@/lib/catalogos";
 import { COLUMNAS_PEDIDO, DIAS_VENTANA_PEDIDOS } from "@/lib/pedidos/consulta";
 import { PanelPedidos } from "@/components/pedidos/panel";

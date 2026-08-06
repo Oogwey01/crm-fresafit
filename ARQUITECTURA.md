@@ -18,6 +18,15 @@ lo viejo. Si algo aquí estorba, cámbialo — pero cámbialo aquí también.
    tipos se regeneran solos en el siguiente `pnpm dev`; para forzarlo,
    `pnpm gen:types`. Sin eso el compilador seguiría creyendo en el esquema viejo
    y dejaría pasar columnas que ya no existen.
+
+   **Nunca `supabase db push`.** Pegar en el SQL Editor no escribe en
+   `supabase_migrations.schema_migrations`, así que las 84 migraciones locales
+   figuran con la columna Remote VACÍA (compruébalo con `supabase migration
+   list`): para el CLI esta base está virgen y un push intentaría reaplicarlas
+   todas de golpe contra producción. El historial se podría reparar
+   (`migration repair --status applied`, que marca sin ejecutar), pero antes hay
+   que verificar una por una que están aplicadas — marcar como aplicada una que
+   nunca corrió la deja fuera para siempre.
 4. **Los `useMemo` de [components/metricas/panel.tsx](components/metricas/panel.tsx)
    son deliberados**: mueven los filtros de categoría y talla sin round-trip.
    No los subas al servidor sin preguntar.

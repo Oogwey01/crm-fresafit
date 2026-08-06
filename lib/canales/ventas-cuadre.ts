@@ -73,9 +73,9 @@ export type RenglonRefrescado = {
   /* La dirección solo llega en algunas pasadas (depende de qué devuelva el
      canal); la RPC conserva la anterior cuando viene nula. */
   envio_direccion?: unknown;
-  /* Plazo de despacho y salida real (hoy solo los manda Mercado Libre). La hora
-     de salida aparece después de que la venta se importó, así que llega por este
-     refresco y no por el alta. Ver lib/mercadolibre/desempeno.ts. */
+  /* Plazo de despacho y salida real (los mandan Mercado Libre y TikTok Shop).
+     La hora de salida aparece después de que la venta se importó, así que llega
+     por este refresco y no por el alta. Ver lib/canales/despacho.ts. */
   envio_limite_despacho?: string | null;
   envio_despachado_en?: string | null;
 };

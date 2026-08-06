@@ -461,8 +461,10 @@ export type Sale = {
      cliente: si el cliente se muda, este envío siguió yendo a donde fue. */
   envio_direccion: DireccionEnvio | null;
   /* Hasta cuándo hay para entregarle el paquete al transportista, y cuándo salió
-     de verdad. Hoy solo los reporta Mercado Libre, y son los dos lados de la
-     métrica de demora que decide su exposición (lib/mercadolibre/desempeno.ts). */
+     de verdad. Los reportan Mercado Libre y TikTok Shop; Tienda Nube no, y ahí
+     quedan nulos. Son los dos lados del semáforo de despacho
+     (lib/canales/despacho.ts) y, en ML, de la métrica de demora que decide su
+     exposición. */
   envio_limite_despacho: string | null;
   envio_despachado_en: string | null;
   /* Id del shipment en Mercado Libre: con él se pide la etiqueta PDF a su API
@@ -549,8 +551,8 @@ export type PedidoEnvio = Pick<
      se busca el pedido; sin él había que ir al panel del canal a cruzarlo. */
   | "referencia_externa"
   | "envio_direccion"
-  /* Plazo de despacho (hoy solo lo deja la sync de Mercado Libre): quien empaca
-     decide por este dato, no por la fecha de compra. */
+  /* Plazo de despacho (lo dejan las syncs de Mercado Libre y de TikTok Shop):
+     quien empaca decide por este dato, no por la fecha de compra. */
   | "envio_limite_despacho"
   | "envio_despachado_en"
   /* Con el id del shipment, el botón de la guía abre la etiqueta PDF de ML. */

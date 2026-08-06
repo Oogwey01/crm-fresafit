@@ -439,6 +439,19 @@ export type OrdenTikTok = {
   line_items?: LineItemTikTok[] | null;
   tracking_number?: string | null;
   shipping_provider?: string | null; // paquetería; antes se guardaba siempre null
+  /* Plazo de despacho y salida real, en unix SEGUNDOS. Verificados contra la
+     tienda real con scripts/probar-plazos-tiktok.mjs: `rts_sla_time` llega en
+     todas las órdenes y cae siempre a las 23:59:59 de México (el día límite
+     completo); `rts_time` aparece en cuanto la orden pasa a AWAITING_COLLECTION,
+     y en ninguna pendiente. Con ese par se arma el semáforo que ya compartimos
+     con Mercado Libre (lib/canales/despacho.ts).
+
+     Los otros plazos del payload NO sirven aquí y por eso no se declaran:
+     `tts_sla_time` es el de ENTREGA (3-5 días después) y `collection_due_time`
+     —idéntico a `cancel_order_sla_time`— es el tope tardío de recolección, a
+     once días vista. El `shipping_due_time` que documenta TikTok no llega. */
+  rts_sla_time?: number;
+  rts_time?: number;
   /* Dirección de entrega. TikTok la reparte entre `district_info` (la jerarquía
      país → estado → municipio → colonia, cada nivel con su `address_level_name`)
      y `detail_address` (la calle y el número en texto libre). */

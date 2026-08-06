@@ -5,7 +5,7 @@ import { AlertTriangle, Clock, ExternalLink, Eye, PackageCheck, Printer, Search,
 import { toast } from "sonner";
 import { CANALES, ESTADOS_PEDIDO, esGestor, obtenerCanal, obtenerEstadoPedido } from "@/lib/catalogos";
 import { esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
-import { SITUACION, situacionDespacho } from "@/lib/mercadolibre/desempeno";
+import { SITUACION, situacionDespacho } from "@/lib/canales/despacho";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
 import { cambiarEstadoPedido, listarPedidosHistorico } from "@/app/(app)/pedidos/actions";
@@ -24,10 +24,11 @@ import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple"
 import { EnvioDialog } from "@/components/pedidos/envio-dialog";
 import { cn } from "@/lib/utils";
 
-type Filtro = "pendientes" | "todos" | "entregado";
+type Filtro = "pendientes" | "urgentes" | "todos" | "entregado";
 
 const FILTROS: [Filtro, string][] = [
   ["pendientes", "Pendientes"],
+  ["urgentes", "Urgentes"],
   ["todos", "Todos"],
   ["entregado", "Entregados"],
 ];
@@ -68,13 +69,25 @@ function urlVerPedido(p: PedidoEnvio, dominioTN?: string | null): string | null 
   return urlOrdenCanal(p.canal, ref, dominioTN, p.url_orden);
 }
 
-/* Plazo de despacho de Mercado Libre (la sync lo deja en la venta): solo avisa
-   mientras el pedido da trabajo —nuevo o preparando— y solo cuando urge. Ya
-   enviado, "se pasó el plazo" es ruido; en plazo holgado, también. */
+/* Plazo de despacho del canal (la sync lo deja en la venta; hoy lo reportan
+   Mercado Libre y TikTok Shop): solo avisa mientras el pedido da trabajo —nuevo
+   o preparando— y solo cuando urge. Ya enviado, "se pasó el plazo" es ruido; en
+   plazo holgado, también. */
 function plazoUrgente(p: PedidoEnvio, ahora: number): "vencido" | "por_vencer" | null {
   if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
   const s = situacionDespacho(p.envio_limite_despacho, p.envio_despachado_en, ahora);
   return s === "vencido" || s === "por_vencer" ? s : null;
+}
+
+/* Lo que la tabla pinta de rojo, y por tanto lo que el contador debe contar.
+
+   Son dos cosas distintas que urgen igual: el pedido viejo que sigue sin salir
+   (la regla de los tres días, que vale para todos los canales) y el que tiene el
+   plazo del canal ya vencido, aunque sea de ayer —ahí además hay una métrica de
+   la plataforma castigándonos—. El KPI contaba solo la primera mitad, así que
+   podía haber cinco filas rojas y un "Atrasados: 2". */
+function esUrgente(p: PedidoEnvio, ahora: number): boolean {
+  return esPedidoAtrasado(p.fecha, p.estado) || plazoUrgente(p, ahora) === "vencido";
 }
 
 function PastillaEstado({ estado }: { estado: string }) {
@@ -145,10 +158,10 @@ export function PanelPedidos({
       if (p.estado === "nuevo") nuevos++;
       else if (p.estado === "preparando") preparando++;
       else if (p.estado === "enviado") enviados++;
-      if (esPedidoAtrasado(p.fecha, p.estado)) atrasados++;
+      if (esUrgente(p, ahora)) atrasados++;
     }
     return { nuevos, preparando, enviados, atrasados };
-  }, [pedidos]);
+  }, [pedidos, ahora]);
 
   const visibles = useMemo(() => {
     const porEstado =
@@ -156,10 +169,15 @@ export function PanelPedidos({
         ? conHistorico.filter((p) => p.estado === "entregado")
         : filtro === "todos"
           ? conHistorico
-          : // pendientes: nuevo, preparando, enviado (lo que aún da trabajo)
-            pedidos.filter(
-              (p) => p.estado === "nuevo" || p.estado === "preparando" || p.estado === "enviado",
-            );
+          : filtro === "urgentes"
+            ? /* Lo que hay que mover HOY: el plazo del canal vencido o a punto,
+                 y los que llevan días sin salir. Sale de los pendientes y no del
+                 histórico: un pedido entregado ya no urge, por tarde que saliera. */
+              pedidos.filter((p) => esUrgente(p, ahora) || plazoUrgente(p, ahora) === "por_vencer")
+            : // pendientes: nuevo, preparando, enviado (lo que aún da trabajo)
+              pedidos.filter(
+                (p) => p.estado === "nuevo" || p.estado === "preparando" || p.estado === "enviado",
+              );
 
     /* Filtro por canal: hasta ahora el canal se pintaba pero no se podía filtrar,
        y "enséñame solo lo de Mercado Libre" es justo lo que se pide al empacar. */
@@ -178,7 +196,7 @@ export function PanelPedidos({
         (p.referencia_externa ?? "").toLowerCase().includes(q) ||
         nombreVenta(p).toLowerCase().includes(q),
     );
-  }, [pedidos, conHistorico, filtro, filtroCanal, busqueda]);
+  }, [pedidos, conHistorico, filtro, filtroCanal, busqueda, ahora]);
 
   function cambiar(id: string, estado: EstadoPedidoId) {
     startTransition(async () => {
@@ -198,6 +216,7 @@ export function PanelPedidos({
       celda: (p) => {
         const atrasado = esPedidoAtrasado(p.fecha, p.estado);
         const plazo = plazoUrgente(p, ahora);
+        const canal = obtenerCanal(p.canal)?.nombre ?? "la plataforma";
         return (
           <div className="min-w-0">
             <span
@@ -206,12 +225,12 @@ export function PanelPedidos({
               {atrasado && <AlertTriangle className="size-3.5" aria-label="Atrasado" />}
               {formatearFecha(p.fecha)}
             </span>
-            {/* Semáforo del plazo de despacho de ML: es el dato por el que se
-                decide qué empacar primero, y vivía solo en el panel del canal. */}
+            {/* Semáforo del plazo de despacho del canal: es el dato por el que
+                se decide qué empacar primero, y vivía solo en el panel de ML. */}
             {plazo && (
               <span
                 className="block"
-                title={`Plazo de despacho de Mercado Libre: ${formatearFechaHora(p.envio_limite_despacho!)}`}
+                title={`Plazo de despacho de ${canal}: ${formatearFechaHora(p.envio_limite_despacho!)}`}
               >
                 <Pastilla
                   nombre={SITUACION[plazo].nombre}
@@ -442,8 +461,10 @@ export function PanelPedidos({
                 key={id}
                 onClick={() => {
                   setFiltro(id);
-                  /* El histórico se pide la primera vez que hace falta. */
-                  if (id !== "pendientes") void asegurarHistorico();
+                  /* El histórico se pide la primera vez que hace falta. Ni
+                     "pendientes" ni "urgentes" lo necesitan: los dos salen de lo
+                     que el servidor ya mandó. */
+                  if (id === "todos" || id === "entregado") void asegurarHistorico();
                 }}
                 className={cn(
                   "flex-1 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors md:flex-none",
@@ -479,15 +500,13 @@ export function PanelPedidos({
         filaKey={(p) => p.id}
         minW="min-w-[900px]"
         onRowClick={(p) => setEnvio(p)}
-        filaClassName={(p) =>
-          esPedidoAtrasado(p.fecha, p.estado) || plazoUrgente(p, ahora) === "vencido"
-            ? "bg-red-50/50 dark:bg-red-950/20"
-            : ""
-        }
+        filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
         vacio={
           filtro === "pendientes"
             ? "No hay pedidos pendientes. Todo al día. 🎉"
-            : cargandoHistorico
+            : filtro === "urgentes"
+              ? "Nada urgente: ningún pedido con el plazo encima. 🎉"
+              : cargandoHistorico
               ? "Cargando el histórico…"
               : "No hay pedidos que mostrar."
         }

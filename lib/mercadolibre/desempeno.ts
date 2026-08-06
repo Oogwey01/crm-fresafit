@@ -16,6 +16,7 @@
    Nada de esto pide datos por su cuenta; recibe lo que ya trae saludML().
    ============================================================================ */
 
+import { situacionDespacho, type SituacionDespacho } from "@/lib/canales/despacho";
 import type { SaludML } from "@/lib/canales/salud";
 import type { VentaDespacho } from "@/lib/types";
 
@@ -205,51 +206,18 @@ export function desempenoML(salud: SaludML): Desempeno {
 
 /* ------------------------- Los paquetes, uno por uno ---------------------- */
 
-/* Lo que el equipo de logística necesita saber de un pedido: si su plazo ya se
-   venció, si vence hoy, o si salió tarde. La métrica de 60 días dice que vamos
-   mal; esto dice qué hacer en las próximas horas. */
-export type SituacionDespacho = "vencido" | "por_vencer" | "a_tiempo" | "tarde" | "cumplido";
-
-/* Cuánto antes del límite empieza a considerarse urgente. Seis horas es menos
-   que una jornada: si vence dentro de ese plazo, ya no cabe dejarlo para mañana. */
-export const HORAS_URGENTE = 6;
-
-export function situacionDespacho(
-  limite: string | null,
-  despachadoEn: string | null,
-  ahora: number = Date.now(),
-): SituacionDespacho | null {
-  if (!limite) return null;
-  const tope = Date.parse(limite);
-  if (Number.isNaN(tope)) return null;
-
-  if (despachadoEn) {
-    const salida = Date.parse(despachadoEn);
-    if (Number.isNaN(salida)) return null;
-    return salida > tope ? "tarde" : "cumplido";
-  }
-  if (ahora > tope) return "vencido";
-  return tope - ahora <= HORAS_URGENTE * 3600 * 1000 ? "por_vencer" : "a_tiempo";
-}
-
-export const SITUACION: Record<
-  SituacionDespacho,
-  { nombre: string; color: string; urgente: boolean }
-> = {
-  vencido: { nombre: "Se pasó el plazo", color: "#d63031", urgente: true },
-  por_vencer: { nombre: "Vence en horas", color: "#e17055", urgente: true },
-  a_tiempo: { nombre: "En plazo", color: "#0984e3", urgente: false },
-  tarde: { nombre: "Salió tarde", color: "#d63031", urgente: false },
-  cumplido: { nombre: "Salió a tiempo", color: "#00b894", urgente: false },
-};
-
-/* El "ahora" contra el que se miden todos los plazos de una pantalla. Se toma
-   una sola vez por request y se le pasa a todo lo que compara fechas: una página
-   que leyera la hora en cada fila podría clasificar distinto dos pedidos con el
-   mismo vencimiento. */
-export function instanteDeCorte(): number {
-  return Date.now();
-}
+/* El semáforo del plazo (vencido / por vencer / salió tarde) ya no es de Mercado
+   Libre: TikTok Shop también reporta el suyo y el criterio es común, así que vive
+   en lib/canales/despacho.ts. Se re-exporta desde aquí porque el tablero del
+   canal lo consume por esta puerta desde antes de que hubiera un segundo canal
+   con plazo, y lo lee junto a la métrica de 60 días, que sí es de ML. */
+export {
+  HORAS_URGENTE,
+  SITUACION,
+  instanteDeCorte,
+  situacionDespacho,
+  type SituacionDespacho,
+} from "@/lib/canales/despacho";
 
 /* Un pedido con su plazo, ya juntando los renglones que lo componen: `sales`
    guarda una fila por producto, y una orden de tres artículos se empaca y se

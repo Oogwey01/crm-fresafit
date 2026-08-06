@@ -116,6 +116,16 @@ function fechaDe(o: OrdenTikTok): string {
   return diaMX(ms);
 }
 
+/* Instante de TikTok (unix en SEGUNDOS) → ISO, o null si no lo manda.
+
+   El cero se descarta a propósito: es como estas APIs dicen "todavía no aplica",
+   y guardarlo tal cual dejaría el plazo en 1970 —vencido hace medio siglo—
+   pintando de rojo toda la tabla. */
+function instanteTT(seg?: number | null): string | null {
+  if (typeof seg !== "number" || !Number.isFinite(seg) || seg <= 0) return null;
+  return new Date(seg * 1000).toISOString();
+}
+
 /* Importes de la orden como los reporta el panel de TikTok Shop. */
 function totalDeOrden(orden: OrdenTikTok, clienteId: string | null): TotalOrden {
   const p = orden.payment;
@@ -182,6 +192,18 @@ function filasDeOrden(
   const numGuia = orden.tracking_number?.trim() || null;
   const direccion = direccionDe(orden);
   const clienteId = orden.buyer_email ? (clientePorBuyer.get(orden.buyer_email) ?? null) : null;
+  /* Plazo de despacho. Se toma el par RTS —hasta cuándo hay para marcar la orden
+     lista para enviar, y cuándo se marcó— y no el de recolección: es el que
+     responde a quien empaca, y el que hace que el aviso se apague solo en cuanto
+     la orden pasa a AWAITING_COLLECTION. Con el par de recolección, un pedido ya
+     empacado seguiría marcado como vencido hasta que pasara el camión, once días
+     después de la compra.
+
+     Si TikTok no los manda, quedan nulos y el pedido no muestra plazo: preferimos
+     no tener plazo a inventar uno, el mismo criterio que Mercado Libre
+     (lib/mercadolibre/ventas.ts). */
+  const limiteDespacho = instanteTT(orden.rts_sla_time);
+  const despachadoEn = instanteTT(orden.rts_time);
   return (orden.line_items ?? []).map((li) => {
     const monto = Math.round((Number(li.sale_price) || 0) * 100) / 100;
     return {
@@ -196,6 +218,8 @@ function filasDeOrden(
       paqueteria,
       num_guia: numGuia,
       envio_direccion: direccion,
+      envio_limite_despacho: limiteDespacho,
+      envio_despachado_en: despachadoEn,
       origen: "api",
       referencia_externa: refLinea(orden.id, li.id),
       notas: `Orden TikTok #${orden.id}`,
@@ -324,6 +348,11 @@ async function aplicarOrdenes(
         paqueteria: f.paqueteria,
         num_guia: f.num_guia,
         envio_direccion: f.envio_direccion,
+        /* El plazo viaja también por el refresco y no solo por el alta: los
+           pendientes de hoy ya están importados —son justo los que necesitan el
+           aviso— y la hora real de salida aparece horas después de la venta. */
+        envio_limite_despacho: f.envio_limite_despacho,
+        envio_despachado_en: f.envio_despachado_en,
       })),
     );
   }
