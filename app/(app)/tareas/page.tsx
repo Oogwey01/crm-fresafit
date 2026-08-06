@@ -31,13 +31,17 @@ export default async function TareasPage() {
         .eq("espacio", "fresafit")
         .is("deleted_at", null)
         .order("created_at", { ascending: true }),
-      // Papelera (RLS sigue limitando qué borradas ve cada quien).
+      /* Papelera (RLS sigue limitando qué borradas ve cada quien). Acotada a
+         las 100 más recientes: viajaba COMPLETA en cada carga del tablero y
+         crece para siempre, aunque casi nadie la abre — se entra a ella a
+         recuperar algo que se borró hace poco, no a arqueología. */
       supabase
         .from("tasks")
         .select("*, responsable:profiles!responsable_id(id, nombre, color)")
         .eq("espacio", "fresafit")
         .not("deleted_at", "is", null)
-        .order("deleted_at", { ascending: false }),
+        .order("deleted_at", { ascending: false })
+        .limit(100),
       supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
       // Resumen de subtareas por tarea (para el chip de progreso en las tarjetas).
       traerTodo<{ task_id: string; hecho: boolean }>((desde, hasta) =>

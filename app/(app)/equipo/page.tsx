@@ -24,24 +24,31 @@ export default async function EquipoPage() {
   const { supabase, user } = await usuarioActual();
   if (!user) redirect("/login");
 
-  const { data: perfiles, error } = await supabase
-    .from("profiles")
-    .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos")
-    .order("nombre");
-  if (error) throw new Error(`No se pudo cargar el equipo: ${error.message}`);
+  /* El correo vive en `auth.users`, no en `profiles`, y esa tabla solo la lee
+     la llave de servicio. Se pide aquí —`exigirModulo` ya comprobó que quien
+     mira es dirección— porque es el dato con el que el dueño reconoce a cada
+     quien: dos personas pueden llamarse parecido, el correo no. Si la llamada
+     falla, la pantalla sigue sirviendo sin correos en vez de caerse.
 
-  /* El correo vive en `auth.users`, no en `profiles`, y esa tabla solo la lee la
-     llave de servicio. Se pide aquí —después de comprobar que quien mira es
-     dirección— porque es el dato con el que el dueño reconoce a cada quien:
-     dos personas pueden llamarse parecido, el correo no. Si la llamada falla,
-     la pantalla sigue sirviendo sin correos en vez de caerse. */
-  const correos = new Map<string, string>();
-  try {
-    const { data } = await createAdminClient().auth.admin.listUsers({ page: 1, perPage: 200 });
-    for (const u of data?.users ?? []) if (u.email) correos.set(u.id, u.email);
-  } catch (e) {
-    console.warn("[equipo] no se pudieron leer los correos:", e instanceof Error ? e.message : e);
-  }
+     La Admin API es de lo más lento de Supabase y no depende de los perfiles:
+     las dos llamadas salen a la vez. */
+  const [{ data: perfiles, error }, correos] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos")
+      .order("nombre"),
+    (async () => {
+      const porId = new Map<string, string>();
+      try {
+        const { data } = await createAdminClient().auth.admin.listUsers({ page: 1, perPage: 200 });
+        for (const u of data?.users ?? []) if (u.email) porId.set(u.id, u.email);
+      } catch (e) {
+        console.warn("[equipo] no se pudieron leer los correos:", e instanceof Error ? e.message : e);
+      }
+      return porId;
+    })(),
+  ]);
+  if (error) throw new Error(`No se pudo cargar el equipo: ${error.message}`);
 
   const equipo: ProfileConCorreo[] = (perfiles ?? []).map((p) => ({
     ...(p as ProfileConCorreo),

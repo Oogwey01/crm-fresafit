@@ -1,6 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { traerTodo } from "@/lib/canales/paginacion";
-import { urlesFirmadas } from "@/lib/storage";
 import { PanelPersonalizados } from "@/components/personalizados/panel";
 import type { Personalizado, Profile } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
@@ -34,25 +33,11 @@ export default async function PersonalizadosPage() {
   ]);
   const equipo = (equipoRes.data ?? []) as Profile[];
 
-  /* El bucket es privado, así que cada diseño necesita un enlace firmado. Se
-     firman todos aquí para poder pintar la miniatura dentro de la tabla: es lo
-     que evita tener que abrir cada ficha para ver de qué cinturón se trata.
-
-     Se piden REDIMENSIONADOS dentro de una caja de 760×200: los archivos
-     originales rondan los 830 KB y ciento sesenta de esos serían 130 MB de
-     página. La caja es un máximo —el cinturón entra entero y conserva su forma,
-     ver `urlesFirmadas`—, y va al doble de lo que mide en pantalla para que se
-     vea nítido en pantallas retina. La imagen completa se pide aparte, solo al
-     ampliar una. Los enlaces caducan en una hora y esta página se vuelve a
-     renderizar en cada visita. */
-  const urlsDiseno = await urlesFirmadas(
-    supabase,
-    "personalizados",
-    personalizados.map((p) => p.foto_path).filter((p): p is string => Boolean(p)),
-    { ancho: 760, alto: 200 },
-  );
-
-  return (
-    <PanelPersonalizados personalizados={personalizados} urlsDiseno={urlsDiseno} equipo={equipo} />
-  );
+  /* El bucket es privado, pero la página ya NO firma las miniaturas: firmarlas
+     todas —una por una, porque la firma con transform no admite lote— eran
+     ~160 llamadas a Storage por visita y la tenían en 18 segundos. Cada <img>
+     apunta a /api/personalizados/diseno, que valida la sesión y redirige al
+     enlace firmado: el navegador pide solo las que entran en pantalla y las
+     cachea entre visitas. */
+  return <PanelPersonalizados personalizados={personalizados} equipo={equipo} />;
 }

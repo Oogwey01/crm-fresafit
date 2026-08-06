@@ -8,7 +8,7 @@ import { esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fech
 import { SITUACION, situacionDespacho } from "@/lib/mercadolibre/desempeno";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
-import { cambiarEstadoPedido } from "@/app/(app)/pedidos/actions";
+import { cambiarEstadoPedido, listarPedidosHistorico } from "@/app/(app)/pedidos/actions";
 import type { CanalId, EstadoPedidoId, RolId, PedidoEnvio } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import {
@@ -114,6 +114,36 @@ export function PanelPedidos({
   const [envio, setEnvio] = useState<PedidoEnvio | null>(null);
   const [, startTransition] = useTransition();
 
+  /* La página ya solo carga lo que da trabajo; los entregados y cancelados de
+     la ventana se piden UNA vez, la primera vez que alguien sale del filtro de
+     pendientes. `null` = aún no se han pedido. */
+  const [historico, setHistorico] = useState<PedidoEnvio[] | null>(null);
+  const [cargandoHistorico, setCargandoHistorico] = useState(false);
+
+  async function asegurarHistorico() {
+    if (historico !== null || cargandoHistorico) return;
+    setCargandoHistorico(true);
+    try {
+      const r = await listarPedidosHistorico();
+      if ("error" in r) toast.error(r.error);
+      else setHistorico(r.pedidos);
+    } catch {
+      toast.error("No se pudo cargar el histórico. Revisa tu conexión.");
+    } finally {
+      setCargandoHistorico(false);
+    }
+  }
+
+  /* Activos + histórico, sin repetir (si un pedido está en ambos, manda la
+     copia activa: es la más fresca) y en el mismo orden que trae el servidor. */
+  const conHistorico = useMemo(() => {
+    if (!historico) return pedidos;
+    const porId = new Map<string, PedidoEnvio>();
+    for (const p of historico) porId.set(p.id, p);
+    for (const p of pedidos) porId.set(p.id, p);
+    return [...porId.values()].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
+  }, [pedidos, historico]);
+
   const conteo = useMemo(() => {
     let nuevos = 0,
       preparando = 0,
@@ -131,9 +161,9 @@ export function PanelPedidos({
   const visibles = useMemo(() => {
     const porEstado =
       filtro === "entregado"
-        ? pedidos.filter((p) => p.estado === "entregado")
+        ? conHistorico.filter((p) => p.estado === "entregado")
         : filtro === "todos"
-          ? pedidos
+          ? conHistorico
           : // pendientes: nuevo, preparando, enviado (lo que aún da trabajo)
             pedidos.filter(
               (p) => p.estado === "nuevo" || p.estado === "preparando" || p.estado === "enviado",
@@ -156,7 +186,7 @@ export function PanelPedidos({
         (p.referencia_externa ?? "").toLowerCase().includes(q) ||
         nombreVenta(p).toLowerCase().includes(q),
     );
-  }, [pedidos, filtro, filtroCanal, busqueda]);
+  }, [pedidos, conHistorico, filtro, filtroCanal, busqueda]);
 
   function cambiar(id: string, estado: EstadoPedidoId) {
     startTransition(async () => {
@@ -397,7 +427,11 @@ export function PanelPedidos({
             {FILTROS.map(([id, label]) => (
               <button
                 key={id}
-                onClick={() => setFiltro(id)}
+                onClick={() => {
+                  setFiltro(id);
+                  /* El histórico se pide la primera vez que hace falta. */
+                  if (id !== "pendientes") void asegurarHistorico();
+                }}
                 className={cn(
                   "flex-1 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors md:flex-none",
                   filtro === id
@@ -440,7 +474,9 @@ export function PanelPedidos({
         vacio={
           filtro === "pendientes"
             ? "No hay pedidos pendientes. Todo al día. 🎉"
-            : "No hay pedidos que mostrar."
+            : cargandoHistorico
+              ? "Cargando el histórico…"
+              : "No hay pedidos que mostrar."
         }
       />
 

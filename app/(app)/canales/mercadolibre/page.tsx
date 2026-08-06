@@ -35,6 +35,12 @@ export default async function MercadoLibrePage() {
   } | null;
 
   const [ventasRes, salud, estado, costosRes] = await Promise.all([
+    /* Solo lo que puede terminar en el tablero: renglones CON plazo y SIN
+       despachar. Antes bajaban los 30 días completos —hasta 3.000 renglones—
+       para que `agruparDespachos` tirara casi todos: los sin plazo se saltan
+       (situacionDespacho da null) y los ya despachados («tarde»/«cumplido»)
+       no entran en `resumirDespachos`, que solo cuenta pendientes. El filtro
+       en la base deja la misma pantalla con una fracción del payload. */
     supabase
       .from("sales")
       .select(
@@ -43,6 +49,8 @@ export default async function MercadoLibrePage() {
       )
       .eq("canal", "mercado_libre")
       .gte("fecha", diasDesdeHoy(-DIAS_DESPACHO))
+      .not("envio_limite_despacho", "is", null)
+      .is("envio_despachado_en", null)
       .order("fecha", { ascending: false })
       .limit(3000),
     /* Si Mercado Libre no contesta, el resto de la página sigue en pie. */

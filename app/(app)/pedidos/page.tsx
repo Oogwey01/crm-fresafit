@@ -2,14 +2,13 @@ import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { leerDatosIntegracion } from "@/lib/canales/integraciones";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { instanteDeCorte } from "@/lib/mercadolibre/desempeno";
+import { ESTADOS_PEDIDO_PENDIENTES } from "@/lib/catalogos";
+import { COLUMNAS_PEDIDO, DIAS_VENTANA_PEDIDOS } from "@/lib/pedidos/consulta";
 import { PanelPedidos } from "@/components/pedidos/panel";
 import type { PedidoEnvio, RolId } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Pedidos · Fresafit" };
-
-/* Ventana amplia: un pedido pendiente puede ser de hace semanas. */
-const DIAS_VENTANA = 120;
 
 export default async function PedidosPage() {
   await exigirModulo("pedidos");
@@ -17,31 +16,22 @@ export default async function PedidosPage() {
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  /* Solo filas con estado = las que son "pedido" (las ventas históricas sin
-     flujo de envío quedan fuera).
-
-     Solo las columnas que pinta la tabla y el diálogo de envío: con `*` la
-     respuesta pesaba 819 KB contra 474 KB, y esos bytes viajan al navegador.
+  /* Solo lo que AÚN DA TRABAJO: nuevo, preparando, enviado. Antes viajaban los
+     120 días completos —hasta 5.000 renglones, ~474 KB— y el 95% eran pedidos
+     ya entregados que nadie iba a mirar al abrir. El histórico (entregados y
+     cancelados de la misma ventana) lo pide el panel al cambiar de filtro, con
+     `listarPedidosHistorico`. Las ventas históricas sin flujo de envío (estado
+     null) siguen fuera, como siempre.
 
      Esta consulta iba doblada en `conColumnasOpcionales` mientras las
-     migraciones de dirección y rastreo (20260807000000_direccion_envio.sql,
-     20260809000000_rastreo_pedidos.sql y 20260811000000_url_orden.sql) estaban
-     recién escritas y podían faltar en la base. Ya se aplicaron —son anteriores
-     a las de Bodega e Influencers, que llevan tiempo corriendo en producción—,
-     así que se pide directo: el andamiaje solo servía para repetir la consulta
-     entera cuando fallaba, o sea el doble de costo justo cuando algo va mal. */
+     migraciones de dirección y rastreo estaban recién escritas y podían faltar
+     en la base. Ya se aplicaron, así que se pide directo. */
   const [pedidosRes, datosTN] = await Promise.all([
     supabase
       .from("sales")
-      .select(
-        "id, fecha, canal, cantidad, estado, num_guia, paqueteria, descripcion," +
-          " referencia_externa, envio_direccion, url_rastreo, url_orden," +
-          " envio_limite_despacho, envio_despachado_en, envio_id," +
-          " producto:products!producto_id(id, nombre, variante)," +
-          " cliente:customers!cliente_id(id, nombre)",
-      )
-      .not("estado", "is", null)
-      .gte("fecha", diasDesdeHoy(-DIAS_VENTANA))
+      .select(COLUMNAS_PEDIDO)
+      .in("estado", [...ESTADOS_PEDIDO_PENDIENTES])
+      .gte("fecha", diasDesdeHoy(-DIAS_VENTANA_PEDIDOS))
       .order("fecha", { ascending: false })
       .limit(5000),
     /* El panel de Tienda Nube vive en el subdominio de cada tienda, así que el

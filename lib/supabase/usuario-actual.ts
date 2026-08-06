@@ -11,17 +11,37 @@ import type { Profile } from "@/lib/types";
    handlers) cache() simplemente no memoiza. */
 export const usuarioActual = cache(async () => {
   const supabase = await createClient();
+
+  /* getUser() (red) y la query del perfil iban encadenadas: dos viajes en
+     serie que pagaba cada navegación. El id para el perfil se toma de la
+     cookie (getSession no valida, solo lee) y ambas salen EN PARALELO. Es
+     seguro: la query viaja con el token real y RLS manda, y el resultado solo
+     se usa si getUser() confirma ese mismo id; si no coincide —cookie
+     manipulada o sesión cambiada a media request— se repite con el id bueno. */
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const idTentativo = session?.user?.id ?? null;
+
+  const consultaPerfil = (id: string) =>
+    supabase
+      .from("profiles")
+      .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos")
+      .eq("id", id)
+      .single();
+
+  const [userRes, perfilTentativo] = await Promise.all([
+    supabase.auth.getUser(),
+    idTentativo ? consultaPerfil(idTentativo) : Promise.resolve(null),
+  ]);
+  const user = userRes.data.user;
   if (!user) {
     return { supabase, user: null, rol: null as string | null, perfil: null as Profile | null };
   }
-  const { data: perfil } = await supabase
-    .from("profiles")
-    .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos")
-    .eq("id", user.id)
-    .single();
+
+  const { data: perfil } =
+    perfilTentativo && idTentativo === user.id ? perfilTentativo : await consultaPerfil(user.id);
+
   return {
     supabase,
     user,

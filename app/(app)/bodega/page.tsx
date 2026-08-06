@@ -38,13 +38,17 @@ export default async function BodegaPage() {
 
   /* El precio de cada presentación es lo que CUESTA comprarla: egreso, así que
      solo viaja para quien lleva la administración. Lo demás de bodega —qué hay,
-     cuánto queda, qué falta— es de todo el equipo. */
-  const dinero = await vistaDinero();
-  const columnasInsumo: string =
+     cuánto queda, qué falta— es de todo el equipo.
+
+     La promesa se lanza aquí SIN await: solo la consulta de insumos depende de
+     ella (para decidir si pide `precio`), así que encadena adentro del
+     Promise.all en vez de frenar a las otras nueve en serie. */
+  const dineroP = vistaDinero();
+  const columnasInsumo = (egresos: boolean): string =>
     "id, nombre, unidad, stock, minimo, notas, activo, categoria, empresa," +
     " dimensiones, reserva, pedido, maximo, link, clave, created_by, created_at, updated_at," +
     " presentaciones:insumo_presentaciones(id, insumo_id, descripcion, unidades," +
-    ` reserva, pedido, link, clave, created_at${dinero.egresos ? ", precio" : ""})`;
+    ` reserva, pedido, link, clave, created_at${egresos ? ", precio" : ""})`;
 
   /* Cada árbol (conjunto → componentes, envío → cajas → renglones, insumo →
      presentaciones) se pide ya anidado: PostgREST lo arma en la misma consulta.
@@ -111,15 +115,17 @@ export default async function BodegaPage() {
       )
       .order("created_at", { ascending: false })
       .limit(50),
-    traerTodo<InsumoConPresentaciones>((desde, hasta) =>
-      supabase
-        .from("insumos")
-        .select(columnasInsumo)
-        .order("nombre")
-        .range(desde, hasta) as unknown as PromiseLike<{
-        data: InsumoConPresentaciones[] | null;
-        error: { message: string } | null;
-      }>,
+    dineroP.then((dinero) =>
+      traerTodo<InsumoConPresentaciones>((desde, hasta) =>
+        supabase
+          .from("insumos")
+          .select(columnasInsumo(dinero.egresos))
+          .order("nombre")
+          .range(desde, hasta) as unknown as PromiseLike<{
+          data: InsumoConPresentaciones[] | null;
+          error: { message: string } | null;
+        }>,
+      ),
     ),
     supabase
       .from("insumo_movimientos")
@@ -144,18 +150,33 @@ export default async function BodegaPage() {
      los de las cargas que se van a pintar —antes venía la tabla entera— y se
      agrupan por carga en una pasada, no recorriéndolos una vez por carga. */
   const idsCargas = (recepcionesRes.data ?? []).map((r) => r.id as string);
-  const items = idsCargas.length
-    ? await traerTodo<RecepcionItem>((desde, hasta) =>
-        supabase
-          .from("recepcion_items")
-          .select(
-            "id, recepcion_id, sku, producto_id, unidades_no_procesadas, sku_consolidado, categoria, producto_nombre, talla, estado, descontado_en, created_at, updated_at",
-          )
-          .in("recepcion_id", idsCargas)
-          .order("created_at")
-          .range(desde, hasta),
-      )
-    : [];
+  /* En qué canales está publicada la ficha de cada conjunto. Va aparte y no
+     como tres columnas más del catálogo ligero: son a lo sumo 84 fichas contra
+     las 1126 del catálogo, y ese payload lo carga toda la pantalla de bodega. */
+  const idsFicha = [...new Set(conjuntos.map((c) => c.producto_id).filter((id): id is string => !!id))];
+
+  /* Renglones y canales dependen de resultados DISTINTOS del Promise.all de
+     arriba, no el uno del otro: juntos en un solo viaje de pared. */
+  const [items, canalesRes] = await Promise.all([
+    idsCargas.length
+      ? traerTodo<RecepcionItem>((desde, hasta) =>
+          supabase
+            .from("recepcion_items")
+            .select(
+              "id, recepcion_id, sku, producto_id, unidades_no_procesadas, sku_consolidado, categoria, producto_nombre, talla, estado, descontado_en, created_at, updated_at",
+            )
+            .in("recepcion_id", idsCargas)
+            .order("created_at")
+            .range(desde, hasta),
+        )
+      : Promise.resolve([] as RecepcionItem[]),
+    idsFicha.length
+      ? supabase
+          .from("products")
+          .select("id, tiendanube_product_id, meli_item_id, tiktok_product_id")
+          .in("id", idsFicha)
+      : Promise.resolve({ data: [] as { id: string; tiendanube_product_id: unknown; meli_item_id: unknown; tiktok_product_id: unknown }[] }),
+  ]);
 
   /* Los últimos 200 más los pendientes de siempre, sin repetir: las dos listas
      se solapan en cuanto hay pendientes recientes. */
@@ -167,17 +188,6 @@ export default async function BodegaPage() {
       ].map((a) => [a.id, a]),
     ).values(),
   ];
-
-  /* En qué canales está publicada la ficha de cada conjunto. Va aparte y no
-     como tres columnas más del catálogo ligero: son a lo sumo 84 fichas contra
-     las 1126 del catálogo, y ese payload lo carga toda la pantalla de bodega. */
-  const idsFicha = [...new Set(conjuntos.map((c) => c.producto_id).filter((id): id is string => !!id))];
-  const canalesRes = idsFicha.length
-    ? await supabase
-        .from("products")
-        .select("id, tiendanube_product_id, meli_item_id, tiktok_product_id")
-        .in("id", idsFicha)
-    : { data: [] };
   const canalesFicha: CanalesFicha = Object.fromEntries(
     (canalesRes.data ?? []).map((p) => [
       p.id as string,

@@ -1,9 +1,32 @@
+import { Suspense } from "react";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 import { esDireccion } from "@/lib/catalogos";
 import { TabsCanales } from "@/components/canales/tabs-canales";
 import { DialogoPermisosDinero } from "@/components/canales/dialogo-permisos-dinero";
 import type { DineroPermisoCanal, Profile } from "@/lib/types";
+
+/* Quién ve el dinero de cada plataforma lo reparte dirección, y desde aquí
+   porque es donde ya está mirando el canal (mismo criterio que puso el
+   permiso de insumos dentro de Bodega). Para el resto del equipo ni se piden
+   las dos consultas: la RLS las devolvería vacías igual.
+
+   En su propio <Suspense>: solo alimentan un diálogo que casi nunca se abre,
+   y esperándolas en el layout frenaban el primer pintado de TODA la página
+   del canal. El botón aterriza cuando esté. */
+async function BotonPermisosDinero() {
+  const { supabase } = await usuarioActual();
+  const [permisosRes, equipoRes] = await Promise.all([
+    supabase.from("dinero_permisos_canal").select("profile_id, canal, otorgado_por, created_at"),
+    supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
+  ]);
+  return (
+    <DialogoPermisosDinero
+      equipo={(equipoRes.data ?? []) as Profile[]}
+      permisos={(permisosRes.data ?? []) as DineroPermisoCanal[]}
+    />
+  );
+}
 
 /* Armazón del módulo Canales. El encabezado y las pestañas viven en el layout
    para que al cambiar de plataforma solo se vuelva a pintar el contenido: las
@@ -16,19 +39,8 @@ export default async function CanalesLayout({ children }: { children: React.Reac
   await exigirModulo("canales");
 
   /* Cacheado por request: comparte getUser() y perfil con el shell. */
-  const { supabase, rol } = await usuarioActual();
-
-  /* Quién ve el dinero de cada plataforma lo reparte dirección, y desde aquí
-     porque es donde ya está mirando el canal (mismo criterio que puso el
-     permiso de insumos dentro de Bodega). Para el resto del equipo ni se piden
-     las dos consultas: la RLS las devolvería vacías igual. */
+  const { rol } = await usuarioActual();
   const puedeRepartir = esDireccion(rol);
-  const [permisosRes, equipoRes] = puedeRepartir
-    ? await Promise.all([
-        supabase.from("dinero_permisos_canal").select("profile_id, canal, otorgado_por, created_at"),
-        supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
-      ])
-    : [null, null];
 
   return (
     <div className="flex flex-col gap-5">
@@ -41,10 +53,9 @@ export default async function CanalesLayout({ children }: { children: React.Reac
           </p>
         </div>
         {puedeRepartir && (
-          <DialogoPermisosDinero
-            equipo={(equipoRes?.data ?? []) as Profile[]}
-            permisos={(permisosRes?.data ?? []) as DineroPermisoCanal[]}
-          />
+          <Suspense fallback={null}>
+            <BotonPermisosDinero />
+          </Suspense>
         )}
       </header>
       <TabsCanales />

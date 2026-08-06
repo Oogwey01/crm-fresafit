@@ -8,15 +8,16 @@ import { urlFotoPersonalizado } from "@/app/(app)/personalizados/actions";
 
 /* El diseño del cinturón, visible dentro de la tabla.
 
-   La miniatura llega ya firmada y redimensionada desde el servidor, así que la
-   lista se recorre de un vistazo —«¿cuál era el de Macry?»— sin abrir nada.
-   Al ampliar se pide la imagen COMPLETA, y solo entonces: el original pesa
-   cerca de un mega y bajarlo ciento sesenta veces para verlo en miniatura no
-   tiene sentido.
+   La miniatura llega por /api/personalizados/diseno —que valida la sesión y
+   redirige al enlace firmado y redimensionado—, así que la lista se recorre
+   de un vistazo —«¿cuál era el de Macry?»— sin abrir nada y sin que la página
+   firme nada por adelantado. Al ampliar se pide la imagen COMPLETA, y solo
+   entonces: el original pesa cerca de un mega y bajarlo ciento sesenta veces
+   para verlo en miniatura no tiene sentido.
 
-   `unoptimized` porque la URL viene firmada y caduca: pasarla por el
-   optimizador de Next la cachearía con una firma que en una hora ya no sirve
-   (y Supabase ya entregó la miniatura en webp). */
+   `unoptimized` porque detrás de la ruta hay una firma que caduca: pasarla por
+   el optimizador de Next la cachearía con una firma que en una hora ya no
+   sirve (y Supabase ya entrega la miniatura en webp). */
 export function VerDiseno({ url, path, cliente }: { url: string | null; path: string | null; cliente: string }) {
   const [completa, setCompleta] = useState<string | null>(null);
   const [abriendo, setAbriendo] = useState(false);

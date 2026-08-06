@@ -111,15 +111,17 @@ export default async function InventarioPage({
      alcance del token y sale de `producto_costos` (ver 20260902000000).
      Anotado como `string`: el parser de tipos de supabase-js se rinde ante una
      lista de columnas armada al vuelo. */
-  const dinero = await vistaDinero();
-  const columnasCatalogo: string =
+  /* Sin await: solo el catálogo depende de él (columnas y costo), así que
+     encadena dentro del Promise.all en vez de frenar a las demás en serie. */
+  const dineroP = vistaDinero();
+  const columnasCatalogo = (ingresos: boolean): string =>
     "id, nombre, variante, sku, tipo, stock, stock_minimo," +
     " proveedor_id, activo, bajo_pedido, descontinuado, notas, imagen_url," +
     " meli_item_id, meli_variation_id, meli_logistic_type, meli_stock_full," +
     " meli_user_product_id, tiendanube_product_id, tiendanube_variant_id," +
     " tiktok_product_id, tiktok_sku_id, tiktok_stock, created_at, created_by, updated_at," +
     " proveedor:suppliers!proveedor_id(id, nombre, dias_entrega)" +
-    (dinero.ingresos ? ", precio" : "");
+    (ingresos ? ", precio" : "");
 
   const [
     productosRes,
@@ -143,17 +145,25 @@ export default async function InventarioPage({
        Todas las columnas MENOS `imagenes`: esa galería pesa ~950 KB sobre el
        catálogo completo y solo la usa el diálogo de edición de UN producto,
        que la pide al abrirse (galeriaDeProducto). */
-    traerTodo<ProductConProveedor>((desde, hasta) =>
-      supabase
-        .from("products")
-        .select(columnasCatalogo)
-        .order("nombre")
-        /* El join anidado hace que supabase-js no pueda inferir la forma; el
-           cast es el mismo patrón que ya usa la página de clientes. */
-        .range(desde, hasta) as unknown as Promise<{
-        data: ProductConProveedor[] | null;
-        error: { message: string } | null;
-      }>,
+    dineroP.then((dinero) =>
+      traerTodo<ProductConProveedor>((desde, hasta) =>
+        supabase
+          .from("products")
+          .select(columnasCatalogo(dinero.ingresos))
+          .order("nombre")
+          /* El join anidado hace que supabase-js no pueda inferir la forma; el
+             cast es el mismo patrón que ya usa la página de clientes. */
+          .range(desde, hasta) as unknown as Promise<{
+          data: ProductConProveedor[] | null;
+          error: { message: string } | null;
+        }>,
+      ).then((catalogo) =>
+        /* El costo se une aquí mismo, desde `producto_costos`: la columna está
+           fuera del alcance del token y la vista la sirve solo a quien lleva
+           los egresos. Encadenado, no después del Promise.all: es un viaje que
+           corre mientras las otras diez consultas siguen en vuelo. */
+        adjuntarCostos(supabase, catalogo, dinero.egresos),
+      ),
     ),
     // Fotos subidas a mano. Van aparte de products.imagenes (la galería
     // importada) porque cada sincronización de canal reescribe esa columna.
@@ -207,14 +217,12 @@ export default async function InventarioPage({
     estadoPiloto(),
   ]);
 
+  const dinero = await dineroP;
   const fotosPorProducto: Record<string, ProductPhoto[]> = {};
   for (const f of fotosRes) {
     (fotosPorProducto[f.producto_id] ??= []).push(f);
   }
-  /* El costo se une aquí, desde `producto_costos`: la columna está fuera del
-     alcance del token y la vista la sirve solo a quien lleva los egresos. */
-  const conCosto = await adjuntarCostos(supabase, productosRes, dinero.egresos);
-  const productos = conCosto.map((p) => ({
+  const productos = productosRes.map((p) => ({
     ...p,
     fotos_propias: fotosPorProducto[p.id] ?? [],
   }));

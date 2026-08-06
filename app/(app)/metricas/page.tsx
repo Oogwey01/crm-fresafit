@@ -77,17 +77,16 @@ export default async function MetricasPage() {
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
 
-  /* La pantalla abre en «todas las plataformas», así que el importe solo viaja
-     para quien ve los ingresos del negocio: el permiso de un solo canal no
-     alcanza a la suma. Al cambiar de plataforma, `listarVentas` vuelve a
-     preguntarlo con el canal ya elegido. */
-  const dinero = await vistaDinero();
-  const verDinero = dinero.ingresos;
-
   const rangos = rangosDePeriodo(PERIODO_INICIAL);
   const ventana = { desde: diasDesdeHoy(-(DIAS_GRAFICA - 1)), hasta: hoyISO() };
 
   const [
+    /* La pantalla abre en «todas las plataformas», así que el importe solo
+       viaja para quien ve los ingresos del negocio: el permiso de un solo canal
+       no alcanza a la suma. Al cambiar de plataforma, `listarVentas` vuelve a
+       preguntarlo con el canal ya elegido. Solo se usa DESPUÉS del Promise.all
+       (adjuntarMontos y props), así que viaja junto a las demás. */
+    dinero,
     actualRes,
     anteriorRes,
     ventanaRes,
@@ -96,6 +95,7 @@ export default async function MetricasPage() {
     algunaVentaRes,
     tiendanube,
   ] = await Promise.all([
+    vistaDinero(),
     /* Las cifras ya sumadas en la base. Antes de esto la página bajaba 5.000
        renglones de ventas y 20.000 órdenes al navegador para hacer aquí las
        mismas cuentas — y con un tope que dejaba fuera lo más viejo del año. */
@@ -142,6 +142,7 @@ export default async function MetricasPage() {
     supabase.from("sales").select("id").limit(1),
     estadoTiendanube(),
   ]);
+  const verDinero = dinero.ingresos;
 
   /* Si el resumen falla —lo más probable, que la migración aún no se haya
      pegado— la página lo dice en vez de pintar ceros como si fueran datos. */

@@ -34,10 +34,11 @@ export default async function AppLayout({
   const [{ count: pendientesFresafit }, { count: pendientesAgencia }, notisRes] = await Promise.all([
     contarPendientes("fresafit"),
     contarPendientes("agencia"),
-    // Notificaciones del usuario (RLS ya limita a las suyas): las recientes.
+    // Notificaciones del usuario (RLS ya limita a las suyas): las recientes,
+    // con las columnas del tipo y no `*` — esto viaja en CADA navegación.
     supabase
       .from("notifications")
-      .select("*")
+      .select("id, user_id, task_id, tipo, texto, leida, created_at")
       .order("created_at", { ascending: false })
       .limit(20),
   ]);

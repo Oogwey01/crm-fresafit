@@ -38,6 +38,12 @@ import type { EstadoPersonalizadoId, Personalizado, Profile } from "@/lib/types"
 
 const ABIERTOS: readonly string[] = ESTADOS_PERSONALIZADO_ABIERTOS;
 
+/* La miniatura ya no llega firmada desde el servidor (firmar ~160 era lo que
+   tenía a la página en 18 segundos): cada <img> apunta a esta ruta, que valida
+   la sesión y redirige al enlace firmado. Lazy por defecto de next/image, así
+   que solo viajan las que entran en pantalla. */
+const rutaDiseno = (path: string) => `/api/personalizados/diseno?path=${encodeURIComponent(path)}`;
+
 /* El texto que se le manda a Eduardo (el proveedor que borda/imprime) por
    WhatsApp. Antes se armaba a mano cada vez. La liga del diseño es un enlace
    FIRMADO a la imagen aprobada del bucket —no el `url` de la ficha, que suele
@@ -65,12 +71,9 @@ function mensajeParaEduardo(p: Personalizado, ligaDiseno: string | null): string
    estado y la urgencia la pone la fecha límite. */
 export function PanelPersonalizados({
   personalizados,
-  /* ruta del bucket → enlace firmado, para pintar el diseño en la tabla. */
-  urlsDiseno,
   equipo,
 }: {
   personalizados: Personalizado[];
-  urlsDiseno: Record<string, string>;
   equipo: Profile[];
 }) {
   const porId = new Map(equipo.map((p) => [p.id, p]));
@@ -202,7 +205,7 @@ export function PanelPersonalizados({
       label: "Diseño",
       celda: (p) => (
         <VerDiseno
-          url={p.foto_path ? (urlsDiseno[p.foto_path] ?? null) : null}
+          url={p.foto_path ? rutaDiseno(p.foto_path) : null}
           path={p.foto_path}
           cliente={p.cliente}
         />
@@ -371,9 +374,7 @@ export function PanelPersonalizados({
           personalizado={dialogo === "nuevo" ? null : dialogo}
           equipo={equipo}
           urlDiseno={
-            dialogo !== "nuevo" && dialogo.foto_path
-              ? (urlsDiseno[dialogo.foto_path] ?? null)
-              : null
+            dialogo !== "nuevo" && dialogo.foto_path ? rutaDiseno(dialogo.foto_path) : null
           }
           onClose={() => setDialogo(null)}
         />

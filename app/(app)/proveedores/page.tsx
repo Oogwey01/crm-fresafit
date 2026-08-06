@@ -22,7 +22,7 @@ export default async function ProveedoresPage() {
   const { supabase, rol } = await usuarioActual();
   if (!esDireccion(rol)) redirect("/inventario");
 
-  const [proveedoresRes, pedidosRes] = await Promise.all([
+  const [proveedoresRes, pedidosRes, productos] = await Promise.all([
     supabase.from("suppliers").select("*").order("nombre"),
     /* Techo explícito. Cada pedido arrastra sus renglones y el producto de cada
        renglón, así que la respuesta crece por dos lados a la vez y sin límite se
@@ -40,24 +40,24 @@ export default async function ProveedoresPage() {
       )
       .order("fecha_pedido", { ascending: false })
       .limit(300),
+    /* Catálogo liviano: solo lo que necesitan el diálogo de pedido y los
+       importadores para emparejar SKUs. Nada del peso de /inventario.
+       El costo llega por `producto_costos`: la columna está fuera del alcance
+       del token (ver 20260902000000). Aquí siempre se pide —este módulo es de
+       dirección de punta a punta—, pero se pide por la puerta que valida.
+       Catálogo→costo es en serie por naturaleza (los ids salen del catálogo),
+       pero la cadena entera corre a la par de las otras dos consultas. */
+    traerTodo<ProductoLigeroProv>((desde, hasta) =>
+      supabase
+        .from("products")
+        .select("id, nombre, variante, sku, activo, proveedor_id")
+        .order("nombre")
+        .range(desde, hasta) as unknown as PromiseLike<{
+        data: ProductoLigeroProv[] | null;
+        error: { message: string } | null;
+      }>,
+    ).then((catalogo) => adjuntarCostos(supabase, catalogo, true)),
   ]);
-
-  /* Catálogo liviano: solo lo que necesitan el diálogo de pedido y los
-     importadores para emparejar SKUs. Nada del peso de /inventario. */
-  /* El costo llega por `producto_costos`: la columna está fuera del alcance del
-     token (ver 20260902000000). Aquí siempre se pide —este módulo es de
-     dirección de punta a punta—, pero se pide por la puerta que valida. */
-  const catalogo = await traerTodo<ProductoLigeroProv>((desde, hasta) =>
-    supabase
-      .from("products")
-      .select("id, nombre, variante, sku, activo, proveedor_id")
-      .order("nombre")
-      .range(desde, hasta) as unknown as PromiseLike<{
-      data: ProductoLigeroProv[] | null;
-      error: { message: string } | null;
-    }>,
-  );
-  const productos = await adjuntarCostos(supabase, catalogo, true);
 
   return (
     <PanelProveedores

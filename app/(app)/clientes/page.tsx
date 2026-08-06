@@ -28,9 +28,11 @@ export default async function ClientesPage() {
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
-  const dinero = await vistaDinero();
 
-  const [clientes, statsRes] = await Promise.all([
+  const [dinero, clientes, statsRes] = await Promise.all([
+    /* Solo decide qué columnas se pintan, no qué se consulta: viaja junto a
+       las demás en vez de frenarlas en serie. */
+    vistaDinero(),
     /* Paginado: sin esto PostgREST cortaba en 1000 filas SIN avisar y la
        pantalla mostraba 1000 de 2539 clientes, con los totales calculados
        solo sobre esa parte. Se piden además las 10 columnas que usa el módulo,
