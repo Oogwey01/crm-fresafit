@@ -22,6 +22,17 @@ export async function autorizarCron(request: Request): Promise<NextResponse | nu
   return null;
 }
 
+/* Autorización de las rutas del OAuth de canales (conectar/callback): solo el
+   equipo interno, y al resto se le manda al login en vez de un 401 — son rutas
+   que se abren desde el navegador, no desde un cron. Era el mismo renglón
+   copiado en los seis routes. Devuelve el redirect listo, o null si pasa. */
+export async function autorizarOAuth(request: Request): Promise<NextResponse | null> {
+  const { origin } = new URL(request.url);
+  const { user, rol } = await usuarioActual();
+  if (!user || !esInterno(rol)) return NextResponse.redirect(`${origin}/login`);
+  return null;
+}
+
 /* Firma en el historial de stock lo que se escriba dentro de `fn` con la
    persona que disparó ESTA petición a mano; null si la disparó el cron. Así una
    sincronización picada desde el navegador queda distinguible de la de las 6:00,

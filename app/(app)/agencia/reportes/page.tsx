@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { empresasAgenciaActivas } from "@/lib/supabase/consultas";
-import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelReportes } from "@/components/reportes/panel";
 import type { AgenciaReporteConEmpresa } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
@@ -15,8 +13,7 @@ export const metadata = { title: "Reportes · Agencia Fresafit" };
    /reportes. */
 export default async function ReportesAgenciaPage() {
   await exigirModulo("agencia-reportes");
-  const { supabase, rol } = await usuarioActual();
-  if (!puedeAdministrar(rol)) redirect("/tareas");
+  const { supabase } = await usuarioActual();
 
   const [reportesRes, empresas] = await Promise.all([
     supabase

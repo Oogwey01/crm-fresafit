@@ -1,7 +1,5 @@
-import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { empresasAgenciaActivas, equipoCompleto } from "@/lib/supabase/consultas";
-import { puedeAdministrar } from "@/lib/catalogos";
 import { PanelNomina } from "@/components/nomina/panel";
 import type {
   NominaEmpleadoConEmpresa,
@@ -15,8 +13,7 @@ export const metadata = { title: "Nómina de la Agencia · Fresafit" };
    empresa asignada. La nómina de la marca vive en /nomina. */
 export default async function NominaAgenciaPage() {
   await exigirModulo("agencia-nomina");
-  const { supabase, rol } = await usuarioActual();
-  if (!puedeAdministrar(rol)) redirect("/tareas");
+  const { supabase } = await usuarioActual();
 
   const [empleadosRes, empresas, equipo] = await Promise.all([
     supabase

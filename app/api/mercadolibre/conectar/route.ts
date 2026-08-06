@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarOAuth } from "@/lib/canales/http";
 import { urlAutorizacionML } from "@/lib/mercadolibre/api";
 
 /* Arranque del OAuth de Mercado Libre. Solo funciona contra producción: la
@@ -7,8 +7,8 @@ import { urlAutorizacionML } from "@/lib/mercadolibre/api";
    (MELI_REDIRECT_URI). */
 export async function GET(request: Request) {
   const { origin } = new URL(request.url);
-  const { user, rol } = await usuarioActual();
-  if (!user || !esInterno(rol)) return NextResponse.redirect(`${origin}/login`);
+  const rechazo = await autorizarOAuth(request);
+  if (rechazo) return rechazo;
   if (!process.env.MELI_CLIENT_ID || !process.env.MELI_REDIRECT_URI) {
     return NextResponse.redirect(`${origin}/inventario?mercadolibre=error`);
   }

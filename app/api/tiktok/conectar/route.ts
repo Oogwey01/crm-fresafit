@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarOAuth } from "@/lib/canales/http";
 import { urlAutorizacionTikTok } from "@/lib/tiktok/api";
 
 /* Arranque del OAuth de TikTok Shop. Solo producción: la redirect_uri
@@ -7,8 +7,8 @@ import { urlAutorizacionTikTok } from "@/lib/tiktok/api";
    (TIKTOK_REDIRECT_URI). */
 export async function GET(request: Request) {
   const { origin } = new URL(request.url);
-  const { user, rol } = await usuarioActual();
-  if (!user || !esInterno(rol)) return NextResponse.redirect(`${origin}/login`);
+  const rechazo = await autorizarOAuth(request);
+  if (rechazo) return rechazo;
   if (!process.env.TIKTOK_APP_KEY || !process.env.TIKTOK_REDIRECT_URI) {
     return NextResponse.redirect(`${origin}/inventario?tiktok=error`);
   }

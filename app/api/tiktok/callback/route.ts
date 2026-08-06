@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarOAuth } from "@/lib/canales/http";
 import {
   conexionTiktok,
   elegirShopTikTok,
@@ -16,8 +16,8 @@ import { importacionCompletaTikTok } from "@/lib/tiktok/sync";
    escribir stock), guarda la conexión e importa el catálogo. */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
-  const { user, rol } = await usuarioActual();
-  if (!user || !esInterno(rol)) return NextResponse.redirect(`${origin}/login`);
+  const rechazo = await autorizarOAuth(request);
+  if (rechazo) return rechazo;
 
   const code = searchParams.get("code");
   if (!code) return NextResponse.redirect(`${origin}/inventario?tiktok=error`);

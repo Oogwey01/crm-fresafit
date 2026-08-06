@@ -1,12 +1,10 @@
-import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { traerTodo } from "@/lib/canales/paginacion";
-import { puedeAdministrar } from "@/lib/catalogos";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelFinanzas } from "@/components/finanzas/panel";
 import { construirSugerencias, type GastoPrevio } from "@/lib/finanzas/sugerencias";
-import type { ExpenseConComprobantes, RolId } from "@/lib/types";
+import type { ExpenseConComprobantes } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Finanzas · Fresafit" };
@@ -15,14 +13,11 @@ export const metadata = { title: "Finanzas · Fresafit" };
 const DIAS_VENTANA = 120;
 
 export default async function FinanzasPage() {
+  /* La puerta del módulo (soloAdmin en el catálogo) ya corta a quien no lleva
+     la administración; la RLS lo impide de fondo. usuarioActual() está cacheado:
+     no repite el getUser() ni el perfil que ya pidió el layout. */
   await exigirModulo("finanzas");
-  /* Guarda de rol: dirección y administración. La BD ya lo impide con RLS (no
-     vería una sola fila), pero se corta aquí para no mostrar un panel vacío y
-     confuso. usuarioActual() está cacheado: no repite el getUser() ni el perfil
-     que ya pidió el layout, así que la guarda ya no cuesta roundtrips extra. */
-  const { supabase, rol: rolCrudo } = await usuarioActual();
-  const rol = (rolCrudo ?? "miembro") as RolId;
-  if (!puedeAdministrar(rol)) redirect("/tareas");
+  const { supabase } = await usuarioActual();
 
   const desde = diasDesdeHoy(-DIAS_VENTANA);
 

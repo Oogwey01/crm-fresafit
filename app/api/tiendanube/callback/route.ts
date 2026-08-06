@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { basePublica } from "@/lib/canales/http";
-import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
+import { autorizarOAuth, basePublica } from "@/lib/canales/http";
 import { guardarConexion, intercambiarCodigo, registrarWebhooksTN } from "@/lib/tiendanube/api";
 import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
 
@@ -8,8 +7,8 @@ import { sincronizacionCompleta } from "@/lib/tiendanube/sync";
    el access token, lo guarda, registra los webhooks e importa el catálogo. */
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
-  const { user, rol } = await usuarioActual();
-  if (!user || !esInterno(rol)) return NextResponse.redirect(`${origin}/login`);
+  const rechazo = await autorizarOAuth(request);
+  if (rechazo) return rechazo;
 
   const code = searchParams.get("code");
   if (!code) return NextResponse.redirect(`${origin}/inventario?tiendanube=error`);
