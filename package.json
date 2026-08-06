@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "bash scripts/gen-tipos.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "gen:types": "supabase gen types typescript --linked --schema public > lib/supabase/tipos-bd.ts"
+    "gen:types": "bash scripts/gen-tipos.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

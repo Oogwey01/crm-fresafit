@@ -112,6 +112,12 @@ export function Board({
   /* Abrir tareas es de todo el equipo de casa; `externo` solo ve lo que se le
      comparte y no tiene nada que crear. */
   const puedeCrear = esInterno(rol);
+  /* La plantilla de gráfico para live es de quien coordina el contenido (hoy:
+     Julio, que dirige los lives de TikTok). Al resto el botón solo le estorba,
+     así que se acota por área+rol y no por persona: si algún día alguien más
+     coordina contenido, la hereda sin tocar código. */
+  const yo = equipo.find((p) => p.id === currentUserId);
+  const coordinaContenido = yo?.area === "contenido" && yo?.rol === "coordinador";
   /* ¿Manda sobre ESTA tarea? Gestor en todo el tablero, o quien la creó sobre
      la suya. Se pasa como función a las vistas para no repartirles el rol. */
   const manda = (t: TaskConResponsable) => mandaEnLaTarea(t, rol, currentUserId);
@@ -486,7 +492,7 @@ export function Board({
           {puedeCrear && <Papelera borradas={borradas} />}
           {/* Atajo pedido por TikTok: la tarea de "gráfico para el live" nace ya
               armada (área diseño, etiquetas, checklist en la descripción). */}
-          {puedeCrear && !esAgencia && (
+          {coordinaContenido && !esAgencia && (
             <Button
               variant="outline"
               onClick={() => {

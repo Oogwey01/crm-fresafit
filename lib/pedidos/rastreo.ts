@@ -130,7 +130,11 @@ export function urlOrdenCanal(
     case "mercado_libre":
       return `https://www.mercadolibre.com.mx/ventas/omni/listado?q=${encodeURIComponent(ref)}`;
     case "tiktok_shop":
-      return `https://seller.tiktokglobalshop.com/order/detail?order_no=${encodeURIComponent(ref)}`;
+      /* seller-mx.tiktok.com es el seller center de la tienda mexicana (mismo
+         dominio que usa el OAuth, ver lib/tiktok/api.ts). El genérico
+         seller.tiktokglobalshop.com aterrizaba en el portal global "de China"
+         y ahí la orden no abría. */
+      return `https://seller-mx.tiktok.com/order/detail?order_no=${encodeURIComponent(ref)}&shop_region=MX`;
     default:
       // Punto físico, WhatsApp, etc.: no hay panel externo al que ir.
       return null;

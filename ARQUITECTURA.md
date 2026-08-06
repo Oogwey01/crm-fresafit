@@ -14,9 +14,10 @@ lo viejo. Si algo aquí estorba, cámbialo — pero cámbialo aquí también.
 2. **`.env.local` apunta a PRODUCCIÓN.** Correr un script en la laptop toca la
    base real. Introspección (`supabase gen types`) sí; escrituras, nunca.
 3. **Las migraciones SQL se pegan a mano** en el SQL Editor de Supabase. Escribe
-   el `.sql` idempotente en `supabase/migrations/`, di qué archivo correr, y
-   **después corre `pnpm gen:types`**: si no, el compilador sigue creyendo en el
-   esquema viejo y deja pasar columnas que ya no existen.
+   el `.sql` idempotente en `supabase/migrations/` y di qué archivo correr. Los
+   tipos se regeneran solos en el siguiente `pnpm dev`; para forzarlo,
+   `pnpm gen:types`. Sin eso el compilador seguiría creyendo en el esquema viejo
+   y dejaría pasar columnas que ya no existen.
 4. **Los `useMemo` de [components/metricas/panel.tsx](components/metricas/panel.tsx)
    son deliberados**: mueven los filtros de categoría y talla sin round-trip.
    No los subas al servidor sin preguntar.

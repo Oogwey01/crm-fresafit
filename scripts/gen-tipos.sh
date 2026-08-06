@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Regenera lib/supabase/tipos-bd.ts desde el esquema real de Supabase.
+#
+# Existe como script y no como una línea en package.json por dos motivos:
+#
+# 1. La redirección directa (`supabase gen types … > archivo`) TRUNCA el archivo
+#    antes de ejecutar el comando. Si no hay red, el token caducó o el proyecto
+#    no está vinculado, el resultado es un tipos-bd.ts VACÍO y el proyecto deja
+#    de compilar entero — por un fallo que no tiene nada que ver con el código.
+#    Aquí se genera a un temporal, se comprueba que trae lo que debe, y solo
+#    entonces se reemplaza.
+#
+# 2. Corre solo en la máquina de quien desarrolla. En Vercel no hay CLI de
+#    Supabase ni credenciales, así que se sale en silencio: el archivo commiteado
+#    es el que manda en el deploy.
+
+set -uo pipefail
+
+DESTINO="lib/supabase/tipos-bd.ts"
+
+# En el build de Vercel/CI no hay nada que regenerar.
+if [ -n "${VERCEL:-}" ] || [ -n "${CI:-}" ]; then
+  exit 0
+fi
+
+if ! command -v supabase >/dev/null 2>&1; then
+  echo "· tipos: falta el CLI de Supabase; se usa el $DESTINO commiteado."
+  exit 0
+fi
+
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+if ! supabase gen types typescript --linked --schema public >"$TMP" 2>/dev/null; then
+  echo "· tipos: no se pudo consultar Supabase (¿sin red, o falta 'supabase link'?)."
+  echo "  Se usa el $DESTINO que ya está en el repo."
+  exit 0
+fi
+
+# Un archivo sin el tipo raíz es un archivo inservible, venga como venga.
+if ! grep -q "export type Database" "$TMP"; then
+  echo "· tipos: la respuesta de Supabase no trae 'Database'; no se toca $DESTINO."
+  exit 0
+fi
+
+if [ -f "$DESTINO" ] && cmp -s "$TMP" "$DESTINO"; then
+  exit 0
+fi
+
+cp "$TMP" "$DESTINO"
+echo "· tipos: $DESTINO actualizado desde el esquema en vivo."
