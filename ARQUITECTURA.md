@@ -15,7 +15,8 @@ lo viejo. Si algo aquí estorba, cámbialo — pero cámbialo aquí también.
    base real. Introspección (`supabase gen types`) sí; escrituras, nunca.
 3. **Las migraciones SQL se pegan a mano** en el SQL Editor de Supabase. Escribe
    el `.sql` idempotente en `supabase/migrations/`, di qué archivo correr, y
-   después regenera los tipos (`pnpm gen:types`).
+   **después corre `pnpm gen:types`**: si no, el compilador sigue creyendo en el
+   esquema viejo y deja pasar columnas que ya no existen.
 4. **Los `useMemo` de [components/metricas/panel.tsx](components/metricas/panel.tsx)
    son deliberados**: mueven los filtros de categoría y talla sin round-trip.
    No los subas al servidor sin preguntar.
@@ -44,6 +45,13 @@ construye un dato, su tipo no puede pertenecer al componente que lo pinta. El
 vocabulario del negocio está en [lib/types.ts](lib/types.ts), derivado de las
 listas de [lib/catalogos.ts](lib/catalogos.ts). Los `*Input` de formulario sí se
 quedan en su `actions.ts`: son el contrato del action, no dominio.
+
+**Dos familias de tipos, y no compiten.** `lib/types.ts` es el vocabulario del
+negocio —lo que las pantallas manejan—; `lib/supabase/tipos-bd.ts` es el
+esquema real, generado, y NO se edita a mano. Para las filas que se construyen
+en trozos antes de un insert o un update, usa `TablesInsert<"tabla">` /
+`TablesUpdate<"tabla">` del generado en lugar de `Record<string, unknown>`: es
+lo que hace que una columna mal escrita salte en el build y no en producción.
 
 `lib/types.ts` es de TIPOS. El comportamiento va aparte
 ([lib/tareas/reglas.ts](lib/tareas/reglas.ts) es el ejemplo).
