@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { textoONulo } from "@/lib/validacion";
 import { importarVentasTN } from "@/lib/tiendanube/ventas";
 import { COLUMNAS_VENTA_METRICAS, VENTAS_POR_PAGINA } from "@/lib/metricas";
@@ -235,26 +236,42 @@ export async function catalogoVenta(): Promise<
      ventas de productos fuera de catálogo. */
   const conPrecio = (await vistaDinero()).ingresos;
 
-  const [productosRes, clientesRes] = await Promise.all([
-    cx.supabase
-      .from("products")
-      .select(`id, nombre, variante, sku, activo${conPrecio ? ", precio" : ""}`)
-      .eq("activo", true)
-      .order("nombre"),
-    cx.supabase.from("customers").select("id, nombre, correo, telefono").order("nombre"),
-  ]);
-
-  const error = productosRes.error?.message ?? clientesRes.error?.message;
-  if (error) return { error };
-
-  return {
-    ok: true,
-    productos: (productosRes.data ?? []) as unknown as ProductoParaVenta[],
-    clientes: (clientesRes.data ?? []) as Pick<
-      Customer,
-      "id" | "nombre" | "correo" | "telefono"
-    >[],
-  };
+  /* Paginado con traerTodo: el catálogo pasa de mil fichas y los clientes de
+     dos mil quinientos, y PostgREST corta en ~1000 filas SIN error. Sin esto,
+     el buscador del diálogo «no encontraba» a la mitad de los clientes —los
+     que caían después del corte alfabético— sin ninguna señal de que faltaban.
+     El `id` desempata nombres repetidos entre tandas. */
+  type ClienteLigero = Pick<Customer, "id" | "nombre" | "correo" | "telefono">;
+  try {
+    const [productos, clientes] = await Promise.all([
+      traerTodo<ProductoParaVenta>((desde, hasta) =>
+        cx.supabase
+          .from("products")
+          .select(`id, nombre, variante, sku, activo${conPrecio ? ", precio" : ""}`)
+          .eq("activo", true)
+          .order("nombre")
+          .order("id")
+          .range(desde, hasta) as unknown as PromiseLike<{
+          data: ProductoParaVenta[] | null;
+          error: { message: string } | null;
+        }>,
+      ),
+      traerTodo<ClienteLigero>((desde, hasta) =>
+        cx.supabase
+          .from("customers")
+          .select("id, nombre, correo, telefono")
+          .order("nombre")
+          .order("id")
+          .range(desde, hasta) as unknown as PromiseLike<{
+          data: ClienteLigero[] | null;
+          error: { message: string } | null;
+        }>,
+      ),
+    ]);
+    return { ok: true, productos, clientes };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "No se pudo cargar el catálogo de venta." };
+  }
 }
 
 /* Importación manual de ventas desde Tienda Nube (botón del panel). La

@@ -5,6 +5,7 @@ import { veDineroDeCanal } from "@/lib/permisos-dinero";
 import { adjuntarMontos } from "@/lib/supabase/montos";
 import { estadoTiendanube } from "@/lib/tiendanube/api";
 import { carritosAbandonadosTN, saludML, visitasML } from "@/lib/canales/salud";
+import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy, hoyISO, rangosDePeriodo } from "@/lib/fecha";
 import { COLUMNAS_VENTA_METRICAS, VENTAS_POR_PAGINA } from "@/lib/metricas";
 import { PanelMetricas } from "@/components/metricas/panel";
@@ -18,6 +19,9 @@ import type {
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Métricas · Fresafit" };
+
+/* La fila que alimenta la lista de «productos sin movimiento». */
+type ProductoLigeroMetricas = Pick<Product, "id" | "nombre" | "variante" | "sku" | "activo">;
 
 /* Periodo con el que abre el panel. Tiene que coincidir con el estado inicial
    del componente, o la primera pintada mostraría un rango y las cifras de
@@ -91,7 +95,7 @@ export default async function MetricasPage() {
     anteriorRes,
     ventanaRes,
     ventasRes,
-    productosRes,
+    productos,
     algunaVentaRes,
     tiendanube,
   ] = await Promise.all([
@@ -130,12 +134,23 @@ export default async function MetricasPage() {
     /* Catálogo ACTIVO: lo único que sale de aquí es la lista de «productos sin
        movimiento», que ya descarta los inactivos. Los clientes ya no viajan con
        la página: eran ~2.500 filas serializadas en cada carga para alimentar un
-       buscador del diálogo de venta, que ahora los pide al abrirse. */
-    supabase
-      .from("products")
-      .select("id, nombre, variante, sku, activo")
-      .eq("activo", true)
-      .order("nombre"),
+       buscador del diálogo de venta, que ahora los pide al abrirse.
+
+       Paginado con traerTodo: los activos rondan el corte de ~1000 de
+       PostgREST, y un catálogo a medias haría aparecer productos «sin
+       movimiento» que sí venden. */
+    traerTodo<ProductoLigeroMetricas>((desde, hasta) =>
+      supabase
+        .from("products")
+        .select("id, nombre, variante, sku, activo")
+        .eq("activo", true)
+        .order("nombre")
+        .order("id")
+        .range(desde, hasta) as unknown as PromiseLike<{
+        data: ProductoLigeroMetricas[] | null;
+        error: { message: string } | null;
+      }>,
+    ),
     /* ¿Hay alguna venta, en cualquier fecha? Es solo para elegir el mensaje
        cuando el periodo sale vacío: «aún no hay ventas» y «no hay con estos
        filtros» piden respuestas distintas. Una fila basta para saberlo. */
@@ -183,12 +198,7 @@ export default async function MetricasPage() {
       ventasIniciales={ventasIniciales}
       errorResumen={errorResumen}
       hayVentas={(algunaVentaRes.data ?? []).length > 0}
-      productos={
-        (productosRes.data ?? []) as Pick<
-          Product,
-          "id" | "nombre" | "variante" | "sku" | "activo"
-        >[]
-      }
+      productos={productos}
       rol={rol}
       dinero={dinero}
       tiendanube={tiendanube}
