@@ -11,7 +11,7 @@ import { FILTRO_PUESTA_AL_DIA, LIMITE_MOVIMIENTOS } from "@/lib/inventario/orige
 import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/inventario/reabastecimiento";
 import type {
   ProductConProveedor,
-  ProductPhoto,
+  FotoDeFicha,
   Supplier,
   RolId,
   StockLog,
@@ -168,8 +168,12 @@ export default async function InventarioPage({
     // Fotos subidas a mano. Van aparte de products.imagenes (la galería
     // importada) porque cada sincronización de canal reescribe esa columna.
     // Paginadas por el mismo motivo: son varias por producto.
-    traerTodo<ProductPhoto>((desde, hasta) =>
-      supabase.from("product_photos").select("*").order("orden").range(desde, hasta),
+    traerTodo<FotoDeFicha>((desde, hasta) =>
+      supabase
+        .from("product_photos")
+        .select("id, producto_id, storage_path, orden")
+        .order("orden")
+        .range(desde, hasta),
     ),
     supabase.from("suppliers").select("*").order("nombre"),
     /* Historial de movimientos de stock. Solo los REALES: las puestas al día
@@ -218,7 +222,7 @@ export default async function InventarioPage({
   ]);
 
   const dinero = await dineroP;
-  const fotosPorProducto: Record<string, ProductPhoto[]> = {};
+  const fotosPorProducto: Record<string, FotoDeFicha[]> = {};
   for (const f of fotosRes) {
     (fotosPorProducto[f.producto_id] ??= []).push(f);
   }

@@ -16,7 +16,7 @@ import {
 } from "@/lib/inventario/reabastecimiento";
 import { compararTallas, tallaDeVariante } from "@/lib/talla";
 import { FichaProductoPagina } from "@/components/inventario/ficha-producto-pagina";
-import type { ProductConProveedor, ProductPhoto, RolId, Supplier } from "@/lib/types";
+import type { FotoDeFicha, ProductConProveedor, RolId, Supplier } from "@/lib/types";
 
 export const metadata = { title: "Producto · Fresafit" };
 
@@ -78,7 +78,11 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
 
   const [familiaRes, fotosRes, mismoSkuRes, proveedoresRes, datosTN] = await Promise.all([
     supabase.from("products").select(COLUMNAS).ilike("nombre", `${prefijo}%`).limit(60),
-    supabase.from("product_photos").select("*").eq("producto_id", producto.id).order("orden"),
+    supabase
+      .from("product_photos")
+      .select("id, producto_id, storage_path, orden")
+      .eq("producto_id", producto.id)
+      .order("orden"),
     /* Renglones que comparten SKU: la misma talla publicada en varios canales.
        Sin SKU el grupo es la ficha sola. */
     sku
@@ -91,7 +95,7 @@ export default async function ProductoPage({ params }: { params: Promise<{ id: s
     leerDatosIntegracion("tiendanube").catch(() => ({}) as Record<string, unknown>),
   ]);
 
-  const fotos = (fotosRes.data ?? []) as ProductPhoto[];
+  const fotos = (fotosRes.data ?? []) as FotoDeFicha[];
   /* El costo se une aquí, desde `producto_costos`. Solo el de ESTA ficha: es la
      única que lo pinta. */
   const [conCosto] = await adjuntarCostos(supabase, [producto], dinero.egresos);

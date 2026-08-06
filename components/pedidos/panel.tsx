@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, Clock, ExternalLink, PackageCheck, Printer, Search, Send, Truck } from "lucide-react";
+import { AlertTriangle, Clock, ExternalLink, Eye, PackageCheck, Printer, Search, Send, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { CANALES, ESTADOS_PEDIDO, esGestor, obtenerCanal, obtenerEstadoPedido } from "@/lib/catalogos";
 import { esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
@@ -44,36 +44,28 @@ function numeroOrden(ref: string): string {
   return ref.split(":")[0];
 }
 
-/* A dónde va el botón de imprimir la guía, mientras el pedido da trabajo.
-   Mercado Libre entrega el PDF directo (ruta interna con el id del envío que
-   deja la sync); Tienda Nube y TikTok no exponen la etiqueta por liga, así que
-   se abre la orden en su panel, que es donde se imprime. */
-function urlImpresionGuia(
-  p: PedidoEnvio,
-  dominioTN?: string | null,
-): { url: string; titulo: string } | null {
+/* La guía imprimible DIRECTA: solo cuando el clic de verdad entrega la
+   etiqueta (hoy: Mercado Libre con id de envío → PDF de su API). Cuando no la
+   hay, la impresora no se pinta — mandar "imprimir" al detalle del pedido
+   confundía, era un "ver pedido" disfrazado. */
+function urlEtiquetaDirecta(p: PedidoEnvio): string | null {
   if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
   if (p.canal === "mercado_libre" && p.envio_id) {
-    return {
-      url: `/api/mercadolibre/etiqueta?envio=${encodeURIComponent(p.envio_id)}`,
-      titulo: "Imprimir la guía (PDF directo de Mercado Libre)",
-    };
+    return `/api/mercadolibre/etiqueta?envio=${encodeURIComponent(p.envio_id)}`;
   }
+  return null;
+}
+
+/* "Ver pedido": la orden en el panel del canal, que es donde se imprime la
+   guía cuando no hay PDF directo. Tienda Nube va por la ruta de etiqueta: hoy
+   redirige al admin (Envío Nube no publica el PDF en la API), y el día que lo
+   publique, este mismo enlace lo entregará sin tocar nada. */
+function urlVerPedido(p: PedidoEnvio, dominioTN?: string | null): string | null {
   const ref = p.referencia_externa ? numeroOrden(p.referencia_externa) : "";
-  /* Tienda Nube: la ruta intenta el PDF de la etiqueta por API y, si la orden
-     aún no lo tiene, redirige a la orden en el admin. */
   if (p.canal === "tienda_nube" && /^\d+$/.test(ref)) {
-    return {
-      url: `/api/tiendanube/etiqueta?orden=${encodeURIComponent(ref)}`,
-      titulo: "Imprimir la guía (PDF si Tienda Nube lo entrega; si no, abre la orden en el panel)",
-    };
+    return `/api/tiendanube/etiqueta?orden=${encodeURIComponent(ref)}`;
   }
-  const url = urlOrdenCanal(p.canal, ref, dominioTN, p.url_orden);
-  if (!url) return null;
-  return {
-    url,
-    titulo: `Imprimir la guía desde el panel de ${obtenerCanal(p.canal)?.nombre ?? "la plataforma"}`,
-  };
+  return urlOrdenCanal(p.canal, ref, dominioTN, p.url_orden);
 }
 
 /* Plazo de despacho de Mercado Libre (la sync lo deja en la venta): solo avisa
@@ -313,7 +305,10 @@ export function PanelPedidos({
       cardAncho: true,
       celda: (p) => {
         const rastreo = urlRastreo(p.paqueteria, p.num_guia, p.url_rastreo);
-        const impresion = urlImpresionGuia(p, dominioTiendaNube);
+        const etiqueta = urlEtiquetaDirecta(p);
+        const pendiente = p.estado === "nuevo" || p.estado === "preparando";
+        const verPedido = pendiente ? urlVerPedido(p, dominioTiendaNube) : null;
+        const nombreCanal = obtenerCanal(p.canal)?.nombre ?? "la plataforma";
         return (
           <div className="flex min-w-0 items-center gap-1.5">
             <button
@@ -343,20 +338,38 @@ export function PanelPedidos({
                 </span>
               )}
             </button>
-            {/* La etiqueta lista para imprimir: en ML sale el PDF directo de su
-                API; en los demás canales abre la orden en el panel, que es donde
-                se imprime. Solo mientras el pedido está por empacar. */}
-            {impresion && (
+            {/* Dos acciones separadas mientras el pedido está por empacar:
+                la impresora SOLO cuando el clic entrega la etiqueta de verdad
+                (ML con id de envío), y "ver pedido" para abrir la orden en el
+                panel del canal — que es donde se imprime cuando no hay PDF. */}
+            {etiqueta && (
               <a
-                href={impresion.url}
+                href={etiqueta}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                title={impresion.titulo}
-                aria-label={impresion.titulo}
+                title="Imprimir la guía (PDF directo de Mercado Libre)"
+                aria-label="Imprimir la guía"
                 className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <Printer className="size-3.5" />
+              </a>
+            )}
+            {verPedido && (
+              <a
+                href={verPedido}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                title={
+                  etiqueta
+                    ? `Ver el pedido en ${nombreCanal}`
+                    : `Ver el pedido en ${nombreCanal} (ahí se imprime la guía)`
+                }
+                aria-label={`Ver el pedido en ${nombreCanal}`}
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <Eye className="size-3.5" />
               </a>
             )}
             {/* Atajo al rastreo de la paquetería: evita copiar la guía a mano en

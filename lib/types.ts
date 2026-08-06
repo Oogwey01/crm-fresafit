@@ -361,6 +361,12 @@ export type ProductPhoto = {
   created_at: string;
 };
 
+/* Lo que de una foto necesita la LISTA: pintarla (`storage_path`), poder
+   borrarla (`id`) y saber de quién es y en qué orden va. El nombre del archivo,
+   su tipo MIME y la fecha de alta no los usa nadie ahí y son varias fotos por
+   producto sobre el catálogo entero, así que no viajan. */
+export type FotoDeFicha = Pick<ProductPhoto, "id" | "producto_id" | "storage_path" | "orden">;
+
 /* Producto tal como llega a la lista de inventario: TODO menos `imagenes`, la
    galería importada de los canales. Pesa ~950 KB sobre el catálogo entero y
    solo hace falta al abrir el diálogo de un producto, que la pide entonces
@@ -369,7 +375,7 @@ export type ProductConProveedor = Omit<Product, "imagenes"> & {
   /* `dias_entrega` viaja aquí porque es la entrada del punto de reorden
      (lib/inventario/reabastecimiento.ts). */
   proveedor: Pick<Supplier, "id" | "nombre" | "dias_entrega"> | null;
-  fotos_propias: ProductPhoto[];
+  fotos_propias: FotoDeFicha[];
 };
 
 /* Movimiento de stock (tabla `stock_log`): ledger append-only de cada escritura
