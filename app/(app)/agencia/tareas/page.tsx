@@ -25,20 +25,32 @@ export default async function TareasAgenciaPage() {
      /tareas: se piden sin filtro (son de TODAS las tareas, de los dos espacios)
      y PostgREST corta en 1000 filas sin avisar. Con una tanda basta mientras no
      se llegue a ese número, así que no cuesta consultas de más. */
-  const [tareasRes, borradasRes, equipoRes, empresasRes, checklist, lecturas, asignados] =
+  const [tareasCrudas, borradasRes, equipoRes, empresasRes, checklist, lecturas, asignados] =
     await Promise.all([
-      supabase
-        .from("tasks")
-        .select("*, responsable:profiles!responsable_id(id, nombre, color)")
-        .eq("espacio", "agencia")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: true }),
+      /* Paginadas igual que en /tareas: las abiertas crecen con el uso y el
+         techo de PostgREST quitaría las tarjetas más viejas sin avisar. */
+      traerTodo<TaskConResponsable>((desde, hasta) =>
+        supabase
+          .from("tasks")
+          .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+          .eq("espacio", "agencia")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true })
+          .order("id")
+          .range(desde, hasta) as unknown as PromiseLike<{
+          data: TaskConResponsable[] | null;
+          error: { message: string } | null;
+        }>,
+      ),
+      /* Papelera acotada a las 100 más recientes, igual que en /tareas: se
+         entra a recuperar algo que se borró hace poco, no a arqueología. */
       supabase
         .from("tasks")
         .select("*, responsable:profiles!responsable_id(id, nombre, color)")
         .eq("espacio", "agencia")
         .not("deleted_at", "is", null)
-        .order("deleted_at", { ascending: false }),
+        .order("deleted_at", { ascending: false })
+        .limit(100),
       supabase.from("profiles").select("id, nombre, rol, area, color").order("nombre"),
       /* Los clientes activos. Va como consulta aparte y NO como embed de `tasks`
          a propósito: son dos o tres filas que se reusan en cada tarjeta, y de
@@ -110,7 +122,7 @@ export default async function TareasAgenciaPage() {
     empresa: t.empresa_id ? (porId.get(t.empresa_id) ?? null) : null,
   });
 
-  const tareas = ((tareasRes.data ?? []) as unknown as TaskConResponsable[]).map(conEquipo);
+  const tareas = tareasCrudas.map(conEquipo);
   const borradas = ((borradasRes.data ?? []) as unknown as TaskConResponsable[]).map(conEquipo);
   const equipo = (equipoRes.data ?? []) as Profile[];
 

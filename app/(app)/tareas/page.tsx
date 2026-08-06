@@ -21,16 +21,28 @@ export default async function TareasPage() {
      de "hay algo nuevo" que no se apagan, solo en las tareas más viejas. Van
      paginadas con traerTodo, que mientras quepan en una tanda sigue costando
      una sola consulta. */
-  const [tareasRes, borradasRes, equipoRes, checklist, lecturas, asignados] =
+  const [tareasCrudas, borradasRes, equipoRes, checklist, lecturas, asignados] =
     await Promise.all([
       /* Solo las de Fresafit: las de la agencia tienen su propio tablero en
-         /agencia/tareas y mezclarlas obligaba a filtrar de cabeza. */
-      supabase
-        .from("tasks")
-        .select("*, responsable:profiles!responsable_id(id, nombre, color)")
-        .eq("espacio", "fresafit")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: true }),
+         /agencia/tareas y mezclarlas obligaba a filtrar de cabeza.
+
+         También paginadas: las abiertas crecen con el uso, y un tablero al que
+         el techo de PostgREST le quita las tarjetas más viejas no avisa de
+         nada. El `id` desempata los created_at repetidos de las altas en
+         lote. */
+      traerTodo<TaskConResponsable>((desde, hasta) =>
+        supabase
+          .from("tasks")
+          .select("*, responsable:profiles!responsable_id(id, nombre, color)")
+          .eq("espacio", "fresafit")
+          .is("deleted_at", null)
+          .order("created_at", { ascending: true })
+          .order("id")
+          .range(desde, hasta) as unknown as PromiseLike<{
+          data: TaskConResponsable[] | null;
+          error: { message: string } | null;
+        }>,
+      ),
       /* Papelera (RLS sigue limitando qué borradas ve cada quien). Acotada a
          las 100 más recientes: viajaba COMPLETA en cada carga del tablero y
          crece para siempre, aunque casi nadie la abre — se entra a ella a
@@ -94,7 +106,7 @@ export default async function TareasPage() {
     coasignados: coasignadosPorTarea.get(t.id) ?? [],
   });
 
-  const tareas = ((tareasRes.data ?? []) as unknown as TaskConResponsable[]).map(conEquipo);
+  const tareas = tareasCrudas.map(conEquipo);
   const borradas = ((borradasRes.data ?? []) as unknown as TaskConResponsable[]).map(conEquipo);
   const equipo = (equipoRes.data ?? []) as Profile[];
 
