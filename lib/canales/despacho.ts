@@ -2,22 +2,21 @@
    lib/canales/despacho.ts — El plazo para entregarle el paquete al transportista
    ----------------------------------------------------------------------------
    Los canales dan una hora límite para despachar y, después, la hora real de
-   salida. Con ese par se decide lo único que le importa a quien empaca: qué
-   pedido va primero. Vivía dentro de lib/mercadolibre/desempeno.ts, de cuando
-   Mercado Libre era el único canal que reportaba el plazo; hoy TikTok Shop
-   también lo manda (`rts_sla_time` / `rts_time`, ver lib/tiktok/ventas.ts) y el
-   criterio tiene que ser el mismo para los dos: un pedido vencido se ve igual
-   sin importar por dónde entró.
+   salida. Con ese par se decide lo único que importa al empacar: qué pedido va
+   primero. Vivía dentro de lib/mercadolibre/desempeno.ts, de cuando Mercado
+   Libre era el único canal que reportaba el plazo; hoy TikTok Shop también lo
+   manda (`rts_sla_time` / `rts_time`, ver lib/tiktok/ventas.ts) y el criterio
+   tiene que ser el mismo para los dos: un pedido vencido se ve igual sin
+   importar por dónde entró.
 
    Los dos datos se guardan por venta en `sales.envio_limite_despacho` y
-   `sales.envio_despachado_en`. Cuando el canal no los reporta quedan nulos y
-   aquí no se inventa nada: sin plazo no hay semáforo.
+   `sales.envio_despachado_en`. Cuando el canal no los reporta —Tienda Nube—
+   quedan nulos y aquí no se inventa nada: sin plazo no hay semáforo.
    ============================================================================ */
 
 /* Lo que el equipo de logística necesita saber de un pedido: si su plazo ya se
    venció, si vence hoy, o si salió tarde. */
-export type SituacionDespacho =
-  "vencido" | "por_vencer" | "a_tiempo" | "tarde" | "cumplido";
+export type SituacionDespacho = "vencido" | "por_vencer" | "a_tiempo" | "tarde" | "cumplido";
 
 /* Cuánto antes del límite empieza a considerarse urgente. Seis horas es menos
    que una jornada: si vence dentro de ese plazo, ya no cabe dejarlo para mañana. */
@@ -38,9 +37,7 @@ export function situacionDespacho(
     return salida > tope ? "tarde" : "cumplido";
   }
   if (ahora > tope) return "vencido";
-  return tope - ahora <= HORAS_URGENTE * 3600 * 1000
-    ? "por_vencer"
-    : "a_tiempo";
+  return tope - ahora <= HORAS_URGENTE * 3600 * 1000 ? "por_vencer" : "a_tiempo";
 }
 
 export const SITUACION: Record<

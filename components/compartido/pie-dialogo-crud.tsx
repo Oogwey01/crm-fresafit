@@ -2,6 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { DialogFooter } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 /* Pie estándar de los diálogos CRUD: Borrar a la izquierda (solo si procede),
    Cancelar + Guardar a la derecha con el "Guardando…" de pending. Era el mismo
@@ -12,6 +13,7 @@ export function PieDialogoCRUD({
   onGuardar,
   onCancelar,
   onBorrar,
+  className,
 }: {
   pending: boolean;
   /** "Crear cliente" / "Guardar cambios" / etc. */
@@ -20,9 +22,11 @@ export function PieDialogoCRUD({
   onCancelar: () => void;
   /** Presente solo cuando se puede borrar (edición + permiso). */
   onBorrar?: () => void;
+  /** Para esconderlo donde el pie lo sustituye otra barra (ver dialogo-pasos). */
+  className?: string;
 }) {
   return (
-    <DialogFooter className="gap-2 sm:justify-between">
+    <DialogFooter className={cn("gap-2 sm:justify-between", className)}>
       <div>
         {onBorrar && (
           <Button variant="destructive" onClick={onBorrar} disabled={pending}>

@@ -3,13 +3,8 @@
 import { useState } from "react";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogoPasos, Paso } from "@/components/compartido/dialogo-pasos";
+import { CampoOpcion } from "@/components/compartido/campo-opcion";
 import {
   Select,
   SelectContent,
@@ -17,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -139,218 +133,200 @@ export function TaskDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{esAgencia ? "Nueva tarea de la Agencia" : "Nueva tarea"}</DialogTitle>
-        </DialogHeader>
+    <DialogoPasos
+      titulo={esAgencia ? "Nueva tarea de la Agencia" : "Nueva tarea"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar="Crear tarea"
+      pending={pending}
+      anchoEscritorio="md:max-w-lg"
+    >
+      <Paso
+        titulo="¿Qué hay que hacer?"
+        valido={Boolean(titulo.trim())}
+        motivoInvalido="Ponle un título a la tarea."
+      >
+        {/* El cliente va primero en la agencia: es la primera decisión ("¿de
+            quién es esto?") y de ahí cuelga todo lo demás. */}
+        {esAgencia && (
+          <div className="flex flex-col gap-1.5">
+            <Label>Cliente</Label>
+            <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(v: string) =>
+                    v === SIN_EMPRESA
+                      ? "De la agencia (sin cliente)"
+                      : (empresas.find((e) => e.id === v)?.nombre ?? "Cliente")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {empresas.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.nombre}
+                  </SelectItem>
+                ))}
+                <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
-        <div className="flex flex-col gap-3">
-          {/* El cliente va primero en la agencia: es la primera decisión ("¿de
-              quién es esto?") y de ahí cuelga todo lo demás. */}
-          {esAgencia && (
-            <div className="flex flex-col gap-1.5">
-              <Label>Cliente</Label>
-              <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="titulo">Título</Label>
+          {/* Sin autoFocus a propósito: el initialFocus de Base UI ya evita
+              enfocar cuando el diálogo se abrió por toque, y así el teclado no
+              salta encima de la pantalla completa del teléfono. */}
+          <Input
+            id="titulo"
+            placeholder="¿Qué hay que hacer?"
+            value={titulo}
+            onChange={(e) => setTitulo(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="descripcion">Descripción (opcional)</Label>
+          <Textarea
+            id="descripcion"
+            rows={3}
+            placeholder="Detalles, contexto…"
+            value={descripcion}
+            onChange={(e) => setDescripcion(e.target.value)}
+          />
+        </div>
+      </Paso>
+
+      <Paso
+        titulo="¿Quién la hace?"
+        ayuda="El área se llena sola con la de la responsable."
+      >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <Label>Responsable</Label>
+            <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
+              <SelectTrigger className="w-full">
+                <SelectValue>
+                  {(v: string) =>
+                    v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
+                {equipo.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* El área la dicta el perfil del responsable: pedirla otra vez al
+              crear la tarea es trabajo de más ("si le creo una tarea a René no
+              es necesario poner el área, su área ya es operaciones"). Se
+              enseña como dato y solo se edita si alguien lo pide. */}
+          <div className="flex flex-col gap-1.5">
+            <Label>Área</Label>
+            {areaManual ? (
+              <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue>
-                    {(v: string) =>
-                      v === SIN_EMPRESA
-                        ? "De la agencia (sin cliente)"
-                        : (empresas.find((e) => e.id === v)?.nombre ?? "Cliente")}
+                    {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {empresas.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="titulo">Título</Label>
-            <Input
-              id="titulo"
-              autoFocus
-              placeholder="¿Qué hay que hacer?"
-              value={titulo}
-              onChange={(e) => setTitulo(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="descripcion">Descripción (opcional)</Label>
-            <Textarea
-              id="descripcion"
-              rows={3}
-              placeholder="Detalles, contexto…"
-              value={descripcion}
-              onChange={(e) => setDescripcion(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Responsable</Label>
-              <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
-                  {equipo.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* El área la dicta el perfil del responsable: pedirla otra vez al
-                crear la tarea es trabajo de más ("si le creo una tarea a René no
-                es necesario poner el área, su área ya es operaciones"). Se
-                enseña como dato y solo se edita si alguien lo pide. */}
-            <div className="flex flex-col gap-1.5">
-              <Label>Área</Label>
-              {areaManual ? (
-                <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {AREAS.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="flex h-9 items-center gap-2 text-sm">
-                  <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
-                  <button
-                    type="button"
-                    onClick={() => setAreaManual(true)}
-                    className="ml-auto text-xs font-medium text-primary hover:underline"
-                  >
-                    cambiar
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>¿Alguien más? (opcional)</Label>
-            <SelectorPersonas
-              equipo={equipo}
-              seleccionados={coasignados}
-              principalId={responsable === SIN_ASIGNAR ? null : responsable}
-              onToggle={toggleCoasignado}
-            />
-            <span className="text-xs text-muted-foreground">
-              Verán la tarea, podrán moverla y les llegarán los avisos igual que a la responsable.
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Prioridad</Label>
-              <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {PRIORIDADES.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
+                  {AREAS.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.nombre}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <Label>Estado</Label>
-              <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => ESTADOS.find((e) => e.id === v)?.nombre ?? "Estado"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {ESTADOS.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="fecha">Fecha límite</Label>
-              <DatePicker id="fecha" value={fecha} onChange={setFecha} limpiable />
-            </div>
-          </div>
-
-          {estado === "atorado" && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="motivo-atorado">¿Por qué está atorada?</Label>
-              <Textarea
-                id="motivo-atorado"
-                rows={2}
-                placeholder="Qué necesitas de vuelta para poder avanzar…"
-                value={motivoAtorado}
-                onChange={(e) => setMotivoAtorado(e.target.value)}
-              />
-              <span className="text-xs text-muted-foreground">
-                Le llegará un aviso a quien la delegó.
-              </span>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="recordatorio">Recordarme el… (opcional)</Label>
-            <Input
-              id="recordatorio"
-              type="datetime-local"
-              value={recordatorio}
-              onChange={(e) => setRecordatorio(e.target.value)}
-            />
-            <span className="text-xs text-muted-foreground">
-              Les llegará un aviso al responsable y a ti (quien delega) en ese momento.
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Etiquetas</Label>
-            <SelectorEtiquetas area={area} seleccionadas={etiquetas} onToggle={toggleEtiqueta} />
+            ) : (
+              <div className="flex h-9 items-center gap-2 text-sm">
+                <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
+                <button
+                  type="button"
+                  onClick={() => setAreaManual(true)}
+                  className="ml-auto text-xs font-medium text-primary hover:underline"
+                >
+                  cambiar
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={pending}>
-            Cancelar
-          </Button>
-          <Button onClick={guardar} disabled={pending}>
-            {pending ? "Guardando…" : "Crear tarea"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <div className="flex flex-col gap-1.5">
+          <Label>¿Alguien más? (opcional)</Label>
+          <SelectorPersonas
+            equipo={equipo}
+            seleccionados={coasignados}
+            principalId={responsable === SIN_ASIGNAR ? null : responsable}
+            onToggle={toggleCoasignado}
+          />
+          <span className="text-xs text-muted-foreground">
+            Verán la tarea, podrán moverla y les llegarán los avisos igual que a la responsable.
+          </span>
+        </div>
+      </Paso>
+
+      <Paso titulo="¿Para cuándo y cómo va?">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <CampoOpcion
+            etiqueta="Prioridad"
+            opciones={PRIORIDADES}
+            valor={prioridad}
+            onCambio={setPrioridad}
+          />
+          <CampoOpcion etiqueta="Estado" opciones={ESTADOS} valor={estado} onCambio={setEstado} />
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="fecha">Fecha límite</Label>
+            <DatePicker id="fecha" value={fecha} onChange={setFecha} limpiable abiertoEnMovil />
+          </div>
+        </div>
+
+        {estado === "atorado" && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="motivo-atorado">¿Por qué está atorada?</Label>
+            <Textarea
+              id="motivo-atorado"
+              rows={2}
+              placeholder="Qué necesitas de vuelta para poder avanzar…"
+              value={motivoAtorado}
+              onChange={(e) => setMotivoAtorado(e.target.value)}
+            />
+            <span className="text-xs text-muted-foreground">
+              Le llegará un aviso a quien la delegó.
+            </span>
+          </div>
+        )}
+      </Paso>
+
+      <Paso
+        titulo="Recordatorio y etiquetas"
+        ayuda="Opcional: puedes crearla así y ajustarlo después."
+      >
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="recordatorio">Recordarme el… (opcional)</Label>
+          <Input
+            id="recordatorio"
+            type="datetime-local"
+            value={recordatorio}
+            onChange={(e) => setRecordatorio(e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">
+            Les llegará un aviso al responsable y a ti (quien delega) en ese momento.
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Etiquetas</Label>
+          <SelectorEtiquetas area={area} seleccionadas={etiquetas} onToggle={toggleEtiqueta} />
+        </div>
+      </Paso>
+    </DialogoPasos>
   );
 }

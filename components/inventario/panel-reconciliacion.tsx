@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { revisarDescuadres } from "@/app/(app)/inventario/actions";
 import { formatearFechaHora } from "@/lib/fecha";
 import { Button } from "@/components/ui/button";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { cn } from "@/lib/utils";
 import { PanelPiloto } from "@/components/inventario/panel-piloto";
 import { FichasDuplicadas } from "@/components/inventario/fichas-duplicadas";
@@ -36,7 +37,7 @@ export function PanelReconciliacion({
   /* Última reconciliación guardada, para mostrarla al instante al entrar. */
   reconciliacionInicial: { resumen: ResumenReconciliacion; creadoEn: string } | null;
 }) {
-  const [revisando, startRevision] = useTransition();
+  const { pending: revisando, ejecutar } = useAccionServidor();
   const [reconciliacion, setReconciliacion] = useState<ResumenReconciliacion | null>(
     reconciliacionInicial?.resumen ?? null,
   );
@@ -44,23 +45,24 @@ export function PanelReconciliacion({
     reconciliacionInicial?.creadoEn ?? null,
   );
 
+  /* Sin `ok`: el aviso se arma en `alExito` porque aquí el resultado decide el
+     TONO, no solo el texto — que todo cuadre es un éxito, y que no cuadre es
+     una advertencia aunque la revisión haya salido bien. */
   function revisar() {
-    startRevision(async () => {
-      const r = await revisarDescuadres();
-      if ("error" in r) {
-        toast.error(r.error);
-        return;
-      }
-      setReconciliacion(r.resumen);
-      setUltimaRevision(r.creadoEn);
-      const n = r.resumen.descuadres.length;
-      const dup = r.resumen.duplicados.length;
-      const repetidas = dup ? ` · ${dup} artículo${dup === 1 ? "" : "s"} con fichas repetidas` : "";
-      if (n === 0) toast.success(`Todo cuadra: ${r.resumen.revisados} productos revisados.${repetidas}`);
-      else
-        toast.warning(
-          `${n} producto${n === 1 ? "" : "s"} con descuadre de ${r.resumen.revisados} revisados.${repetidas}`,
-        );
+    ejecutar(() => revisarDescuadres(), {
+      error: "No se pudo revisar. Revisa tu conexión.",
+      alExito: (r) => {
+        setReconciliacion(r.resumen);
+        setUltimaRevision(r.creadoEn);
+        const n = r.resumen.descuadres.length;
+        const dup = r.resumen.duplicados.length;
+        const repetidas = dup ? ` · ${dup} artículo${dup === 1 ? "" : "s"} con fichas repetidas` : "";
+        if (n === 0) toast.success(`Todo cuadra: ${r.resumen.revisados} productos revisados.${repetidas}`);
+        else
+          toast.warning(
+            `${n} producto${n === 1 ? "" : "s"} con descuadre de ${r.resumen.revisados} revisados.${repetidas}`,
+          );
+      },
     });
   }
 

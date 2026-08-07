@@ -88,8 +88,11 @@ export function PanelCobros({
     return { porCobrar, cobradoSinPagar, pagado, delegado };
   }, [ingresos]);
 
-  function mover(id: string, estado: EstadoIngresoId) {
-    ejecutar(() => cambiarEstadoIngreso(id, estado), {
+  /* Recibe el cobro entero, y no solo su id, para que el aviso pueda nombrar al
+     cliente igual que la columna de la tabla. */
+  function mover(i: AgenciaIngresoConEmpresa, estado: EstadoIngresoId) {
+    ejecutar(() => cambiarEstadoIngreso(i.id, estado), {
+      ok: `${i.empresa?.nombre ?? "Cobro"} → ${obtenerEstadoIngreso(estado)?.nombre ?? estado}.`,
       error: "No se pudo actualizar el cobro.",
     });
   }
@@ -171,7 +174,7 @@ export function PanelCobros({
         return (
           <Select
             value={i.estado}
-            onValueChange={(v) => v && mover(i.id, v as EstadoIngresoId)}
+            onValueChange={(v) => v && mover(i, v as EstadoIngresoId)}
             disabled={pending}
           >
             <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0">

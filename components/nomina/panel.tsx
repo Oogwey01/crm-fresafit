@@ -87,7 +87,10 @@ export function PanelNomina({
   }, [empleados, pagos]);
 
   function alternarPago(id: string, pagado: boolean) {
-    ejecutar(() => marcarPagoPagado(id, pagado), { error: "No se pudo actualizar el pago." });
+    ejecutar(() => marcarPagoPagado(id, pagado), {
+      ok: pagado ? "Pago marcado como pagado." : "Pago marcado como pendiente.",
+      error: "No se pudo actualizar el pago.",
+    });
   }
 
   const columnasPersonas: Columna<NominaEmpleadoConEmpresa>[] = [

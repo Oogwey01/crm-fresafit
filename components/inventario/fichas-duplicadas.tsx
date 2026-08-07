@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Merge } from "lucide-react";
-import { toast } from "sonner";
 import type { GrupoDuplicado } from "@/lib/inventario/duplicados-ml";
 import { fusionarProductosML } from "@/app/(app)/inventario/actions";
 import { Button } from "@/components/ui/button";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { cn } from "@/lib/utils";
 
 /* ============================================================================
@@ -56,28 +56,29 @@ export function FichasDuplicadas({
   grupos: GrupoDuplicado[];
   onFusionado: (clave: string) => void;
 }) {
-  const [pendiente, startFusion] = useTransition();
+  const { pending: pendiente, ejecutar } = useAccionServidor();
   const [trabajando, setTrabajando] = useState<string | null>(null);
 
   function unir(grupo: GrupoDuplicado, ganadorId: string) {
     const perdedores = grupo.fichas.filter((f) => f.id !== ganadorId);
+    const movidas = perdedores.reduce((s, f) => s + f.ventas, 0);
     setTrabajando(grupo.clave);
-    startFusion(async () => {
-      for (const p of perdedores) {
-        const r = await fusionarProductosML(ganadorId, p.id);
-        if ("error" in r) {
-          toast.error(r.error);
-          setTrabajando(null);
-          return;
+    /* Las fichas perdedoras se funden de una en una y se corta al primer error:
+       lo que ya se unió se queda unido, y el mensaje dice cuál falló. */
+    ejecutar(
+      async () => {
+        for (const p of perdedores) {
+          const r = await fusionarProductosML(ganadorId, p.id);
+          if ("error" in r) return r;
         }
-      }
-      const movidas = perdedores.reduce((s, f) => s + f.ventas, 0);
-      toast.success(
-        `Fichas unidas${movidas ? `: ${movidas} venta${movidas === 1 ? "" : "s"} pasaron a la ficha que se quedó` : "."}`,
-      );
-      setTrabajando(null);
-      onFusionado(grupo.clave);
-    });
+        return { ok: true as const };
+      },
+      {
+        ok: `Fichas unidas${movidas ? `: ${movidas} venta${movidas === 1 ? "" : "s"} pasaron a la ficha que se quedó` : "."}`,
+        alExito: () => onFusionado(grupo.clave),
+        siempre: () => setTrabajando(null),
+      },
+    );
   }
 
   if (grupos.length === 0) return null;

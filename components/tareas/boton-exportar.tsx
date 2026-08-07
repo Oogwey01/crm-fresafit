@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Save } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,6 +41,7 @@ export function ExportButton({
   gestor: boolean;
 }) {
   const [descargando, setDescargando] = useState(false);
+  const { ejecutar } = useAccionServidor();
   const fecha = new Date().toISOString().slice(0, 10);
 
   function exportarCSV() {
@@ -79,24 +80,19 @@ export function ExportButton({
     descargar(`tareas-fresafit-${fecha}.csv`, csv, "text/csv;charset=utf-8");
   }
 
-  async function exportarJSON() {
+  function exportarJSON() {
     setDescargando(true);
-    try {
-      const r = await exportarRespaldo();
-      if ("error" in r) {
-        toast.error(r.error);
-        return;
-      }
-      descargar(
-        `respaldo-fresafit-crm-${fecha}.json`,
-        JSON.stringify(r.datos, null, 2),
-        "application/json",
-      );
-    } catch {
-      toast.error("No se pudo generar el respaldo. Revisa tu conexión.");
-    } finally {
-      setDescargando(false);
-    }
+    /* Sin `ok`: la descarga que arranca sola ya es el acuse. */
+    ejecutar(() => exportarRespaldo(), {
+      error: "No se pudo generar el respaldo. Revisa tu conexión.",
+      alExito: (r) =>
+        descargar(
+          `respaldo-fresafit-crm-${fecha}.json`,
+          JSON.stringify(r.datos, null, 2),
+          "application/json",
+        ),
+      siempre: () => setDescargando(false),
+    });
   }
 
   return (

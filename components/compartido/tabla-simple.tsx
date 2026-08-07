@@ -16,6 +16,11 @@ import { cn } from "@/lib/utils";
    MISMO JSX que antes iba en la fila (botones, enlaces, steppers, selects…), así
    que la interacción se conserva en ambos modos. */
 
+/* Controles que viven DENTRO de la fila y a los que no hay que robarles el
+   clic: los +/− de stock, los enlaces, los checkbox. */
+const CONTROLES_INTERNOS =
+  "button,a,select,input,textarea,label,[role=combobox],[role=menuitem],[role=option],[role=checkbox],[role=switch]";
+
 export type Columna<T> = {
   clave: string;
   label: string;
@@ -61,13 +66,24 @@ export function TablaSimple<T>({
   const tituloCol = columnas.find((c) => c.esTitulo);
   const camposCard = columnas.filter((c) => !c.esTitulo);
 
-  /* Ignora el clic de fila cuando cae sobre un control interactivo, para no
-     robarle el clic a los +/− de stock, selects de estado, enlaces, etc. */
-  const clicFila = (row: T) => (e: MouseEvent) => {
+  /* Ignora el clic de fila en dos casos.
+
+     1) Cuando NO nació dentro de la fila. El menú de un Select o de un
+        DropdownMenu se monta en <body> por un portal, pero su clic sigue
+        burbujeando por el ÁRBOL DE REACT hasta este onClick: elegir "En
+        proceso" en la celda de estado abría la tarea. Como el popup no es
+        descendiente en el DOM, `contains` lo caza sea Select, menú, popover o
+        diálogo, sin ir listando roles — los Positioner de Base UI no emiten
+        ninguno, y el popup del Select es role="presentation" cuando lleva
+        <List>, así que cualquier lista de selectores deja huecos.
+     2) Cuando cae sobre un control interno de la propia fila, para no robarle
+        el clic a los +/− de stock, enlaces, checkbox, etc. */
+  const clicFila = (row: T) => (e: MouseEvent<HTMLDivElement>) => {
     if (!onRowClick) return;
-    if ((e.target as HTMLElement).closest("button,a,select,input,textarea,label,[role=combobox],[role=menuitem]")) {
-      return;
-    }
+    const objetivo = e.target as HTMLElement | null;
+    if (!objetivo) return;
+    if (!e.currentTarget.contains(objetivo)) return;
+    if (objetivo.closest(CONTROLES_INTERNOS)) return;
     onRowClick(row);
   };
 

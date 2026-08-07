@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -12,7 +12,6 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,6 +22,7 @@ import {
 import { BadgeStock } from "@/components/inventario/badge-stock";
 import { Seccion } from "@/components/compartido/seccion";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
 import { avisarStockAjustado } from "@/lib/inventario/aviso-stock";
@@ -209,7 +209,7 @@ export function ProductoVista({
      deja la sync). Sin él no se puede armar el enlace a la publicación de TN. */
   dominioTiendaNube?: string | null;
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [subiendo, setSubiendo] = useState(false);
   const [seleccionada, setSeleccionada] = useState(0);
   const archivoRef = useRef<HTMLInputElement>(null);
@@ -286,48 +286,37 @@ export function ProductoVista({
   function cambiarStock(delta: number) {
     const nuevo = producto.stock + delta;
     if (nuevo < 0) return;
-    startTransition(async () => {
-      try {
-        const r = await ajustarStock(producto.id, nuevo);
-        if ("error" in r) toast.error(r.error);
-        else
-          avisarStockAjustado({
-            productoId: producto.id,
-            nombre: producto.nombre,
-            anterior: producto.stock,
-            nuevo,
-            escrituraCanales,
-          });
-      } catch {
-        toast.error("No se pudo ajustar el stock. Revisa tu conexión.");
-      }
+    /* Sin `ok`: el aviso del stock lo arma `avisarStockAjustado`, que deduplica
+       por producto y añade a dónde se escribió. */
+    ejecutar(() => ajustarStock(producto.id, nuevo), {
+      error: "No se pudo ajustar el stock. Revisa tu conexión.",
+      alExito: () =>
+        avisarStockAjustado({
+          productoId: producto.id,
+          nombre: producto.nombre,
+          anterior: producto.stock,
+          nuevo,
+          escrituraCanales,
+        }),
     });
   }
 
-  async function subir(file: File) {
+  function subir(file: File) {
     setSubiendo(true);
-    try {
-      const datos = new FormData();
-      datos.set("file", file);
-      const r = await subirFotoProducto(producto.id, datos);
-      if ("error" in r) toast.error(r.error);
-      else toast.success("Foto subida.");
-    } catch {
-      toast.error("No se pudo subir la foto. Revisa tu conexión.");
-    } finally {
-      setSubiendo(false);
-    }
+    const datos = new FormData();
+    datos.set("file", file);
+    ejecutar(() => subirFotoProducto(producto.id, datos), {
+      ok: "Foto subida.",
+      error: "No se pudo subir la foto. Revisa tu conexión.",
+      siempre: () => setSubiendo(false),
+    });
   }
 
   function quitar(id: string, storagePath: string) {
-    startTransition(async () => {
-      try {
-        const r = await borrarFotoProducto(id, storagePath);
-        if ("error" in r) toast.error(r.error);
-        else setSeleccionada(0);
-      } catch {
-        toast.error("No se pudo quitar la foto. Revisa tu conexión.");
-      }
+    ejecutar(() => borrarFotoProducto(id, storagePath), {
+      ok: "Foto quitada.",
+      error: "No se pudo quitar la foto. Revisa tu conexión.",
+      alExito: () => setSeleccionada(0),
     });
   }
 

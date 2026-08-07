@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
+import { avisoEstadoTarea } from "@/components/tareas/avisos";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -334,7 +335,7 @@ export function TaskDetail({
   /* --- Estado (miembro responsable): mover al vuelo --- */
   function ejecutarEstadoMiembro(nuevo: EstadoId, motivo: string | null) {
     setEstado(nuevo);
-    accion(() => moverTarea(tarea.id, nuevo, motivo));
+    accion(() => moverTarea(tarea.id, nuevo, motivo), avisoEstadoTarea(nuevo));
   }
   function cambiarEstadoMiembro(nuevo: EstadoId) {
     if (nuevo === "atorado") {
@@ -347,6 +348,8 @@ export function TaskDetail({
   function toggleEtiquetaGestor(id: string) {
     const next = etiquetas.includes(id) ? etiquetas.filter((x) => x !== id) : [...etiquetas, id];
     setEtiquetas(next);
+    /* Sin toast: se dispara por cada chip que se enciende o apaga, y el propio
+       chip ya cambia de color. */
     accion(() => guardarEtiquetas(tarea.id, next));
   }
 
@@ -361,7 +364,7 @@ export function TaskDetail({
   function agregarSubtarea() {
     const texto = nuevaSubtarea.trim();
     if (!texto) return;
-    accion(() => agregarChecklist(tarea.id, texto));
+    accion(() => agregarChecklist(tarea.id, texto), "Subtarea agregada.");
     setNuevaSubtarea("");
   }
 
@@ -655,6 +658,8 @@ export function TaskDetail({
                     )}
                     {checklist.map((it) => (
                       <label key={it.id} className="flex items-center gap-2.5 rounded-md px-1.5 py-2 hover:bg-muted/60 md:gap-2 md:py-1.5">
+                        {/* Sin toast al marcar: se recorren cinco subtareas
+                            seguidas y el propio checkbox ya es la confirmación. */}
                         <input
                           type="checkbox"
                           className="size-[18px] shrink-0 md:size-4"
@@ -667,7 +672,7 @@ export function TaskDetail({
                         </span>
                         {puedeContribuir && (
                           <button className="text-xs text-muted-foreground hover:text-destructive"
-                            onClick={() => accion(() => borrarChecklist(it.id))}>✕</button>
+                            onClick={() => accion(() => borrarChecklist(it.id), "Subtarea borrada.")}>✕</button>
                         )}
                       </label>
                     ))}
@@ -741,7 +746,7 @@ export function TaskDetail({
                             <button
                               type="button"
                               aria-label={`Quitar ${a.nombre}`}
-                              onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path))}
+                              onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path), "Archivo quitado.")}
                               className="absolute -right-1.5 -top-1.5 flex size-6 items-center justify-center rounded-full border bg-card text-xs text-muted-foreground shadow-sm hover:text-destructive"
                             >
                               ✕
@@ -759,7 +764,7 @@ export function TaskDetail({
                         </button>
                         {(gestor || a.autor === currentUserId) && (
                           <button className="text-xs text-muted-foreground hover:text-destructive"
-                            onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path))}>✕</button>
+                            onClick={() => accion(() => borrarAdjunto(a.id, a.storage_path), "Archivo quitado.")}>✕</button>
                         )}
                       </div>
                     ))}
@@ -808,7 +813,7 @@ export function TaskDetail({
                               <span>{formatearFechaHora(c.created_at)}</span>
                               {(gestor || mio) && (
                                 <button className="ml-auto hover:text-destructive"
-                                  onClick={() => accion(() => borrarComentario(c.id))}>✕</button>
+                                  onClick={() => accion(() => borrarComentario(c.id), "Comentario borrado.")}>✕</button>
                               )}
                             </div>
                             <p className="whitespace-pre-wrap text-sm">{c.texto}</p>
@@ -987,7 +992,7 @@ export function TaskDetail({
                         </a>
                         {puedeContribuir && (
                           <button className="ml-auto shrink-0 text-xs text-muted-foreground hover:text-destructive"
-                            onClick={() => accion(() => borrarEnlace(l.id))}>✕</button>
+                            onClick={() => accion(() => borrarEnlace(l.id), "Enlace borrado.")}>✕</button>
                         )}
                       </div>
                     ))}
@@ -1001,7 +1006,7 @@ export function TaskDetail({
                       <Button variant="outline" size="sm" className="h-10 w-full md:h-9"
                         onClick={() => {
                           if (!enlaceUrl.trim()) return;
-                          accion(() => agregarEnlace(tarea.id, enlaceTitulo, enlaceUrl));
+                          accion(() => agregarEnlace(tarea.id, enlaceTitulo, enlaceUrl), "Enlace agregado.");
                           setEnlaceTitulo(""); setEnlaceUrl("");
                         }}>Agregar</Button>
                     </div>

@@ -55,7 +55,20 @@ export default function RootLayout({
             obligar a nadie a elegir. */}
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
-          <Toaster richColors position="top-center" />
+          {/* Sin `richColors`: el toast es una superficie neutra y el color lo
+              pone solo el icono (el aspecto vive en `.cn-toast`, globals.css).
+              En el teléfono el header de navegación es sticky, así que el toast
+              se baja para no caerle encima. */}
+          <Toaster
+            position="top-center"
+            gap={10}
+            mobileOffset={{
+              top: "calc(env(safe-area-inset-top) + 4rem)",
+              left: "0.75rem",
+              right: "0.75rem",
+              bottom: "1rem",
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>

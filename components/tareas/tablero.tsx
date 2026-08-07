@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { useOptimistic, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { AlertTriangle, ChevronDown, Clapperboard, Clock, Info, List, LayoutGrid, Calendar as CalendarIcon, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { ESTADOS, AREAS, ROLES, esGestor, esInterno } from "@/lib/catalogos";
+import { ESTADOS, AREAS, ROLES, esGestor, esInterno, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
 import {
   moverTarea,
@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { avisoEstadoTarea } from "@/components/tareas/avisos";
 import { Column } from "@/components/tareas/columna";
 import { TaskCard } from "@/components/tareas/tarjeta-tarea";
 import { TaskDialog, type TaskInicial } from "@/components/tareas/dialogo-tarea";
@@ -171,7 +173,7 @@ export function Board({
   const [filtroEtiquetas, setFiltroEtiquetas] = useState<string[]>([]);
   const [soloVencidas, setSoloVencidas] = useState(false);
   const [ordenActividad, setOrdenActividad] = useState(false);
-  const [, startTransition] = useTransition();
+  const { ejecutar } = useAccionServidor();
 
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
   /* Prellenado de la tarea nueva cuando se abre desde una plantilla. */
@@ -204,17 +206,14 @@ export function Board({
   );
 
   function ejecutarMover(id: string, nuevoEstado: EstadoId, motivo: string | null) {
-    startTransition(async () => {
-      aplicarMovimiento({
-        id,
-        patch: { estado: nuevoEstado, motivo_atorado: nuevoEstado === "atorado" ? motivo : null },
-      });
-      try {
-        const r = await moverTarea(id, nuevoEstado, motivo);
-        if ("error" in r) toast.error("No se pudo mover: " + r.error);
-      } catch {
-        toast.error("No se pudo mover la tarea. Revisa tu conexión.");
-      }
+    ejecutar(() => moverTarea(id, nuevoEstado, motivo), {
+      optimista: () =>
+        aplicarMovimiento({
+          id,
+          patch: { estado: nuevoEstado, motivo_atorado: nuevoEstado === "atorado" ? motivo : null },
+        }),
+      ok: avisoEstadoTarea(nuevoEstado),
+      error: "No se pudo mover la tarea. Revisa tu conexión.",
     });
   }
 
@@ -241,20 +240,17 @@ export function Board({
     const perfil = responsableId
       ? (equipo.find((p) => p.id === responsableId) ?? null)
       : null;
-    startTransition(async () => {
-      aplicarMovimiento({
-        id,
-        patch: {
-          responsable_id: responsableId,
-          responsable: perfil ? { id: perfil.id, nombre: perfil.nombre, color: perfil.color } : null,
-        },
-      });
-      try {
-        const r = await reasignarTarea(id, responsableId);
-        if ("error" in r) toast.error(r.error);
-      } catch {
-        toast.error("No se pudo reasignar. Revisa tu conexión.");
-      }
+    ejecutar(() => reasignarTarea(id, responsableId), {
+      optimista: () =>
+        aplicarMovimiento({
+          id,
+          patch: {
+            responsable_id: responsableId,
+            responsable: perfil ? { id: perfil.id, nombre: perfil.nombre, color: perfil.color } : null,
+          },
+        }),
+      ok: perfil ? `Asignada a ${perfil.nombre}.` : "Tarea sin responsable.",
+      error: "No se pudo reasignar. Revisa tu conexión.",
     });
   }
 
@@ -267,27 +263,19 @@ export function Board({
       return;
     }
     const empresa = empresaId ? (empresas.find((e) => e.id === empresaId) ?? null) : null;
-    startTransition(async () => {
-      aplicarMovimiento({ id, patch: { empresa_id: empresaId, empresa } });
-      try {
-        const r = await reasignarEmpresa(id, empresaId);
-        if ("error" in r) toast.error(r.error);
-      } catch {
-        toast.error("No se pudo cambiar de cliente. Revisa tu conexión.");
-      }
+    ejecutar(() => reasignarEmpresa(id, empresaId), {
+      optimista: () => aplicarMovimiento({ id, patch: { empresa_id: empresaId, empresa } }),
+      ok: empresa ? `Ahora es de ${empresa.nombre}.` : "Ahora es de la agencia.",
+      error: "No se pudo cambiar de cliente. Revisa tu conexión.",
     });
   }
 
   /* Cambio rápido de prioridad desde una celda (solo gestor; sin optimismo, se
      refresca al revalidar). */
   function cambiarPrio(id: string, prioridad: PrioridadId) {
-    startTransition(async () => {
-      try {
-        const r = await cambiarPrioridad(id, prioridad);
-        if ("error" in r) toast.error(r.error);
-      } catch {
-        toast.error("No se pudo cambiar la prioridad.");
-      }
+    ejecutar(() => cambiarPrioridad(id, prioridad), {
+      ok: `Prioridad cambiada a ${obtenerPrioridad(prioridad)?.nombre ?? prioridad}.`,
+      error: "No se pudo cambiar la prioridad.",
     });
   }
 

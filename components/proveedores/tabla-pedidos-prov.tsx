@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
-import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +25,7 @@ import {
 } from "@/app/(app)/proveedores/actions";
 import type { EstadoPedidoProvId, SupplierOrderConDetalle } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { cn } from "@/lib/utils";
 
 const COLS = "grid-cols-[140px_minmax(180px,1fr)_110px_120px_130px_110px]";
@@ -57,7 +57,7 @@ export function TablaPedidosProv({
   pedidos: SupplierOrderConDetalle[];
   onEditar: (p: SupplierOrderConDetalle) => void;
 }) {
-  const [, startTransition] = useTransition();
+  const { ejecutar } = useAccionServidor();
   /* Pedido en proceso de "marcar recibido" (abre la pregunta del stock). */
   const [recibir, setRecibir] = useState<SupplierOrderConDetalle | null>(null);
   const [pendingRecibir, setPendingRecibir] = useState(false);
@@ -69,32 +69,21 @@ export function TablaPedidosProv({
       setRecibir(p);
       return;
     }
-    startTransition(async () => {
-      try {
-        const r = await cambiarEstadoPedidoProv(p.id, estado);
-        if ("error" in r) toast.error(r.error);
-      } catch {
-        toast.error("No se pudo actualizar el pedido. Revisa tu conexión.");
-      }
+    ejecutar(() => cambiarEstadoPedidoProv(p.id, estado), {
+      ok: `${p.proveedor?.nombre ?? "Pedido"} → ${obtenerEstadoPedidoProv(estado)?.nombre ?? estado}.`,
+      error: "No se pudo actualizar el pedido. Revisa tu conexión.",
     });
   }
 
-  async function confirmarRecibir(sumarStock: boolean) {
+  function confirmarRecibir(sumarStock: boolean) {
     if (!recibir) return;
     setPendingRecibir(true);
-    try {
-      const r = await recibirPedidoProv(recibir.id, sumarStock);
-      if ("error" in r) {
-        toast.error(r.error);
-        return;
-      }
-      toast.success(sumarStock ? "Pedido recibido y stock actualizado." : "Pedido marcado como recibido.");
-      setRecibir(null);
-    } catch {
-      toast.error("No se pudo recibir el pedido. Revisa tu conexión.");
-    } finally {
-      setPendingRecibir(false);
-    }
+    ejecutar(() => recibirPedidoProv(recibir.id, sumarStock), {
+      ok: sumarStock ? "Pedido recibido y stock actualizado." : "Pedido marcado como recibido.",
+      error: "No se pudo recibir el pedido. Revisa tu conexión.",
+      alExito: () => setRecibir(null),
+      siempre: () => setPendingRecibir(false),
+    });
   }
 
   if (pedidos.length === 0) {

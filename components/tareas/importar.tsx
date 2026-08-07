@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { AREAS } from "@/lib/catalogos";
 import { importarTareas, type TaskInput } from "@/app/(app)/tareas/actions";
 import type { Profile, AreaId, EspacioId, PrioridadId } from "@/lib/types";
@@ -95,7 +96,7 @@ export function ImportarTareas({
 }) {
   const [abierto, setAbierto] = useState(false);
   const [texto, setTexto] = useState("");
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
 
   const filas = useMemo(() => (abierto ? parsear(texto, equipo) : []), [texto, equipo, abierto]);
   const conTitulo = filas.filter((f) => f.titulo);
@@ -110,18 +111,10 @@ export function ImportarTareas({
       toast.error("No hay renglones con título para importar.");
       return;
     }
-    startTransition(async () => {
-      try {
-        const r = await importarTareas(conTitulo.map((f) => aTaskInput(f, espacio, empresaId)));
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success(`${r.creadas} ${r.creadas === 1 ? "tarea creada" : "tareas creadas"}.`);
-        cerrar();
-      } catch {
-        toast.error("No se pudo importar. Revisa tu conexión.");
-      }
+    ejecutar(() => importarTareas(conTitulo.map((f) => aTaskInput(f, espacio, empresaId))), {
+      ok: (r) => `${r.creadas} ${r.creadas === 1 ? "tarea creada" : "tareas creadas"}.`,
+      error: "No se pudo importar. Revisa tu conexión.",
+      alExito: cerrar,
     });
   }
 

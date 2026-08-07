@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/app/(app)/inventario/actions";
 import type { ConteoConProducto, ProductConProveedor, Profile } from "@/lib/types";
 import { DatePicker } from "@/components/compartido/date-picker";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { cn } from "@/lib/utils";
 
 const PRODUCTO_LIBRE = "libre";
@@ -37,7 +38,7 @@ export function ConteoFisico({
   productos: ProductConProveedor[];
   equipo: Profile[];
 }) {
-  const [pending, startTransition] = useTransition();
+  const { pending, ejecutar } = useAccionServidor();
   const [productoId, setProductoId] = useState<string>(PRODUCTO_LIBRE);
   const [descripcion, setDescripcion] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -70,29 +71,17 @@ export function ConteoFisico({
       nota,
       fecha,
     };
-    startTransition(async () => {
-      try {
-        const r = await registrarConteo(input);
-        if ("error" in r) {
-          toast.error(r.error);
-          return;
-        }
-        toast.success("Conteo registrado.");
-        limpiar();
-      } catch {
-        toast.error("No se pudo guardar el conteo. Revisa tu conexión.");
-      }
+    ejecutar(() => registrarConteo(input), {
+      ok: "Conteo registrado.",
+      error: "No se pudo guardar el conteo. Revisa tu conexión.",
+      alExito: limpiar,
     });
   }
 
   function quitar(id: string) {
-    startTransition(async () => {
-      try {
-        const r = await borrarConteo(id);
-        if ("error" in r) toast.error(r.error);
-      } catch {
-        toast.error("No se pudo borrar el conteo.");
-      }
+    ejecutar(() => borrarConteo(id), {
+      ok: "Conteo borrado.",
+      error: "No se pudo borrar el conteo.",
     });
   }
 

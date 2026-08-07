@@ -469,7 +469,10 @@ export function PedidoProvDialog({
                       <button
                         type="button"
                         onClick={() =>
-                          ejecutar(() => borrarPagoPedido(p.id, p.comprobante_path), { alExito: recargar })
+                          ejecutar(() => borrarPagoPedido(p.id, p.comprobante_path), {
+                            ok: "Pago borrado.",
+                            alExito: recargar,
+                          })
                         }
                         className="ml-auto text-muted-foreground hover:text-destructive"
                         aria-label="Borrar pago"
@@ -523,7 +526,10 @@ export function PedidoProvDialog({
                         type="checkbox"
                         checked={inc.resuelto}
                         onChange={(e) =>
-                          ejecutar(() => resolverIncidenciaPedido(inc.id, e.target.checked), { alExito: recargar })
+                          ejecutar(() => resolverIncidenciaPedido(inc.id, e.target.checked), {
+                            ok: e.target.checked ? "Incidencia resuelta." : "Incidencia reabierta.",
+                            alExito: recargar,
+                          })
                         }
                         title="Marcar resuelta"
                         className="size-4 accent-primary"
@@ -534,7 +540,12 @@ export function PedidoProvDialog({
                       <span className="shrink-0 text-[12px] text-muted-foreground">{formatearFecha(inc.fecha)}</span>
                       <button
                         type="button"
-                        onClick={() => ejecutar(() => borrarIncidenciaPedido(inc.id), { alExito: recargar })}
+                        onClick={() =>
+                          ejecutar(() => borrarIncidenciaPedido(inc.id), {
+                            ok: "Incidencia borrada.",
+                            alExito: recargar,
+                          })
+                        }
                         className="text-muted-foreground hover:text-destructive"
                         aria-label="Borrar incidencia"
                       >

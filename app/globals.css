@@ -147,3 +147,103 @@
     @apply font-sans;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Toast (sonner). `cn-toast` es la clase que components/ui/sonner.tsx le pone a
+   cada toast; el aspecto vive AQUÍ porque lo que cambia es el TEMA, no el
+   componente, y components/ui/ es shadcn.
+
+   Las tres condiciones repetidas en cada selector no son adorno: sonner inyecta
+   su CSS en un <style> al final del <head> en tiempo de ejecución, así que a
+   igualdad de peso gana él por orden. Con la clase encima pesamos una pizca más
+   y deja de importar quién se cargó primero.
+
+   El toast es una superficie NEUTRA — el mismo --popover con anillo que usan el
+   diálogo y el popover — y el color lo pone solo el icono. Los fondos
+   semánticos de `richColors` eran un segundo idioma visual dentro de la misma
+   pantalla; por eso se apagó desde el <Toaster>.
+   --------------------------------------------------------------------------- */
+
+.cn-toast[data-sonner-toast][data-styled="true"] {
+  /* Tipografía del CRM. sonner fija su propia pila en [data-sonner-toaster] y
+     el toast la heredaba: declararla aquí la gana sin pelear especificidad. */
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
+  /* `anywhere` de sonner parte palabras a la mitad; en español se lee fatal. */
+  overflow-wrap: break-word;
+
+  /* Superficie: la del diálogo. El radio es --radius-xl (0.625rem * 1.4 = 14px),
+     escrito con calc() para no depender de que Tailwind emita el token. */
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  width: var(--width);
+  border: 0;
+  border-radius: calc(var(--radius) * 1.4);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent),
+    0 12px 32px -14px color-mix(in oklab, var(--foreground) 35%, transparent);
+
+  /* sonner encaja SU icono de 16px con márgenes negativos; con el nuestro
+     (lucide, del wrapper) descuadra el renglón. */
+  --toast-icon-margin-start: 0px;
+  --toast-icon-margin-end: 2px;
+  --toast-svg-margin-start: 0px;
+  --toast-svg-margin-end: 0px;
+
+  /* Único punto de color del toast. El neutro es el default. */
+  --cn-toast-icono: var(--muted-foreground);
+}
+
+.cn-toast[data-sonner-toast][data-styled="true"][data-type="success"] { --cn-toast-icono: #16a34a; }
+.cn-toast[data-sonner-toast][data-styled="true"][data-type="warning"] { --cn-toast-icono: #d97706; }
+.cn-toast[data-sonner-toast][data-styled="true"][data-type="info"]    { --cn-toast-icono: #0984e3; }
+.cn-toast[data-sonner-toast][data-styled="true"][data-type="error"]   { --cn-toast-icono: var(--destructive); }
+
+/* En oscuro los mismos colores se suben un escalón: sobre --popover oscuro el
+   #16a34a se apaga. --destructive ya cambia solo en el bloque .dark. */
+.dark .cn-toast[data-sonner-toast][data-styled="true"][data-type="success"] { --cn-toast-icono: #22c55e; }
+.dark .cn-toast[data-sonner-toast][data-styled="true"][data-type="warning"] { --cn-toast-icono: #f59e0b; }
+.dark .cn-toast[data-sonner-toast][data-styled="true"][data-type="info"]    { --cn-toast-icono: #4aa3e8; }
+
+.cn-toast[data-sonner-toast][data-styled="true"] [data-icon] {
+  color: var(--cn-toast-icono);
+  /* Con align-items:flex-start el icono de 16px queda alto frente a un renglón
+     de ~19px; estos 2px lo sientan sobre la línea base del título. */
+  margin-top: 2px;
+}
+
+.cn-toast[data-sonner-toast][data-styled="true"] [data-content] {
+  gap: 2px;
+  min-width: 0;
+}
+
+.cn-toast[data-sonner-toast][data-styled="true"] [data-title] {
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--popover-foreground);
+}
+
+/* sonner pinta la descripción con un #3f3f3f fijo en claro y un gris propio en
+   oscuro; los dos se salen de la escala del CRM. */
+.cn-toast[data-sonner-toast][data-styled="true"] [data-description] {
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+}
+
+/* El foco del toast traía un aro negro semitransparente. */
+.cn-toast[data-sonner-toast][data-styled="true"]:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--ring),
+    0 12px 32px -14px color-mix(in oklab, var(--foreground) 35%, transparent);
+}
