@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, FilterX } from "lucide-react";
 import { agruparEnFamilias } from "@/lib/inventario/familia";
-import { estadoStock } from "@/lib/inventario/stock";
 import { portadaProducto } from "@/lib/inventario/fotos";
 import { tallaDeVariante } from "@/lib/talla";
 import { formatearMXN } from "@/lib/moneda";
 import { Button } from "@/components/ui/button";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { useAjusteStock } from "@/components/inventario/usar-ajuste-stock";
 import {
   ControlStock,
@@ -30,19 +30,18 @@ export function TablaProductosAgrupada({
   productos,
   totalCatalogo,
   busqueda,
-  filtroTipo,
-  filtroStock,
   filtrosActivos,
   onLimpiarFiltros,
   escrituraCanales,
   verPrecio,
   onAbrir,
 }: {
+  /* Ya viene recortada por TODOS los filtros del panel, búsqueda incluida
+     (useFiltrosProductos): aquí solo se agrupa en familias y se pinta. */
   productos: ProductConProveedor[];
   totalCatalogo: number;
+  /* Solo para señalar la coincidencia en el renglón; el recorte ya está hecho. */
   busqueda: string;
-  filtroTipo: string;
-  filtroStock: string;
   filtrosActivos: string[];
   onLimpiarFiltros: () => void;
   escrituraCanales: boolean;
@@ -55,18 +54,7 @@ export function TablaProductosAgrupada({
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
 
   const q = busqueda.trim().toLowerCase();
-  const visibles = productos.filter(
-    (p) =>
-      (filtroTipo === "todos" || p.tipo === filtroTipo) &&
-      (filtroStock === "todos" || estadoStock(p) === filtroStock) &&
-      (!q ||
-        p.nombre.toLowerCase().includes(q) ||
-        (p.sku ?? "").toLowerCase().includes(q) ||
-        (p.variante ?? "").toLowerCase().includes(q) ||
-        (p.proveedor?.nombre ?? "").toLowerCase().includes(q)),
-  );
-
-  const familias = agruparEnFamilias(visibles);
+  const familias = agruparEnFamilias(productos);
 
   if (familias.length === 0) {
     if (totalCatalogo === 0) {
@@ -111,9 +99,11 @@ export function TablaProductosAgrupada({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* Cuántos productos quedan lo dice el buscador; lo que solo se sabe aquí
+          es en cuántas fichas se plegaron esas variantes. */}
       <p className="text-[12.5px] text-muted-foreground">
-        Mostrando {visibles.length} de {totalCatalogo} productos
-        {familias.length !== visibles.length ? ` (${familias.length} agrupados)` : ""}
+        {familias.length} {familias.length === 1 ? "ficha" : "fichas"} · {productos.length}{" "}
+        {productos.length === 1 ? "variante" : "variantes"}
       </p>
       <div className="overflow-hidden rounded-xl border">
         {/* Cabecera (solo escritorio: en móvil cada fila ya se explica sola) */}
@@ -130,8 +120,14 @@ export function TablaProductosAgrupada({
         </div>
 
         {familias.map((f) => {
-          const abierta = abiertas.has(f.clave);
           const unaSola = f.variantes.length === 1;
+          /* Si buscaste un SKU o una talla, la ficha salió por algo que está
+             DENTRO y que plegada no se ve: se despliega sola para enseñar por
+             qué. Cuando pasa eso, el set invierte su significado y guarda las
+             que cerraste a mano —si no, el botón no podría cerrarlas—. */
+          const porDentro =
+            q !== "" && !unaSola && !f.nombre.toLowerCase().includes(q);
+          const abierta = porDentro ? !abiertas.has(f.clave) : abiertas.has(f.clave);
           const principal = f.variantes[0];
           /* Con una sola variante no hay nada que desplegar: la fila se comporta
              igual que en la vista desglosada y abre la ficha directamente. */
@@ -176,11 +172,16 @@ export function TablaProductosAgrupada({
                       className="block max-w-full truncate text-left text-[14px] font-medium hover:underline"
                       title={f.nombre}
                     >
-                      {f.nombre}
+                      <Resaltado texto={f.nombre} busca={busqueda} />
                     </button>
                     <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
                       {unaSola ? (
-                        <span className="truncate">{principal.variante ?? principal.sku ?? "—"}</span>
+                        <span className="truncate">
+                          <Resaltado
+                            texto={principal.variante ?? principal.sku ?? "—"}
+                            busca={busqueda}
+                          />
+                        </span>
                       ) : (
                         <span>
                           {f.variantes.length}{" "}
@@ -244,10 +245,12 @@ export function TablaProductosAgrupada({
                             className="min-w-0 truncate text-left text-[13.5px] hover:underline"
                             title={`${p.nombre}${p.variante ? ` — ${p.variante}` : ""}`}
                           >
-                            <span className="font-medium">{talla ?? p.variante ?? "Única"}</span>
+                            <span className="font-medium">
+                              <Resaltado texto={talla ?? p.variante ?? "Única"} busca={busqueda} />
+                            </span>
                             {p.sku && (
                               <span className="ml-2 font-mono text-[12px] text-muted-foreground">
-                                {p.sku}
+                                <Resaltado texto={p.sku} busca={busqueda} />
                               </span>
                             )}
                             {!p.activo && (

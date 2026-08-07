@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { ImportarInsumos } from "@/components/bodega/importar-insumos";
 import { DialogoInsumo } from "@/components/bodega/dialogo-insumo";
@@ -122,9 +124,14 @@ export function SeccionInsumos({
       esTitulo: true,
       celda: (i) => (
         <div className="min-w-0">
-          <div className="truncate font-semibold">{i.nombre}</div>
+          <div className="truncate font-semibold">
+            <Resaltado texto={i.nombre} busca={busqueda} />
+          </div>
           <div className="truncate text-[12.5px] text-muted-foreground">
-            {[i.empresa, i.dimensiones].filter(Boolean).join(" · ") || "—"}
+            <Resaltado
+              texto={[i.empresa, i.dimensiones].filter(Boolean).join(" · ") || "—"}
+              busca={busqueda}
+            />
           </div>
         </div>
       ),
@@ -253,58 +260,61 @@ export function SeccionInsumos({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={filtro} onValueChange={(v) => setFiltro(v ?? "todas")}>
-          <SelectTrigger className="w-[210px] bg-card">
-            <SelectValue>
-              {(v: string) =>
-                v === "todas"
-                  ? "Todas las secciones"
-                  : (obtenerCategoriaInsumo(v)?.nombre ?? "Sección")
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas las secciones</SelectItem>
-            {/* El punto de color hace de leyenda: es dónde se aprende qué
-                sección es cada tinte de la tabla. */}
-            {CATEGORIAS_INSUMO.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                <span className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: c.color }}
-                  />
-                  {c.nombre}
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <BarraHerramientas className="mb-0">
         <CampoBusqueda
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar insumo, proveedor o medida…"
+          conteo={{ visibles: visibles.length, total: insumos.length, unidad: "insumos" }}
         />
-        <p className="text-[13.5px] text-muted-foreground">
-          {puedeMover
-            ? "Puedes registrar entradas y salidas."
-            : "Puedes consultar el inventario; para descontar necesitas permiso de dirección."}
-        </p>
-        {bajos > 0 && <Pastilla nombre={`${bajos} por acabarse`} color="#d63031" />}
-        <div className="flex-1" />
-        {admin && (
-          <>
-            <ImportarInsumos />
-            <Button variant="outline" onClick={() => setDialogoPermisos(true)}>
-              <KeyRound className="size-4" /> Quién descuenta
-            </Button>
-            <Button onClick={() => setDialogo("nuevo")}>
-              <Plus className="size-4" /> Nuevo insumo
-            </Button>
-          </>
-        )}
-      </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={filtro} onValueChange={(v) => setFiltro(v ?? "todas")}>
+            <SelectTrigger className="w-[210px] bg-card">
+              <SelectValue>
+                {(v: string) =>
+                  v === "todas"
+                    ? "Todas las secciones"
+                    : (obtenerCategoriaInsumo(v)?.nombre ?? "Sección")
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas las secciones</SelectItem>
+              {/* El punto de color hace de leyenda: es dónde se aprende qué
+                  sección es cada tinte de la tabla. */}
+              {CATEGORIAS_INSUMO.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="size-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: c.color }}
+                    />
+                    {c.nombre}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[13.5px] text-muted-foreground">
+            {puedeMover
+              ? "Puedes registrar entradas y salidas."
+              : "Puedes consultar el inventario; para descontar necesitas permiso de dirección."}
+          </p>
+          {bajos > 0 && <Pastilla nombre={`${bajos} por acabarse`} color="#d63031" />}
+          <div className="flex-1" />
+          {admin && (
+            <>
+              <ImportarInsumos />
+              <Button variant="outline" onClick={() => setDialogoPermisos(true)}>
+                <KeyRound className="size-4" /> Quién descuenta
+              </Button>
+              <Button onClick={() => setDialogo("nuevo")}>
+                <Plus className="size-4" /> Nuevo insumo
+              </Button>
+            </>
+          )}
+        </div>
+      </BarraHerramientas>
 
       <TablaSimple
         cols="grid-cols-[minmax(200px,2fr)_180px_130px_100px_130px_130px_170px]"

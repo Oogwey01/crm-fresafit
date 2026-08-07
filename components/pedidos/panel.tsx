@@ -1,16 +1,21 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, Clock, ExternalLink, Eye, PackageCheck, Printer, Search, Send, Truck } from "lucide-react";
-import { toast } from "sonner";
-import { CANALES, ESTADOS_PEDIDO, esGestor, obtenerCanal, obtenerEstadoPedido } from "@/lib/catalogos";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Clock, ExternalLink, Eye, PackageCheck, Printer, Send, Truck } from "lucide-react";
+import {
+  CANALES,
+  ESTADOS_PEDIDO,
+  ESTADOS_PEDIDO_PENDIENTES,
+  esGestor,
+  obtenerCanal,
+  obtenerEstadoPedido,
+} from "@/lib/catalogos";
 import { esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
 import { SITUACION, situacionDespacho } from "@/lib/canales/despacho";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
 import { cambiarEstadoPedido, listarPedidosHistorico } from "@/app/(app)/pedidos/actions";
 import type { CanalId, EstadoPedidoId, RolId, PedidoEnvio } from "@/lib/types";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -19,19 +24,32 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { EnvioDialog } from "@/components/pedidos/envio-dialog";
 import { cn } from "@/lib/utils";
 
-type Filtro = "pendientes" | "urgentes" | "todos" | "entregado";
+/* Las tres VISTAS de la pantalla. "Entregados" era una cuarta y salió de aquí:
+   ahora es un estado más del selector, que además alcanza los cancelados —que
+   no tenían forma de verse solos— y no deja combinar "Entregados" con "estado:
+   nuevo", que solo podía dar una tabla vacía. */
+type Filtro = "pendientes" | "urgentes" | "todos";
 
 const FILTROS: [Filtro, string][] = [
   ["pendientes", "Pendientes"],
   ["urgentes", "Urgentes"],
   ["todos", "Todos"],
-  ["entregado", "Entregados"],
 ];
+
+/* Los estados que ya no dan trabajo viven en el histórico, que la página no
+   carga de entrada: pedirlos exige traerlo primero. */
+function esEstadoTerminal(e: EstadoPedidoId): boolean {
+  return !(ESTADOS_PEDIDO_PENDIENTES as readonly string[]).includes(e);
+}
 
 /* La última columna llevaba 60 px y el envío ("Estafeta MX 905590979741C70…")
    salía cortado sin remedio; ahora es la más ancha de la fila, que es lo que
@@ -115,9 +133,10 @@ export function PanelPedidos({
   const gestor = esGestor(rol);
   const [filtro, setFiltro] = useState<Filtro>("pendientes");
   const [filtroCanal, setFiltroCanal] = useState<CanalId | "todos">("todos");
+  const [filtroEstado, setFiltroEstado] = useState<EstadoPedidoId | "todos">("todos");
   const [busqueda, setBusqueda] = useState("");
   const [envio, setEnvio] = useState<PedidoEnvio | null>(null);
-  const [, startTransition] = useTransition();
+  const { ejecutar } = useAccionServidor();
 
   /* La página ya solo carga lo que da trabajo; los entregados y cancelados de
      la ventana se piden UNA vez, la primera vez que alguien sale del filtro de
@@ -125,18 +144,15 @@ export function PanelPedidos({
   const [historico, setHistorico] = useState<PedidoEnvio[] | null>(null);
   const [cargandoHistorico, setCargandoHistorico] = useState(false);
 
-  async function asegurarHistorico() {
+  function asegurarHistorico() {
     if (historico !== null || cargandoHistorico) return;
     setCargandoHistorico(true);
-    try {
-      const r = await listarPedidosHistorico();
-      if ("error" in r) toast.error(r.error);
-      else setHistorico(r.pedidos);
-    } catch {
-      toast.error("No se pudo cargar el histórico. Revisa tu conexión.");
-    } finally {
-      setCargandoHistorico(false);
-    }
+    /* Sin `ok`: es una lectura, y los pedidos que aparecen ya son el acuse. */
+    ejecutar(() => listarPedidosHistorico(), {
+      error: "No se pudo cargar el histórico. Revisa tu conexión.",
+      alExito: (r) => setHistorico(r.pedidos),
+      siempre: () => setCargandoHistorico(false),
+    });
   }
 
   /* Activos + histórico, sin repetir (si un pedido está en ambos, manda la
@@ -164,9 +180,14 @@ export function PanelPedidos({
   }, [pedidos, ahora]);
 
   const visibles = useMemo(() => {
+    /* Un estado concreto manda sobre la vista: quien pide "enséñame lo que está
+       preparando" quiere ESO, sin que la vista de arriba se lo recorte. Los
+       terminales salen del histórico (el selector se encarga de pedirlo). */
     const porEstado =
-      filtro === "entregado"
-        ? conHistorico.filter((p) => p.estado === "entregado")
+      filtroEstado !== "todos"
+        ? (esEstadoTerminal(filtroEstado) ? conHistorico : pedidos).filter(
+            (p) => p.estado === filtroEstado,
+          )
         : filtro === "todos"
           ? conHistorico
           : filtro === "urgentes"
@@ -196,16 +217,14 @@ export function PanelPedidos({
         (p.referencia_externa ?? "").toLowerCase().includes(q) ||
         nombreVenta(p).toLowerCase().includes(q),
     );
-  }, [pedidos, conHistorico, filtro, filtroCanal, busqueda, ahora]);
+  }, [pedidos, conHistorico, filtro, filtroCanal, filtroEstado, busqueda, ahora]);
 
-  function cambiar(id: string, estado: EstadoPedidoId) {
-    startTransition(async () => {
-      try {
-        const r = await cambiarEstadoPedido(id, estado);
-        if ("error" in r) toast.error(r.error);
-      } catch {
-        toast.error("No se pudo actualizar el pedido. Revisa tu conexión.");
-      }
+  /* Recibe el pedido entero, y no solo su id, para que el aviso pueda nombrarlo
+     igual que la columna de la tabla. */
+  function cambiar(p: PedidoEnvio, estado: EstadoPedidoId) {
+    ejecutar(() => cambiarEstadoPedido(p.id, estado), {
+      ok: `${nombreVenta(p)} → ${obtenerEstadoPedido(estado)?.nombre ?? estado}.`,
+      error: "No se pudo actualizar el pedido. Revisa tu conexión.",
     });
   }
 
@@ -250,7 +269,7 @@ export function PanelPedidos({
       celda: (p) => (
         <div className="min-w-0">
           <div className="truncate font-medium" title={nombreVenta(p)}>
-            {nombreVenta(p)}
+            <Resaltado texto={nombreVenta(p)} busca={busqueda} />
             {p.cantidad > 1 && <span className="ml-1 text-muted-foreground">×{p.cantidad}</span>}
           </div>
           {/* Nº de orden del canal: es el dato por el que pregunta el cliente, y
@@ -285,7 +304,7 @@ export function PanelPedidos({
       label: "Cliente",
       celda: (p) => (
         <div className="truncate text-muted-foreground" title={p.cliente?.nombre ?? ""}>
-          {p.cliente?.nombre ?? "—"}
+          <Resaltado texto={p.cliente?.nombre ?? "—"} busca={busqueda} />
         </div>
       ),
     },
@@ -303,7 +322,7 @@ export function PanelPedidos({
       celda: (p) => (
         <Select
           value={p.estado ?? undefined}
-          onValueChange={(v) => v && cambiar(p.id, v as EstadoPedidoId)}
+          onValueChange={(v) => v && cambiar(p, v as EstadoPedidoId)}
         >
           <SelectTrigger className="h-auto w-fit gap-1 border-0 bg-transparent p-0 shadow-none focus-visible:ring-0">
             {p.estado && <PastillaEstado estado={p.estado} />}
@@ -347,7 +366,9 @@ export function PanelPedidos({
                   <Truck className="size-3.5 shrink-0" />
                   <span className="min-w-0 leading-tight">
                     {p.paqueteria && <span className="block truncate">{p.paqueteria}</span>}
-                    <span className="block truncate font-mono hover:underline">{p.num_guia}</span>
+                    <span className="block truncate font-mono hover:underline">
+                      <Resaltado texto={p.num_guia} busca={busqueda} />
+                    </span>
                   </span>
                 </span>
               ) : (
@@ -421,20 +442,33 @@ export function PanelPedidos({
             Qué hay que preparar y mandar, y qué se está atrasando. Los de Tienda Nube entran solos.
           </p>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-          <div className="relative flex min-w-[220px] flex-1 items-center md:flex-none">
-            <Search
-              className="pointer-events-none absolute left-3 size-4 text-muted-foreground"
-              strokeWidth={1.9}
-            />
-            <Input
-              placeholder="Cliente, guía o nº de orden…"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="h-auto rounded-[10px] bg-card py-2 pl-9"
-            />
-          </div>
+      </div>
 
+      {/* KPIs */}
+      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+        <StatCard etiqueta="Nuevos" valor={String(conteo.nuevos)} icono={Clock} />
+        <StatCard etiqueta="Preparando" valor={String(conteo.preparando)} icono={PackageCheck} />
+        <StatCard etiqueta="Enviados" valor={String(conteo.enviados)} icono={Send} />
+        <StatCard
+          etiqueta="Atrasados"
+          valor={String(conteo.atrasados)}
+          icono={AlertTriangle}
+          valorClassName={conteo.atrasados > 0 ? "text-red-600" : undefined}
+        />
+      </div>
+
+      {/* El buscador salió del encabezado a su propio renglón: cuando llaman
+          preguntando por un pedido, buscar por cliente o guía es lo primero que
+          se hace, y ahí arriba competía de tamaño con dos selects y el
+          segmentado. La barra además se queda pegada al bajar por la lista. */}
+      <BarraHerramientas>
+        <CampoBusqueda
+          valor={busqueda}
+          onCambio={setBusqueda}
+          placeholder="Buscar cliente, guía o nº de orden…"
+          conteo={{ visibles: visibles.length, total: pedidos.length, unidad: "pedidos" }}
+        />
+        <div className="flex w-full flex-wrap items-center gap-2">
           <Select
             value={filtroCanal}
             onValueChange={(v) => setFiltroCanal((v ?? "todos") as CanalId | "todos")}
@@ -455,6 +489,31 @@ export function PanelPedidos({
             </SelectContent>
           </Select>
 
+          <Select
+            value={filtroEstado}
+            onValueChange={(v) => {
+              const e = (v ?? "todos") as EstadoPedidoId | "todos";
+              setFiltroEstado(e);
+              /* Entregados y cancelados no vienen en la carga inicial. */
+              if (e !== "todos" && esEstadoTerminal(e)) void asegurarHistorico();
+            }}
+          >
+            <SelectTrigger className="w-full bg-card md:w-[165px]">
+              <SelectValue>
+                {(v: string) =>
+                  v === "todos" ? "Todos los estados" : (obtenerEstadoPedido(v)?.nombre ?? "Estado")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos los estados</SelectItem>
+              {ESTADOS_PEDIDO.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <div className="flex w-full rounded-xl bg-muted p-[3px] md:w-auto">
             {FILTROS.map(([id, label]) => (
               <button
@@ -464,7 +523,7 @@ export function PanelPedidos({
                   /* El histórico se pide la primera vez que hace falta. Ni
                      "pendientes" ni "urgentes" lo necesitan: los dos salen de lo
                      que el servidor ya mandó. */
-                  if (id === "todos" || id === "entregado") void asegurarHistorico();
+                  if (id === "todos") void asegurarHistorico();
                 }}
                 className={cn(
                   "flex-1 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors md:flex-none",
@@ -478,20 +537,7 @@ export function PanelPedidos({
             ))}
           </div>
         </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-        <StatCard etiqueta="Nuevos" valor={String(conteo.nuevos)} icono={Clock} />
-        <StatCard etiqueta="Preparando" valor={String(conteo.preparando)} icono={PackageCheck} />
-        <StatCard etiqueta="Enviados" valor={String(conteo.enviados)} icono={Send} />
-        <StatCard
-          etiqueta="Atrasados"
-          valor={String(conteo.atrasados)}
-          icono={AlertTriangle}
-          valorClassName={conteo.atrasados > 0 ? "text-red-600" : undefined}
-        />
-      </div>
+      </BarraHerramientas>
 
       <TablaSimple
         cols={COLS}
@@ -502,13 +548,15 @@ export function PanelPedidos({
         onRowClick={(p) => setEnvio(p)}
         filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
         vacio={
-          filtro === "pendientes"
-            ? "No hay pedidos pendientes. Todo al día. 🎉"
-            : filtro === "urgentes"
-              ? "Nada urgente: ningún pedido con el plazo encima. 🎉"
-              : cargandoHistorico
-              ? "Cargando el histórico…"
-              : "No hay pedidos que mostrar."
+          cargandoHistorico
+            ? "Cargando el histórico…"
+            : filtroEstado !== "todos"
+              ? `Ningún pedido en "${obtenerEstadoPedido(filtroEstado)?.nombre ?? filtroEstado}".`
+              : filtro === "pendientes"
+                ? "No hay pedidos pendientes. Todo al día. 🎉"
+                : filtro === "urgentes"
+                  ? "Nada urgente: ningún pedido con el plazo encima. 🎉"
+                  : "No hay pedidos que mostrar."
         }
       />
 

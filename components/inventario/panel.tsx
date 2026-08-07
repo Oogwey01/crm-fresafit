@@ -9,7 +9,6 @@ import {
   Lock,
   PackageX,
   Plus,
-  Search,
   ShoppingCart,
   SlidersHorizontal,
 } from "lucide-react";
@@ -45,7 +44,6 @@ import type {
 } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -53,6 +51,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
 import { StatCard } from "@/components/compartido/stat-card";
 import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { TabsSeccion } from "@/components/compartido/tabs-seccion";
@@ -481,164 +481,188 @@ export function PanelInventario({
           ya no se pinta en Reconciliación, que no tiene nada que filtrar y
           quedaría como un hueco. */}
       {pestana !== "reconciliacion" && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <BarraHerramientas>
+          {/* El buscador tiene RENGLÓN PROPIO y ocupa todo el ancho. Con 1100+
+              SKUs es la acción principal de esta pantalla, y metido en la fila
+              de filtros pesaba lo mismo que dos selects que casi nadie toca.
+              Los filtros bajan al renglón de abajo, como secundarios. */}
           {(pestana === "productos" || pestana === "reabastecer") && (
-            <>
-              <div className="relative flex w-full items-center md:w-auto md:min-w-[260px]">
-                <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" strokeWidth={1.9} />
-                <Input
-                  placeholder="Buscar producto, SKU o proveedor…"
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                  className="h-auto rounded-[10px] bg-card py-2 pl-9"
-                />
-              </div>
-              {/* Tipo y stock viven en la barra en escritorio y plegados en el
-                  teléfono (ver el bloque de «Más filtros»): son los MISMOS
-                  controles, montados donde caben. */}
+            <CampoBusqueda
+              valor={busqueda}
+              onCambio={setBusqueda}
+              placeholder="Buscar producto, SKU o proveedor…"
+              /* En «Qué pedir» no se pinta el recuento porque ahí la lista son
+                 grupos de reorden, no productos sueltos. */
+              conteo={
+                pestana === "productos"
+                  ? {
+                      visibles: productosVisibles.length,
+                      total: productos.length,
+                      unidad: "productos",
+                    }
+                  : undefined
+              }
+            />
+          )}
+
+          {/* Segundo renglón: los filtros, ya como controles secundarios. En
+              «Qué pedir» el único es el tipo, que en el teléfono va plegado: ahí
+              la fila entera sobra y se esconde para no dejar un hueco. */}
+          <div
+            className={cn(
+              "flex-wrap items-center gap-2",
+              pestana === "reabastecer" ? "hidden md:flex" : "flex",
+            )}
+          >
+            {(pestana === "productos" || pestana === "reabastecer") && (
+              /* Tipo y stock viven en la barra en escritorio y plegados en el
+                 teléfono (ver el bloque de «Más filtros»): son los MISMOS
+                 controles, montados donde caben. */
               <div className="hidden md:contents">{selectTipo}</div>
-            </>
-          )}
+            )}
 
-          {pestana === "productos" && (
-            <>
-              <div className="hidden md:contents">{selectStock}</div>
+            {pestana === "productos" && (
+              <>
+                <div className="hidden md:contents">{selectStock}</div>
 
-              {/* En escritorio se pliegan solo almacén y vigencia, que se usan
-                  poco; en el teléfono también tipo y stock, porque cinco
-                  controles en fila dejaban el catálogo fuera de la pantalla. El
-                  contador avisa de los que quedaron puestos: un filtro escondido
-                  y olvidado es lo que hace que «falte» un producto. */}
-              <Button
-                variant="outline"
-                onClick={() => setMasFiltros((v) => !v)}
-                className={cn(
-                  "h-auto flex-1 gap-1.5 rounded-[10px] px-3 py-2 text-[13px] font-semibold md:flex-none",
-                  filtrosPlegadosMovil > 0 && "border-primary/40 text-primary",
+                {/* En escritorio se pliegan solo almacén y vigencia, que se usan
+                    poco; en el teléfono también tipo y stock, porque cinco
+                    controles en fila dejaban el catálogo fuera de la pantalla. El
+                    contador avisa de los que quedaron puestos: un filtro escondido
+                    y olvidado es lo que hace que «falte» un producto. */}
+                <Button
+                  variant="outline"
+                  onClick={() => setMasFiltros((v) => !v)}
+                  className={cn(
+                    "h-auto flex-1 gap-1.5 rounded-[10px] px-3 py-2 text-[13px] font-semibold md:flex-none",
+                    filtrosPlegadosMovil > 0 && "border-primary/40 text-primary",
+                  )}
+                >
+                  <SlidersHorizontal className="size-4" strokeWidth={2} />
+                  Filtros
+                  {filtrosPlegadosMovil > 0 && (
+                    <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:hidden">
+                      {filtrosPlegadosMovil}
+                    </span>
+                  )}
+                  {filtrosPlegadosActivos > 0 && (
+                    <span className="hidden rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:inline">
+                      {filtrosPlegadosActivos}
+                    </span>
+                  )}
+                </Button>
+
+                {/* Desglosado = una fila por variante de canal (como siempre).
+                    Agrupado = una fila por producto, con sus tallas plegadas. */}
+                <ControlSegmentado
+                  opciones={VISTAS_CATALOGO}
+                  valor={vistaCatalogo}
+                  onCambio={setVistaCatalogo}
+                  className="flex-1 md:flex-none"
+                  botonClassName="flex-1 md:flex-none"
+                />
+              </>
+            )}
+
+            {pestana === "movimientos" && (
+              <>
+                <ControlSegmentado
+                  opciones={VISTAS_MOV}
+                  valor={vistaMov}
+                  onCambio={setVistaMov}
+                  className="flex-1 md:flex-none"
+                  botonClassName="flex-1 md:flex-none"
+                />
+                <Select value={filtroCanalMov} onValueChange={(v) => setFiltroCanalMov(v ?? "todos")}>
+                  <SelectTrigger className="w-full bg-card md:w-[190px]">
+                    <SelectValue>
+                      {(v: string) => CANALES_MOV.find(([id]) => id === v)?.[1] ?? "Canal"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CANALES_MOV.map(([id, label]) => (
+                      <SelectItem key={id} value={id}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {/* Solo cuando alguien firma algo: si todo el historial visible es
+                    automático, el selector no tendría a quién filtrar. */}
+                {autoresMov.length > 0 && (
+                  <Select value={filtroAutorMov} onValueChange={(v) => setFiltroAutorMov(v ?? "todos")}>
+                    <SelectTrigger className="w-full bg-card md:w-[170px]">
+                      <SelectValue>
+                        {(v: string) =>
+                          v === "todos"
+                            ? "Quién: todos"
+                            : v === "sistema"
+                              ? "Automático"
+                              : (autoresMov.find(([id]) => id === v)?.[1] ?? "Quién")
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Quién: todos</SelectItem>
+                      <SelectItem value="sistema">Automático</SelectItem>
+                      {autoresMov.map(([id, nombre]) => (
+                        <SelectItem key={id} value={id}>
+                          {nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
-              >
-                <SlidersHorizontal className="size-4" strokeWidth={2} />
-                Filtros
-                {filtrosPlegadosMovil > 0 && (
-                  <span className="rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:hidden">
-                    {filtrosPlegadosMovil}
-                  </span>
-                )}
-                {filtrosPlegadosActivos > 0 && (
-                  <span className="hidden rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground md:inline">
-                    {filtrosPlegadosActivos}
-                  </span>
-                )}
-              </Button>
-
-              {/* Desglosado = una fila por variante de canal (como siempre).
-                  Agrupado = una fila por producto, con sus tallas plegadas. */}
-              <ControlSegmentado
-                opciones={VISTAS_CATALOGO}
-                valor={vistaCatalogo}
-                onCambio={setVistaCatalogo}
-                className="flex-1 md:flex-none"
-                botonClassName="flex-1 md:flex-none"
-              />
-            </>
-          )}
-
-          {pestana === "movimientos" && (
-            <>
-              <ControlSegmentado
-                opciones={VISTAS_MOV}
-                valor={vistaMov}
-                onCambio={setVistaMov}
-                className="flex-1 md:flex-none"
-                botonClassName="flex-1 md:flex-none"
-              />
-              <Select value={filtroCanalMov} onValueChange={(v) => setFiltroCanalMov(v ?? "todos")}>
-                <SelectTrigger className="w-full bg-card md:w-[190px]">
+              </>
+            )}
+          </div>
+          {/* Los filtros plegables van DENTRO de la barra: si se quedaran fuera,
+              al bajar se despegarían de su propio botón y quedaría un panel
+              huérfano por debajo de una barra que ya no lo abre. */}
+          {pestana === "productos" && masFiltros && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2.5">
+              {/* Los dos que en escritorio están arriba, en la barra. */}
+              <div className="contents md:hidden">
+                {selectTipo}
+                {selectStock}
+              </div>
+              {(mercadolibre.conectada || tiktok.conectada) && (
+                <Select value={filtroLogistica} onValueChange={(v) => setFiltroLogistica(v ?? "todos")}>
+                  <SelectTrigger className="w-[185px] bg-background">
+                    <SelectValue>
+                      {(v: string) => LOGISTICAS.find(([id]) => id === v)?.[1] ?? "Almacén"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOGISTICAS.map(([id, label]) => (
+                      <SelectItem key={id} value={id}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Select value={filtroVigencia} onValueChange={(v) => setFiltroVigencia(v ?? "vigentes")}>
+                <SelectTrigger className="w-[155px] bg-background">
                   <SelectValue>
-                    {(v: string) => CANALES_MOV.find(([id]) => id === v)?.[1] ?? "Canal"}
+                    {(v: string) => VIGENCIAS.find(([id]) => id === v)?.[1] ?? "Vigencia"}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {CANALES_MOV.map(([id, label]) => (
+                  {VIGENCIAS.map(([id, label]) => (
                     <SelectItem key={id} value={id}>
                       {label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {/* Solo cuando alguien firma algo: si todo el historial visible es
-                  automático, el selector no tendría a quién filtrar. */}
-              {autoresMov.length > 0 && (
-                <Select value={filtroAutorMov} onValueChange={(v) => setFiltroAutorMov(v ?? "todos")}>
-                  <SelectTrigger className="w-full bg-card md:w-[170px]">
-                    <SelectValue>
-                      {(v: string) =>
-                        v === "todos"
-                          ? "Quién: todos"
-                          : v === "sistema"
-                            ? "Automático"
-                            : (autoresMov.find(([id]) => id === v)?.[1] ?? "Quién")
-                      }
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Quién: todos</SelectItem>
-                    <SelectItem value="sistema">Automático</SelectItem>
-                    {autoresMov.map(([id, nombre]) => (
-                      <SelectItem key={id} value={id}>
-                        {nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </>
+              <div className="flex-1" />
+              <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="text-[12.5px]">
+                Limpiar filtros
+              </Button>
+            </div>
           )}
-        </div>
-      )}
-
-      {pestana === "productos" && masFiltros && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-3 py-2.5">
-          {/* Los dos que en escritorio están arriba, en la barra. */}
-          <div className="contents md:hidden">
-            {selectTipo}
-            {selectStock}
-          </div>
-          {(mercadolibre.conectada || tiktok.conectada) && (
-            <Select value={filtroLogistica} onValueChange={(v) => setFiltroLogistica(v ?? "todos")}>
-              <SelectTrigger className="w-[185px] bg-background">
-                <SelectValue>
-                  {(v: string) => LOGISTICAS.find(([id]) => id === v)?.[1] ?? "Almacén"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {LOGISTICAS.map(([id, label]) => (
-                  <SelectItem key={id} value={id}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Select value={filtroVigencia} onValueChange={(v) => setFiltroVigencia(v ?? "vigentes")}>
-            <SelectTrigger className="w-[155px] bg-background">
-              <SelectValue>
-                {(v: string) => VIGENCIAS.find(([id]) => id === v)?.[1] ?? "Vigencia"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {VIGENCIAS.map(([id, label]) => (
-                <SelectItem key={id} value={id}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex-1" />
-          <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="text-[12.5px]">
-            Limpiar filtros
-          </Button>
-        </div>
+        </BarraHerramientas>
       )}
 
       <AvisosInventario
@@ -658,8 +682,6 @@ export function PanelInventario({
             productos={productosVisibles}
             totalCatalogo={productos.length}
             busqueda={busqueda}
-            filtroTipo={filtroTipo}
-            filtroStock={filtroStock}
             filtrosActivos={filtrosActivos}
             onLimpiarFiltros={limpiarFiltros}
             escrituraCanales={escrituraCanales}
@@ -671,8 +693,6 @@ export function PanelInventario({
             productos={productosVisibles}
             totalCatalogo={productos.length}
             busqueda={busqueda}
-            filtroTipo={filtroTipo}
-            filtroStock={filtroStock}
             filtrosActivos={filtrosActivos}
             onLimpiarFiltros={limpiarFiltros}
             escrituraCanales={escrituraCanales}

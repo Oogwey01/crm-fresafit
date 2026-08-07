@@ -15,7 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { SelectorProducto } from "@/components/compartido/selector-producto";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
@@ -142,8 +144,12 @@ export function SeccionConjuntos({
       esTitulo: true,
       celda: (c) => (
         <div className="min-w-0">
-          <div className="font-mono text-[12.5px] font-semibold">{c.sku}</div>
-          <div className="truncate text-[12.5px] text-muted-foreground">{c.titulo}</div>
+          <div className="font-mono text-[12.5px] font-semibold">
+            <Resaltado texto={c.sku} busca={busqueda} />
+          </div>
+          <div className="truncate text-[12.5px] text-muted-foreground">
+            <Resaltado texto={c.titulo} busca={busqueda} />
+          </div>
         </div>
       ),
     },
@@ -152,11 +158,16 @@ export function SeccionConjuntos({
       label: "Se arma con",
       celda: (c) => (
         <span className="text-muted-foreground">
-          {c.componentes.length
-            ? c.componentes
+          {c.componentes.length ? (
+            <Resaltado
+              texto={c.componentes
                 .map((x) => `${x.cantidad > 1 ? `${x.cantidad}× ` : ""}${x.sku_componente}`)
-                .join(" + ")
-            : "—"}
+                .join(" + ")}
+              busca={busqueda}
+            />
+          ) : (
+            "—"
+          )}
         </span>
       ),
     },
@@ -300,32 +311,34 @@ export function SeccionConjuntos({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* El recuento se mudó DENTRO del campo (lo lleva CampoBusqueda); aquí
+          queda solo lo que hay que explicar de la tabla. */}
+      <BarraHerramientas className="mb-0">
         <CampoBusqueda
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar conjunto, SKU o componente…"
+          conteo={{ visibles: visibles.length, total: conjuntos.length, unidad: "conjuntos" }}
         />
-        <p className="text-[13.5px] text-muted-foreground">
-          {busqueda.trim()
-            ? `${visibles.length} de ${conjuntos.length}`
-            : `${conjuntos.length} ${conjuntos.length === 1 ? "conjunto" : "conjuntos"}`}{" "}
-          · «Armables» es cuántos alcanzan con las piezas que hay. Sale «—» cuando alguna pieza
-          todavía no está ligada a su ficha.
-        </p>
-        <div className="flex-1" />
-        {nombresSueltos.size === 0 && conjuntos.length > 0 && (
-          <Button variant="outline" onClick={() => setLigando(true)}>
-            <Link2 className="size-4" /> Ligar componentes
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[13.5px] text-muted-foreground">
+            «Armables» es cuántos alcanzan con las piezas que hay. Sale «—» cuando alguna pieza
+            todavía no está ligada a su ficha.
+          </p>
+          <div className="flex-1" />
+          {nombresSueltos.size === 0 && conjuntos.length > 0 && (
+            <Button variant="outline" onClick={() => setLigando(true)}>
+              <Link2 className="size-4" /> Ligar componentes
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setImportando(true)}>
+            <ClipboardPaste className="size-4" /> Pegar desde Excel
           </Button>
-        )}
-        <Button variant="outline" onClick={() => setImportando(true)}>
-          <ClipboardPaste className="size-4" /> Pegar desde Excel
-        </Button>
-        <Button onClick={() => setDialogo("nuevo")}>
-          <Plus className="size-4" /> Nuevo conjunto
-        </Button>
-      </div>
+          <Button onClick={() => setDialogo("nuevo")}>
+            <Plus className="size-4" /> Nuevo conjunto
+          </Button>
+        </div>
+      </BarraHerramientas>
 
       <TablaSimple
         cols="grid-cols-[minmax(190px,1.1fr)_minmax(230px,1.5fr)_90px_130px_90px_128px]"

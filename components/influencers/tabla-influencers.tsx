@@ -3,6 +3,7 @@
 import { AtSign, Music2 } from "lucide-react";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -36,6 +37,7 @@ export function TablaInfluencers({
   influencers,
   entregas,
   evaluaciones,
+  busqueda,
   vacio,
   onEditar,
   onVerDetalle,
@@ -43,6 +45,9 @@ export function TablaInfluencers({
   influencers: Influencer[];
   entregas: InfluencerEntrega[];
   evaluaciones: InfluencerEvaluacion[];
+  /* Lo escrito en el buscador. No filtra —la lista ya llega recortada—: solo
+     señala en cada renglón por dónde pegó la coincidencia. */
+  busqueda: string;
   vacio: string;
   onEditar: (i: Influencer) => void;
   onVerDetalle: (i: Influencer) => void;
@@ -63,18 +68,22 @@ export function TablaInfluencers({
       esTitulo: true,
       celda: (i) => (
         <div className="min-w-0">
-          <div className="truncate font-semibold">{i.nombre}</div>
+          <div className="truncate font-semibold">
+            <Resaltado texto={i.nombre} busca={busqueda} />
+          </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
             {i.ig_usuario && (
               <span className="inline-flex items-center gap-1">
                 <AtSign className="size-3.5" strokeWidth={1.8} />
-                {i.ig_usuario} · {formatearNumeroCorto(i.ig_seguidores)}
+                <Resaltado texto={i.ig_usuario} busca={busqueda} /> ·{" "}
+                {formatearNumeroCorto(i.ig_seguidores)}
               </span>
             )}
             {i.tiktok_usuario && (
               <span className="inline-flex items-center gap-1">
                 <Music2 className="size-3.5" strokeWidth={1.8} />
-                {i.tiktok_usuario} · {formatearNumeroCorto(i.tiktok_seguidores)}
+                <Resaltado texto={i.tiktok_usuario} busca={busqueda} /> ·{" "}
+                {formatearNumeroCorto(i.tiktok_seguidores)}
               </span>
             )}
           </div>
@@ -94,7 +103,9 @@ export function TablaInfluencers({
       label: "Código",
       celda: (i) =>
         i.codigo ? (
-          <span className="font-mono text-[12.5px] font-semibold">{i.codigo}</span>
+          <span className="font-mono text-[12.5px] font-semibold">
+            <Resaltado texto={i.codigo} busca={busqueda} />
+          </span>
         ) : (
           <span className="text-muted-foreground">—</span>
         ),

@@ -4,7 +4,6 @@ import { useState } from "react";
 import { AlarmClock, Copy, ExternalLink, Palette, Plus, Sparkles, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -12,6 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { StatCard } from "@/components/compartido/stat-card";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
@@ -135,7 +137,9 @@ export function PanelPersonalizados({
       esTitulo: true,
       celda: (p) => (
         <div className="min-w-0">
-          <div className="truncate font-semibold">{p.cliente}</div>
+          <div className="truncate font-semibold">
+            <Resaltado texto={p.cliente} busca={busqueda} />
+          </div>
           <div className="truncate text-[12.5px] text-muted-foreground">
             {[
               MODELOS_PERSONALIZADO.find((m) => m.id === p.modelo)?.nombre,
@@ -172,7 +176,9 @@ export function PanelPersonalizados({
         const canal = obtenerCanal(p.canal ?? "");
         return (
           <div className="min-w-0">
-            <div className="truncate font-mono text-[12.5px]">{p.no_venta ?? "—"}</div>
+            <div className="truncate font-mono text-[12.5px]">
+              <Resaltado texto={p.no_venta ?? "—"} busca={busqueda} />
+            </div>
             {canal && <div className="text-[11.5px] text-muted-foreground">{canal.nombre}</div>}
           </div>
         );
@@ -320,41 +326,40 @@ export function PanelPersonalizados({
         <StatCard etiqueta="Enviados este mes" valor={String(enviadosEsteMes.length)} icono={Truck} />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Input
+      <BarraHerramientas>
+        <CampoBusqueda
+          valor={busqueda}
+          onCambio={setBusqueda}
           placeholder="Buscar por cliente, nº de venta o nota…"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          className="h-auto min-w-[240px] flex-1 rounded-[10px] bg-card py-2 md:max-w-xs"
+          conteo={{ visibles: visibles.length, total: personalizados.length, unidad: "pedidos" }}
         />
-        <Select value={filtroEstado} onValueChange={(v) => setFiltroEstado(v ?? "abiertos")}>
-          <SelectTrigger className="w-[185px] bg-card">
-            <SelectValue>
-              {(v: string) =>
-                v === "abiertos"
-                  ? "En proceso"
-                  : v === "todos"
-                    ? "Todos los estados"
-                    : (obtenerEstadoPersonalizado(v)?.nombre ?? "Estado")
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="abiertos">En proceso</SelectItem>
-            <SelectItem value="todos">Todos los estados</SelectItem>
-            {ESTADOS_PERSONALIZADO.map((e) => (
-              <SelectItem key={e.id} value={e.id}>
-                {e.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="flex-1" />
-        <p className="text-[13.5px] text-muted-foreground">
-          {visibles.length} {visibles.length === 1 ? "pedido" : "pedidos"}
-        </p>
-        {vencidos.length > 0 && <Pastilla nombre={`${vencidos.length} fuera de fecha`} color="#d63031" />}
-      </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={filtroEstado} onValueChange={(v) => setFiltroEstado(v ?? "abiertos")}>
+            <SelectTrigger className="w-[185px] bg-card">
+              <SelectValue>
+                {(v: string) =>
+                  v === "abiertos"
+                    ? "En proceso"
+                    : v === "todos"
+                      ? "Todos los estados"
+                      : (obtenerEstadoPersonalizado(v)?.nombre ?? "Estado")
+                }
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="abiertos">En proceso</SelectItem>
+              <SelectItem value="todos">Todos los estados</SelectItem>
+              {ESTADOS_PERSONALIZADO.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex-1" />
+          {vencidos.length > 0 && <Pastilla nombre={`${vencidos.length} fuera de fecha`} color="#d63031" />}
+        </div>
+      </BarraHerramientas>
 
       <TablaSimple
         /* El diseño se lleva la columna más ancha de la tabla a propósito: es lo

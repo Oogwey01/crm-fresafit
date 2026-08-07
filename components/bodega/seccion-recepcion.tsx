@@ -22,7 +22,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { SelectorProducto } from "@/components/compartido/selector-producto";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
@@ -95,37 +97,44 @@ export function SeccionRecepcion({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={seleccionada?.id} onValueChange={(v) => v && setSeleccionadaId(v)}>
-          <SelectTrigger className="w-full bg-card md:w-[320px]">
-            <SelectValue>
-              {(v: string) => recepciones.find((r) => r.id === v)?.titulo ?? "Carga"}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {recepciones.map((r) => (
-              <SelectItem key={r.id} value={r.id}>
-                {r.titulo} {r.estado === "cerrada" ? "· cerrada" : ""}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
+      {/* Buscar un SKU entre los cientos de renglones de una carga es lo que más
+          se hace aquí, y desde el teléfono: el campo va solo en el primer
+          renglón y la barra se queda pegada al bajar por la lista. El recuento
+          no se pinta dentro del campo porque ya está en la cabecera de la carga,
+          justo debajo, y con el nombre del producto ya resuelto. */}
+      <BarraHerramientas className="mb-0">
         <CampoBusqueda
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar SKU, producto o talla…"
         />
 
-        <div className="flex-1" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={seleccionada?.id} onValueChange={(v) => v && setSeleccionadaId(v)}>
+            <SelectTrigger className="w-full bg-card md:w-[320px]">
+              <SelectValue>
+                {(v: string) => recepciones.find((r) => r.id === v)?.titulo ?? "Carga"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {recepciones.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.titulo} {r.estado === "cerrada" ? "· cerrada" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        <Button variant="outline" onClick={() => setImportando(true)} disabled={!seleccionada}>
-          <ClipboardPaste className="size-4" /> Pegar renglones
-        </Button>
-        <Button onClick={() => setDialogoNueva(true)}>
-          <Plus className="size-4" /> Nueva carga
-        </Button>
-      </div>
+          <div className="flex-1" />
+
+          <Button variant="outline" onClick={() => setImportando(true)} disabled={!seleccionada}>
+            <ClipboardPaste className="size-4" /> Pegar renglones
+          </Button>
+          <Button onClick={() => setDialogoNueva(true)}>
+            <Plus className="size-4" /> Nueva carga
+          </Button>
+        </div>
+      </BarraHerramientas>
 
       {seleccionada && (
         <DetalleCarga
@@ -146,6 +155,7 @@ export function SeccionRecepcion({
           onBorrarItem={(item) =>
             ejecutar(() => borrarItemRecepcion(item.id), {
               confirmar: `¿Quitar ${item.sku} de la carga?`,
+              ok: "Renglón quitado de la carga.",
             })
           }
           onDescontarChecados={() =>
@@ -326,13 +336,17 @@ function DetalleCarga({
                 return (
                   <tr key={i.id} className="border-t">
                     <td className="px-5 py-2 font-mono text-[12.5px]">
-                      {i.sku}
+                      <Resaltado texto={i.sku} busca={busqueda} />
                       {!i.producto_id && (
                         <span className="ml-1.5 text-[11px] text-amber-600">sin ficha</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">{nombreProducto(i)}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{i.talla ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <Resaltado texto={nombreProducto(i)} busca={busqueda} />
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      <Resaltado texto={i.talla ?? "—"} busca={busqueda} />
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums">{i.unidades_no_procesadas}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {consolidado.get(i.sku_consolidado || i.sku) ?? 0}
@@ -456,9 +470,9 @@ function AltaRenglon({
     };
 
     ejecutar(() => agregarItemRecepcion(carga.id, fila), {
+      ok: `${fila.sku}: ${fila.unidades_no_procesadas} al renglón de la carga.`,
       error: "No se pudo agregar el renglón. Revisa tu conexión.",
       alExito: () => {
-        toast.success(`${fila.sku}: ${fila.unidades_no_procesadas} al renglón de la carga.`);
         setSku("");
         setProductoId(null);
         setTalla("");

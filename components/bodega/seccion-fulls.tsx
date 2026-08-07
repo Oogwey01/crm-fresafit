@@ -20,7 +20,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
@@ -87,23 +89,25 @@ export function SeccionFulls({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
+      {/* El recuento se mudó DENTRO del campo (lo lleva CampoBusqueda); aquí
+          queda solo la advertencia, que es lo que no se deduce mirando. */}
+      <BarraHerramientas className="mb-0">
         <CampoBusqueda
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar envío, SKU, ASIN o guía…"
+          conteo={{ visibles: visibles.length, total: envios.length, unidad: "envíos" }}
         />
-        <p className="text-[13.5px] text-muted-foreground">
-          {busqueda.trim()
-            ? `${visibles.length} de ${envios.length}`
-            : `${envios.length} ${envios.length === 1 ? "envío" : "envíos"}`}{" "}
-          · el stock no se descuenta solo: márcalo en el checklist cuando lo hagas.
-        </p>
-        <div className="flex-1" />
-        <Button onClick={() => setDialogo(true)}>
-          <Plus className="size-4" /> Nuevo envío
-        </Button>
-      </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[13.5px] text-muted-foreground">
+            El stock no se descuenta solo: márcalo en el checklist cuando lo hagas.
+          </p>
+          <div className="flex-1" />
+          <Button onClick={() => setDialogo(true)}>
+            <Plus className="size-4" /> Nuevo envío
+          </Button>
+        </div>
+      </BarraHerramientas>
 
       {envios.length === 0 && (
         <div className="rounded-2xl border bg-card p-10 text-center shadow-sm">
@@ -139,7 +143,9 @@ export function SeccionFulls({
             >
               <Package className="size-4 text-muted-foreground" strokeWidth={1.9} />
               <div className="min-w-0">
-                <div className="truncate font-semibold">{e.nombre}</div>
+                <div className="truncate font-semibold">
+                  <Resaltado texto={e.nombre} busca={busqueda} />
+                </div>
                 <div className="text-[12.5px] text-muted-foreground">
                   {destino?.nombre} · {e.cajas.length} {e.cajas.length === 1 ? "caja" : "cajas"} ·{" "}
                   {totalPiezas} piezas
@@ -159,6 +165,7 @@ export function SeccionFulls({
                     key={caja.id}
                     caja={caja}
                     productos={productos}
+                    busqueda={busqueda}
                     pending={pending}
                     ejecutar={ejecutar}
                   />
@@ -402,11 +409,16 @@ function Campo({
 function Caja({
   caja,
   productos,
+  busqueda,
   pending,
   ejecutar,
 }: {
   caja: EnvioFullConCajas["cajas"][number];
   productos: ProductoLigeroFila[];
+  /* Para señalar el SKU o el ASIN que hizo salir a este envío en la búsqueda:
+     la pregunta del piso es «¿en qué envío se fue esto?», y la respuesta está
+     dentro de la caja, no en el título del envío. */
+  busqueda: string;
   pending: boolean;
   ejecutar: Ejecutar;
 }) {
@@ -442,13 +454,15 @@ function Caja({
     const claves = Object.keys(guardadas) as (keyof typeof guardadas)[];
     if (claves.every((k) => aNumero(medidas[k]) === aNumero(guardadas[k]))) return;
 
-    ejecutar(() =>
-      guardarCajaFull(caja.id, {
-        largo_cm: aNumero(medidas.largo),
-        ancho_cm: aNumero(medidas.ancho),
-        alto_cm: aNumero(medidas.alto),
-        peso_kg: aNumero(medidas.peso),
-      }),
+    ejecutar(
+      () =>
+        guardarCajaFull(caja.id, {
+          largo_cm: aNumero(medidas.largo),
+          ancho_cm: aNumero(medidas.ancho),
+          alto_cm: aNumero(medidas.alto),
+          peso_kg: aNumero(medidas.peso),
+        }),
+      { ok: "Medidas guardadas." },
     );
   }
 
@@ -487,6 +501,7 @@ function Caja({
           onClick={() =>
             ejecutar(() => borrarCajaFull(caja.id), {
               confirmar: `¿Borrar la caja ${caja.numero} y su contenido?`,
+              ok: "Caja borrada.",
             })
           }
           className="ml-auto text-muted-foreground hover:text-destructive"
@@ -513,13 +528,17 @@ function Caja({
             <tbody>
               {caja.items.map((i) => (
                 <tr key={i.id} className="border-t">
-                  <td className="py-1.5 font-mono text-[12.5px]">{i.sku}</td>
+                  <td className="py-1.5 font-mono text-[12.5px]">
+                    <Resaltado texto={i.sku} busca={busqueda} />
+                  </td>
                   <td className="py-1.5 font-mono text-[12px] text-muted-foreground">
-                    {i.asin ?? "—"}
+                    <Resaltado texto={i.asin ?? "—"} busca={busqueda} />
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{i.cantidad}</td>
                   {(["empaquetado", "cancelado", "descontado"] as const).map((campo) => (
                     <td key={campo} className="py-1.5 text-center">
+                      {/* Sin toast: es una rejilla de checkboxes que se recorre
+                          entera de un tirón; el propio check ya confirma. */}
                       <input
                         type="checkbox"
                         checked={i[campo]}
@@ -535,7 +554,7 @@ function Caja({
                   <td className="py-1.5 text-right">
                     <button
                       type="button"
-                      onClick={() => ejecutar(() => borrarItemFull(i.id))}
+                      onClick={() => ejecutar(() => borrarItemFull(i.id), { ok: "Renglón quitado." })}
                       className="text-muted-foreground hover:text-destructive"
                       aria-label="Quitar renglón"
                     >
@@ -585,6 +604,7 @@ function Caja({
                   cantidad: Number(cantidad) || 0,
                 }),
               {
+                ok: `${sku} agregado a la caja ${caja.numero}.`,
                 alExito: () => {
                   setSku("");
                   setAsin("");

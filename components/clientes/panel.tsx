@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Repeat, Search, UserPlus, Users } from "lucide-react";
+import { Plus, Repeat, UserPlus, Users } from "lucide-react";
 import { ventasDeCliente } from "@/app/(app)/clientes/actions";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { esGestor, obtenerCanal } from "@/lib/catalogos";
@@ -11,7 +11,6 @@ import { formatearMXN } from "@/lib/moneda";
 import type { VistaDinero } from "@/lib/permisos-dinero";
 import type { CustomerConStats, RolId, SaleConProducto } from "@/lib/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -20,6 +19,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
@@ -133,7 +135,9 @@ export function PanelClientes({
           className="flex items-center gap-2 truncate text-left font-medium hover:underline"
           title={c.notas ?? c.nombre}
         >
-          <span className="truncate">{c.nombre}</span>
+          <span className="truncate">
+            <Resaltado texto={c.nombre} busca={busqueda} />
+          </span>
           {c.recurrente && (
             <span className="shrink-0 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10.5px] font-bold text-primary">
               Recurrente
@@ -147,7 +151,7 @@ export function PanelClientes({
       label: "Contacto",
       celda: (c) => (
         <div className="truncate text-muted-foreground" title={c.correo ?? c.telefono ?? ""}>
-          {c.correo ?? c.telefono ?? "—"}
+          <Resaltado texto={c.correo ?? c.telefono ?? "—"} busca={busqueda} />
         </div>
       ),
     },
@@ -228,53 +232,54 @@ export function PanelClientes({
         )}
       </div>
 
-      {/* Búsqueda + orden */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div className="relative flex min-w-[280px] flex-1 items-center sm:max-w-sm">
-          <Search className="pointer-events-none absolute left-3 size-4 text-muted-foreground" strokeWidth={1.9} />
-          <Input
-            placeholder="Buscar por nombre, correo o teléfono…"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="h-auto rounded-[10px] bg-card py-2 pl-9"
-          />
-        </div>
-        <div className="hidden flex-1 md:block" />
-        {/* Móvil: Select. Escritorio: segmentado. */}
-        <Select value={orden} onValueChange={(v) => v && setOrden(v as Orden)}>
-          <SelectTrigger className="w-full bg-card md:hidden">
-            <SelectValue>
-              {(v: string) => {
-                const label = ordenes.find(([id]) => id === v)?.[1] ?? "Ordenar";
-                return `Orden: ${label}`;
-              }}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
+      {/* Buscar es lo que se viene a hacer a esta pantalla —el cliente que
+          llamó, el correo de una venta—, así que el campo va solo en su renglón
+          y la barra se queda pegada al bajar por la lista. El orden, debajo. */}
+      <BarraHerramientas>
+        <CampoBusqueda
+          valor={busqueda}
+          onCambio={setBusqueda}
+          placeholder="Buscar por nombre, correo o teléfono…"
+          conteo={{ visibles: visibles.length, total: clientes.length, unidad: "clientes" }}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="hidden flex-1 md:block" />
+          {/* Móvil: Select. Escritorio: segmentado. */}
+          <Select value={orden} onValueChange={(v) => v && setOrden(v as Orden)}>
+            <SelectTrigger className="w-full bg-card md:hidden">
+              <SelectValue>
+                {(v: string) => {
+                  const label = ordenes.find(([id]) => id === v)?.[1] ?? "Ordenar";
+                  return `Orden: ${label}`;
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {ordenes.map(([id, label]) => (
+                <SelectItem key={id} value={id}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="hidden rounded-xl bg-muted p-[3px] md:inline-flex">
             {ordenes.map(([id, label]) => (
-              <SelectItem key={id} value={id}>
+              <button
+                key={id}
+                onClick={() => setOrden(id)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors",
+                  orden === id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
                 {label}
-              </SelectItem>
+              </button>
             ))}
-          </SelectContent>
-        </Select>
-        <div className="hidden rounded-xl bg-muted p-[3px] md:inline-flex">
-          {ordenes.map(([id, label]) => (
-            <button
-              key={id}
-              onClick={() => setOrden(id)}
-              className={cn(
-                "rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors",
-                orden === id
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
         </div>
-      </div>
+        </div>
+      </BarraHerramientas>
 
       {visibles.length === 0 ? (
         <p className="text-sm italic text-muted-foreground">

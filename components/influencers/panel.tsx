@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { Gift, Megaphone, Plus, Star, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -11,6 +10,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
 import { StatCard } from "@/components/compartido/stat-card";
 import type { ProductoLigero } from "@/lib/influencers/tipos";
 import { TabsSeccion } from "@/components/compartido/tabs-seccion";
@@ -149,12 +150,15 @@ export function PanelInfluencers({
       {/* Buscador y filtro de la sección; las pestañas se subieron junto al
           encabezado, con las demás pantallas. */}
       {pestana !== "evaluaciones" && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Input
+        <BarraHerramientas>
+          <CampoBusqueda
+            valor={busqueda}
+            onCambio={setBusqueda}
             placeholder="Buscar por nombre, @usuario o código…"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className="h-auto min-w-[240px] flex-1 rounded-[10px] bg-card py-2 md:max-w-xs"
+            /* El total es el de la pestaña abierta —embajadores o prospectos—,
+               no el de todo el padrón: comparar contra una cifra que incluye
+               gente que esta lista nunca va a enseñar no dice nada. */
+            conteo={{ visibles: visibles.length, total: base.length, unidad: "personas" }}
           />
           <Select value={filtroEtapa} onValueChange={(v) => setFiltroEtapa(v ?? "todas")}>
             <SelectTrigger className="w-[170px] bg-card">
@@ -174,7 +178,7 @@ export function PanelInfluencers({
               ))}
             </SelectContent>
           </Select>
-        </div>
+        </BarraHerramientas>
       )}
 
       {pestana !== "evaluaciones" && (
@@ -182,6 +186,7 @@ export function PanelInfluencers({
           influencers={visibles}
           entregas={entregas}
           evaluaciones={evaluaciones}
+          busqueda={busqueda}
           vacio={
             pestana === "embajadores"
               ? "Todavía no hay nadie activo. Cambia a alguien de etapa desde el pipeline."

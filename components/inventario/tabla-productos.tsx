@@ -1,10 +1,10 @@
 "use client";
 
 import { FilterX } from "lucide-react";
-import { estadoStock } from "@/lib/inventario/stock";
 import { portadaProducto } from "@/lib/inventario/fotos";
 import { formatearMXN } from "@/lib/moneda";
 import { Button } from "@/components/ui/button";
+import { Resaltado } from "@/components/compartido/resaltado";
 import { useAjusteStock } from "@/components/inventario/usar-ajuste-stock";
 import {
   ControlStock,
@@ -24,23 +24,23 @@ export function TablaProductos({
   productos,
   totalCatalogo,
   busqueda,
-  filtroTipo,
-  filtroStock,
   filtrosActivos,
   onLimpiarFiltros,
   escrituraCanales,
   verPrecio,
   onAbrir,
 }: {
-  /* Ya viene recortada por los filtros del panel (almacén, vigencia). */
+  /* Ya viene recortada por TODOS los filtros del panel —búsqueda incluida—:
+     aquí solo se ordena y se pinta. El recorte vive en useFiltrosProductos
+     porque el buscador enseña el recuento mientras escribes. */
   productos: ProductConProveedor[];
   /* Productos del catálogo SIN ningún filtro. Es lo que permite distinguir
      «no hay productos» de «los filtros los escondieron»: sin este dato, un
      filtro que no deja pasar nada se leía como un catálogo vacío. */
   totalCatalogo: number;
+  /* Lo escrito en el buscador. NO filtra —de eso ya se encargó el panel—: sirve
+     para señalar en cada renglón por dónde pegó la coincidencia. */
   busqueda: string;
-  filtroTipo: string;
-  filtroStock: string; // "todos" | agotado | por_acabarse | ok
   /* Nombres legibles de los filtros puestos ("Almacén: Solo Mercado Full"), para
      poder decir POR QUÉ no salió nada. Los junta el panel, que es quien los
      conoce todos. */
@@ -55,25 +55,13 @@ export function TablaProductos({
 }) {
   const { cambiarStock, tituloAjuste } = useAjusteStock(escrituraCanales);
 
-  const q = busqueda.trim().toLowerCase();
-  const visibles = productos
-    .filter(
-      (p) =>
-        (filtroTipo === "todos" || p.tipo === filtroTipo) &&
-        (filtroStock === "todos" || estadoStock(p) === filtroStock) &&
-        (!q ||
-          p.nombre.toLowerCase().includes(q) ||
-          (p.sku ?? "").toLowerCase().includes(q) ||
-          (p.variante ?? "").toLowerCase().includes(q) ||
-          (p.proveedor?.nombre ?? "").toLowerCase().includes(q)),
-    )
-    /* Mismo producto, sus tallas juntas: se agrupan por nombre y, dentro, se
-       ordenan por variante (talla) para que no queden dispersas por la lista. */
-    .sort((a, b) => {
-      const n = a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" });
-      if (n !== 0) return n;
-      return (a.variante ?? "").localeCompare(b.variante ?? "", "es", { numeric: true });
-    });
+  /* Mismo producto, sus tallas juntas: se agrupan por nombre y, dentro, se
+     ordenan por variante (talla) para que no queden dispersas por la lista. */
+  const visibles = [...productos].sort((a, b) => {
+    const n = a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" });
+    if (n !== 0) return n;
+    return (a.variante ?? "").localeCompare(b.variante ?? "", "es", { numeric: true });
+  });
 
   if (visibles.length === 0) {
     /* El catálogo vacío de verdad es el único caso en que corresponde invitar a
@@ -128,8 +116,12 @@ export function TablaProductos({
             className="min-w-0 truncate text-left font-medium hover:underline"
             title={`${p.nombre}${p.variante ? ` — ${p.variante}` : ""}`}
           >
-            {p.nombre}
-            {p.variante && <span className="ml-1.5 text-muted-foreground">· {p.variante}</span>}
+            <Resaltado texto={p.nombre} busca={busqueda} />
+            {p.variante && (
+              <span className="ml-1.5 text-muted-foreground">
+                · <Resaltado texto={p.variante} busca={busqueda} />
+              </span>
+            )}
             {!p.activo && <span className="ml-1.5 text-xs italic text-muted-foreground">(inactivo)</span>}
           </button>
           <MarcasProducto p={p} />
@@ -142,7 +134,7 @@ export function TablaProductos({
       celda: (p) =>
         p.sku ? (
           <span className="font-mono text-[12.5px] text-muted-foreground" title={p.sku}>
-            {p.sku}
+            <Resaltado texto={p.sku} busca={busqueda} />
           </span>
         ) : (
           <span className="text-muted-foreground/40">—</span>
@@ -165,11 +157,10 @@ export function TablaProductos({
     },
   ];
 
+  /* El «Mostrando N de M» ya no se pinta aquí: ese recuento vive pegado al
+     buscador, que es donde se mira mientras escribes. */
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-[12.5px] text-muted-foreground">
-        Mostrando {visibles.length} de {totalCatalogo} productos
-      </p>
       <TablaSimple
         cols={verPrecio ? COLS : COLS_SIN_PRECIO}
         columnas={columnas}
