@@ -356,6 +356,11 @@ const EVENTOS_WEBHOOK = [
   "product/created",
   "product/updated",
   "product/deleted",
+  /* `order/created` existe por la maquila: las órdenes SIN pagar tienen que
+     aparecer en la bandeja "Esperando pago" en cuanto nacen. A `sales` siguen
+     sin entrar (el importador filtra por pago); el alta es idempotente y el
+     cron de las 6:00 lo re-registra solo en las tiendas ya conectadas. */
+  "order/created",
   "order/paid",
   "order/cancelled",
 ] as const;

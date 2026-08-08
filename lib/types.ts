@@ -29,6 +29,12 @@ import type {
   CATEGORIAS_DOCUMENTO,
   ESTADOS_INCIDENCIA,
   ROLES_PORTAL,
+  ESTADOS_MAQUILA,
+  SUBESTADOS_MAQUILA,
+  MODELOS_MAQUILA,
+  ACABADOS_MAQUILA,
+  COMBOS_MAQUILA,
+  COLORES_PALANCA,
   EspacioId,
 } from "@/lib/catalogos";
 import type { DireccionEnvio } from "@/lib/canales/direccion";
@@ -79,6 +85,13 @@ export type CategoriaTareaId = (typeof CATEGORIAS_TAREA)[number]["id"];
 export type RolPortalId = (typeof ROLES_PORTAL)[number]["id"];
 export type CategoriaDocumentoId = (typeof CATEGORIAS_DOCUMENTO)[number]["id"];
 export type EstadoIncidenciaId = (typeof ESTADOS_INCIDENCIA)[number]["id"];
+/* Maquila México (producción bajo pedido con Eduardo). */
+export type EstadoMaquilaId = (typeof ESTADOS_MAQUILA)[number]["id"];
+export type SubestadoMaquilaId = (typeof SUBESTADOS_MAQUILA)[number]["id"];
+export type ModeloMaquilaId = (typeof MODELOS_MAQUILA)[number]["id"];
+export type AcabadoMaquilaId = (typeof ACABADOS_MAQUILA)[number]["id"];
+export type ComboMaquilaId = (typeof COMBOS_MAQUILA)[number]["id"];
+export type ColorPalancaId = (typeof COLORES_PALANCA)[number]["id"];
 
 /* Perfil de usuario (tabla `profiles`, 1:1 con auth.users). */
 export type Profile = {
@@ -1322,4 +1335,122 @@ export type InsumoPermiso = {
   puede_descontar: boolean;
   otorgado_por: string | null;
   created_at: string;
+};
+
+/* --- Maquila México --------------------------------------------------------
+   Producción bajo pedido con Eduardo. Tablas 20260919000000–20260925000000. */
+
+/* Un renglón de producción (tabla `maquila_pedidos`). Es UNA fila por pieza
+   vendida —no por orden—, con todo en snapshot: el tablero de Eduardo no puede
+   (ni debe) joinear products o customers. El único dinero es costo_maquila. */
+export type PedidoMaquila = {
+  id: string;
+  canal: "tienda_nube" | "mercado_libre" | "manual";
+  referencia_externa: string | null;
+  referencia_orden: string | null;
+  numero_orden: string | null;
+  sale_id: string | null;
+  producto_id: string | null;
+  origen: "api" | "manual";
+  sku: string | null;
+  diseno: string | null;
+  modelo: ModeloMaquilaId;
+  acabado: AcabadoMaquilaId;
+  talla: string | null;
+  color: string | null;
+  cantidad: number;
+  requiere_palanca: boolean;
+  /* Null = sin definir: la UI y la ficha imprimible lo gritan, porque es el
+     error de armado más caro. */
+  palanca_color: ColorPalancaId | null;
+  combo: ComboMaquilaId;
+  combo_diseno: string | null;
+  /* Lo que Eduardo cobra por la pieza (sin IVA), congelado a la fecha del pago. */
+  costo_maquila: number | null;
+  /* El instante real de aprobación del pago: de aquí —no de la compra— salen
+     ruta, corte y fecha prometida (lib/maquila/reglas.ts). */
+  pagado_en: string | null;
+  ruta: "directa" | "corte" | null;
+  corte_fecha: string | null;
+  fecha_prometida: string | null;
+  terminado_en: string | null;
+  enviado_en: string | null;
+  entregado_en: string | null;
+  estado: EstadoMaquilaId;
+  subestado: SubestadoMaquilaId | null;
+  paqueteria: string | null;
+  num_guia: string | null;
+  url_rastreo: string | null;
+  envio_nombre: string | null;
+  envio_telefono: string | null;
+  envio_direccion: DireccionEnvio | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/* La auditoría del pedido (tabla `maquila_eventos`, escrita solo por trigger).
+   `autor` null = sistema (ingesta/cron). */
+export type EventoMaquila = {
+  id: number;
+  pedido_id: string;
+  autor: string | null;
+  tipo: "creacion" | "pago" | "estado" | "subestado" | "guia" | "reclasificacion" | "cancelacion";
+  de: string | null;
+  a: string | null;
+  detalle: string | null;
+  created_at: string;
+  /* Resuelto aparte con los perfiles del request; null cuando fue el sistema. */
+  autor_nombre?: string | null;
+};
+
+/* La ficha de maquila de un producto (tabla `maquila_productos`): qué modelo y
+   acabado tiene, y por tanto su ruta y su costo. La presencia de la fila es lo
+   que manda un renglón de Tienda Nube al tablero de Eduardo. */
+export type MaquilaProducto = {
+  producto_id: string;
+  modelo: ModeloMaquilaId;
+  acabado: AcabadoMaquilaId;
+  combo: ComboMaquilaId;
+  activo: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/* La ficha junto a los datos de la ficha de producto que la pantalla de
+   "Productos de maquila" necesita para listar y buscar. */
+export type MaquilaProductoConFicha = MaquilaProducto & {
+  producto: { id: string; nombre: string; variante: string | null; sku: string | null } | null;
+};
+
+/* Una tarifa de la tabla `maquila_costos` (sin IVA, con vigencia). */
+export type CostoMaquila = {
+  id: string;
+  modelo: ModeloMaquilaId;
+  acabado: AcabadoMaquilaId;
+  costo: number;
+  vigente_desde: string;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* Un día no hábil del calendario de maquila (festivo de ley o cierre del
+   taller). */
+export type FestivoMaquila = {
+  fecha: string;
+  tipo: "festivo" | "cierre";
+  motivo: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* La configuración del módulo (tabla singleton `maquila_config`). */
+export type ConfigMaquila = {
+  id: number;
+  hora_limite: string;
+  sabado_habil: boolean;
+  updated_by: string | null;
+  updated_at: string;
 };

@@ -14,6 +14,7 @@ import {
   Package,
   Palette,
   Receipt,
+  Scissors,
   Store,
   TrendingUp,
   Truck,
@@ -50,6 +51,9 @@ const ICONOS: Record<string, LucideIcon> = {
   finanzas: DollarSign,
   clientes: Users,
   personalizados: Palette,
+  /* Tijeras y no fábrica: Factory ya es Proveedores, y dos módulos con el
+     mismo icono se confunden en el menú angosto. */
+  maquila: Scissors,
   pedidos: Truck,
   nomina: Users,
   reportes: TrendingUp,

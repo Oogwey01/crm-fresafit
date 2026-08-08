@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
-import { esExterno, esExternoAdmin, esGestor, puedeAdministrar } from "@/lib/catalogos";
+import { esExterno, esExternoAdmin, esGestor, esMaquilero, puedeAdministrar } from "@/lib/catalogos";
 import type { Profile } from "@/lib/types";
 
 type Sesion = Awaited<ReturnType<typeof usuarioActual>>;
@@ -29,6 +29,10 @@ export type ContextoRol =
    respecto a `interno` — son ramas distintas del mismo árbol. Existen para que
    una acción del portal no tenga que conformarse con «autenticado», que también
    deja pasar al equipo de casa a una pantalla que no es la suya. */
+/* `maquila` tampoco es un escalón: es el tablero que comparten el equipo de
+   casa y el maquilero (Eduardo). Las acciones de ese módulo lo piden para que
+   el resto de externos no pase, y la BD decide el recorte fino: la RLS y el
+   trigger validar_cambio_maquila dicen QUÉ puede tocar cada quien. */
 export type NivelRol =
   | "autenticado"
   | "interno"
@@ -36,7 +40,8 @@ export type NivelRol =
   | "admin"
   | "direccion"
   | "cliente"
-  | "cliente_admin";
+  | "cliente_admin"
+  | "maquila";
 
 const MENSAJE_POR_NIVEL: Record<NivelRol, string> = {
   autenticado: "No autenticado.",
@@ -46,6 +51,7 @@ const MENSAJE_POR_NIVEL: Record<NivelRol, string> = {
   direccion: "Solo Dirección puede hacer esto.",
   cliente: "Esto solo se hace desde el portal de la empresa.",
   cliente_admin: "Solo el administrador de tu empresa puede hacer esto.",
+  maquila: "Esto es del tablero de maquila.",
 };
 
 export async function exigirRol(nivel: NivelRol, mensaje?: string): Promise<ContextoRol> {
@@ -58,7 +64,8 @@ export async function exigirRol(nivel: NivelRol, mensaje?: string): Promise<Cont
     (nivel === "admin" && puedeAdministrar(rol)) ||
     (nivel === "direccion" && rol === "direccion") ||
     (nivel === "cliente" && esExterno(rol)) ||
-    (nivel === "cliente_admin" && esExternoAdmin(perfil));
+    (nivel === "cliente_admin" && esExternoAdmin(perfil)) ||
+    (nivel === "maquila" && (esInterno(rol) || esMaquilero(rol)));
   if (!pasa) return { error: mensaje ?? MENSAJE_POR_NIVEL[nivel] };
   return { supabase, user, rol: rol ?? "miembro", perfil };
 }

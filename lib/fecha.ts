@@ -56,6 +56,21 @@ export function diaMX(instante: string | number | Date): string {
   return d.toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
 }
 
+/* Hora del día ("HH:mm", 24 h) de un INSTANTE, vista desde México. Es la otra
+   mitad de diaMX(): la maquila necesita saber si un pago cayó antes o después
+   de la hora límite de corte, y compararlo en el huso del servidor daría un
+   corte distinto según dónde corra el código. "en-GB" porque su formato corto
+   ya es HH:mm con cero a la izquierda (comparable como texto). */
+export function horaMX(instante: string | number | Date): string {
+  const d = instante instanceof Date ? instante : new Date(instante);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Mexico_City",
+  });
+}
+
 /* Hoy en formato AAAA-MM-DD (zona de México). */
 export function hoyISO(): string {
   const d = ahoraMX();

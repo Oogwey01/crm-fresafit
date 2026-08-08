@@ -1764,6 +1764,373 @@ export type Database = {
         }
         Relationships: []
       }
+      maquila_config: {
+        Row: {
+          hora_limite: string
+          id: number
+          sabado_habil: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          hora_limite?: string
+          id: number
+          sabado_habil?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          hora_limite?: string
+          id?: number
+          sabado_habil?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_config_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_costos: {
+        Row: {
+          acabado: string
+          costo: number
+          created_at: string
+          created_by: string | null
+          id: string
+          modelo: string
+          vigente_desde: string
+        }
+        Insert: {
+          acabado: string
+          costo: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          modelo: string
+          vigente_desde?: string
+        }
+        Update: {
+          acabado?: string
+          costo?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          modelo?: string
+          vigente_desde?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_costos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_eventos: {
+        Row: {
+          a: string | null
+          autor: string | null
+          created_at: string
+          de: string | null
+          detalle: string | null
+          id: number
+          pedido_id: string
+          tipo: string
+        }
+        Insert: {
+          a?: string | null
+          autor?: string | null
+          created_at?: string
+          de?: string | null
+          detalle?: string | null
+          id?: never
+          pedido_id: string
+          tipo: string
+        }
+        Update: {
+          a?: string | null
+          autor?: string | null
+          created_at?: string
+          de?: string | null
+          detalle?: string | null
+          id?: never
+          pedido_id?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_eventos_autor_fkey"
+            columns: ["autor"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_eventos_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_pedidos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_festivos: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          fecha: string
+          motivo: string | null
+          tipo: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          fecha: string
+          motivo?: string | null
+          tipo?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          fecha?: string
+          motivo?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_festivos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_pedidos: {
+        Row: {
+          acabado: string
+          canal: string
+          cantidad: number
+          color: string | null
+          combo: string
+          combo_diseno: string | null
+          corte_fecha: string | null
+          costo_maquila: number | null
+          created_at: string
+          created_by: string | null
+          diseno: string | null
+          entregado_en: string | null
+          enviado_en: string | null
+          envio_direccion: Json | null
+          envio_nombre: string | null
+          envio_telefono: string | null
+          estado: string
+          fecha_prometida: string | null
+          id: string
+          modelo: string
+          notas: string | null
+          num_guia: string | null
+          numero_orden: string | null
+          origen: string
+          pagado_en: string | null
+          palanca_color: string | null
+          paqueteria: string | null
+          producto_id: string | null
+          referencia_externa: string | null
+          referencia_orden: string | null
+          requiere_palanca: boolean
+          ruta: string | null
+          sale_id: string | null
+          sku: string | null
+          subestado: string | null
+          talla: string | null
+          terminado_en: string | null
+          updated_at: string
+          url_rastreo: string | null
+        }
+        Insert: {
+          acabado: string
+          canal: string
+          cantidad?: number
+          color?: string | null
+          combo?: string
+          combo_diseno?: string | null
+          corte_fecha?: string | null
+          costo_maquila?: number | null
+          created_at?: string
+          created_by?: string | null
+          diseno?: string | null
+          entregado_en?: string | null
+          enviado_en?: string | null
+          envio_direccion?: Json | null
+          envio_nombre?: string | null
+          envio_telefono?: string | null
+          estado?: string
+          fecha_prometida?: string | null
+          id?: string
+          modelo: string
+          notas?: string | null
+          num_guia?: string | null
+          numero_orden?: string | null
+          origen?: string
+          pagado_en?: string | null
+          palanca_color?: string | null
+          paqueteria?: string | null
+          producto_id?: string | null
+          referencia_externa?: string | null
+          referencia_orden?: string | null
+          requiere_palanca?: boolean
+          ruta?: string | null
+          sale_id?: string | null
+          sku?: string | null
+          subestado?: string | null
+          talla?: string | null
+          terminado_en?: string | null
+          updated_at?: string
+          url_rastreo?: string | null
+        }
+        Update: {
+          acabado?: string
+          canal?: string
+          cantidad?: number
+          color?: string | null
+          combo?: string
+          combo_diseno?: string | null
+          corte_fecha?: string | null
+          costo_maquila?: number | null
+          created_at?: string
+          created_by?: string | null
+          diseno?: string | null
+          entregado_en?: string | null
+          enviado_en?: string | null
+          envio_direccion?: Json | null
+          envio_nombre?: string | null
+          envio_telefono?: string | null
+          estado?: string
+          fecha_prometida?: string | null
+          id?: string
+          modelo?: string
+          notas?: string | null
+          num_guia?: string | null
+          numero_orden?: string | null
+          origen?: string
+          pagado_en?: string | null
+          palanca_color?: string | null
+          paqueteria?: string | null
+          producto_id?: string | null
+          referencia_externa?: string | null
+          referencia_orden?: string | null
+          requiere_palanca?: boolean
+          ruta?: string | null
+          sale_id?: string | null
+          sku?: string | null
+          subestado?: string | null
+          talla?: string | null
+          terminado_en?: string | null
+          updated_at?: string
+          url_rastreo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_pedidos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "producto_costos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "sales"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_sale_id_fkey"
+            columns: ["sale_id"]
+            isOneToOne: false
+            referencedRelation: "ventas_montos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_productos: {
+        Row: {
+          acabado: string
+          activo: boolean
+          combo: string
+          created_at: string
+          created_by: string | null
+          modelo: string
+          producto_id: string
+          updated_at: string
+        }
+        Insert: {
+          acabado: string
+          activo?: boolean
+          combo?: string
+          created_at?: string
+          created_by?: string | null
+          modelo: string
+          producto_id: string
+          updated_at?: string
+        }
+        Update: {
+          acabado?: string
+          activo?: boolean
+          combo?: string
+          created_at?: string
+          created_by?: string | null
+          modelo?: string
+          producto_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_productos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_productos_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: true
+            referencedRelation: "producto_costos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_productos_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: true
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       meli_publicaciones: {
         Row: {
           creado_en: string
@@ -3689,6 +4056,7 @@ export type Database = {
       es_externo_admin: { Args: never; Returns: boolean }
       es_gestor: { Args: never; Returns: boolean }
       es_interno: { Args: never; Returns: boolean }
+      es_maquilero: { Args: never; Returns: boolean }
       etiqueta_estado: { Args: { e: string }; Returns: string }
       fusionar_producto_ml: {
         Args: { p_ganador: string; p_perdedor: string }
@@ -3709,6 +4077,8 @@ export type Database = {
         Args: { p_producto: string }
         Returns: undefined
       }
+      maquila_rango_estado: { Args: { e: string }; Returns: number }
+      maquila_rango_subestado: { Args: { s: string }; Returns: number }
       marcar_conjunto_subido: { Args: { cid: string }; Returns: number }
       metricas_resumen: {
         Args: { canal_f?: string; desde: string; hasta: string }

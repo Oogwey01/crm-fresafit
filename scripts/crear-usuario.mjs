@@ -30,6 +30,12 @@
    check `profiles_externo_empresa_check`: un externo sin empresa no vería nada
    y parecería un CRM roto.
 
+   ALTA DEL MAQUILERO (Eduardo). Sin área ni empresa: no es de la casa ni del
+   portal — solo alcanza el tablero de Maquila México:
+
+     node --env-file=.env.local scripts/crear-usuario.mjs \
+       --email eduardo@… --nombre "Eduardo" --rol maquilero --password "…"
+
    Requiere en el entorno:
      NEXT_PUBLIC_SUPABASE_URL
      SUPABASE_SERVICE_ROLE_KEY   (service role — NUNCA en el cliente ni en git)
@@ -37,7 +43,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-const ROLES = ["direccion", "administracion", "coordinador", "miembro", "externo"];
+const ROLES = ["direccion", "administracion", "coordinador", "miembro", "externo", "maquilero"];
 const AREAS = ["direccion", "administracion", "operaciones", "diseno", "contenido", "logistica", "tech"];
 const ROLES_PORTAL = ["admin_cliente", "colaborador"];
 
@@ -82,14 +88,16 @@ const password = String(args.password ?? "").trim();
 const empresaSlug = String(args.empresa ?? "").trim().toLowerCase();
 const rolPortal = String(args["rol-portal"] ?? "").trim();
 const esExterno = rol === "externo";
+const esMaquilero = rol === "maquilero";
 
 const problemas = [];
 if (!email.includes("@")) problemas.push("--email debe ser un correo válido");
 if (!nombre) problemas.push("--nombre es obligatorio");
 if (!ROLES.includes(rol)) problemas.push(`--rol debe ser uno de: ${ROLES.join(", ")}`);
-/* El área es de la casa: quien viene de una empresa cliente no tiene ninguna, y
-   la BD guarda null. Pedírsela sería inventarle un puesto en Fresafit. */
-if (!esExterno && !AREAS.includes(area)) problemas.push(`--area debe ser una de: ${AREAS.join(", ")}`);
+/* El área es de la casa: quien viene de una empresa cliente —o el maquilero—
+   no tiene ninguna, y la BD guarda null. Pedírsela sería inventarle un puesto
+   en Fresafit. */
+if (!esExterno && !esMaquilero && !AREAS.includes(area)) problemas.push(`--area debe ser una de: ${AREAS.join(", ")}`);
 if (esExterno && !empresaSlug) problemas.push("--empresa es obligatoria con --rol externo (el slug de la empresa cliente)");
 if (esExterno && !ROLES_PORTAL.includes(rolPortal)) {
   problemas.push(`--rol-portal debe ser uno de: ${ROLES_PORTAL.join(", ")}`);
@@ -123,6 +131,8 @@ async function main() {
     console.log(
       `${SIMULACRO ? "[simulacro] " : ""}${nombre} <${email}> — contacto de ${data.nombre} (${rolPortal})`,
     );
+  } else if (esMaquilero) {
+    console.log(`${SIMULACRO ? "[simulacro] " : ""}${nombre} <${email}> — maquilero (sin área)`);
   } else {
     console.log(
       `${SIMULACRO ? "[simulacro] " : ""}${nombre} <${email}> — rol ${rol}, área ${area}`,
@@ -163,7 +173,9 @@ async function main() {
      por defecto; esto le pone el rol, el área y el color que tocan. */
   const perfil = esExterno
     ? { id, nombre, rol, area: null, color, empresa_id: empresaId, rol_portal: rolPortal }
-    : { id, nombre, rol, area, color, empresa_id: null, rol_portal: null };
+    : esMaquilero
+      ? { id, nombre, rol, area: null, color, empresa_id: null, rol_portal: null }
+      : { id, nombre, rol, area, color, empresa_id: null, rol_portal: null };
 
   const { error: errPerfil } = await admin
     .from("profiles")
@@ -174,6 +186,9 @@ async function main() {
   console.log("\nListo. Entrega la contraseña en privado y pídele cambiarla.");
   if (esExterno) {
     console.log("Al entrar verá solo /portal: lo COMPARTIDO de su empresa y nada más.");
+  }
+  if (esMaquilero) {
+    console.log("Al entrar verá solo /maquila: sus pedidos pagados, sin dinero de venta.");
   }
 }
 

@@ -76,6 +76,11 @@ export const ROLES = [
      gestor es meterse en las tareas AJENAS. */
   { id: "miembro", nombre: "Miembro", desc: "Crea tareas y ve las suyas (asignadas o creadas); manda en las que él creó, y de las demás mueve el estado, comenta y adjunta." },
   { id: "externo", nombre: "Externo", desc: "Solo ve lo que se le comparte." },
+  /* El maquilero (Eduardo) produce los cinturones bajo pedido. No es equipo de
+     casa ni cliente del portal: es la tercera rama del árbol. Solo alcanza el
+     tablero de Maquila México, y la RLS le abre exactamente eso (es_maquilero()
+     en la BD, migración 20260919000000). */
+  { id: "maquilero", nombre: "Maquilero", desc: "Produce bajo pedido: solo ve el tablero de Maquila México." },
 ] as const;
 
 /* --- Módulo de empresas: el papel de cada persona DENTRO de la empresa cliente.
@@ -358,6 +363,78 @@ export const MODELOS_PERSONALIZADO = [
   { id: "otro", nombre: "Otro" },
 ] as const;
 
+/* --- Maquila México --------------------------------------------------------
+   Producción bajo pedido con Eduardo. El vocabulario espeja los CHECKs de
+   `maquila_pedidos` (20260924000000): si aquí se agrega un id, la BD tiene que
+   enterarse por migración. El comportamiento (rutas, fechas hábiles, semáforo)
+   NO vive aquí sino en lib/maquila/reglas.ts, siguiendo el reparto de
+   lib/tareas/reglas.ts: esto son nombres y colores, aquello son reglas. --- */
+
+/* El recorrido del pedido. El orden = avance real; `esperando_pago` existe pero
+   no es producción (para Eduardo ni siquiera existe: su RLS lo excluye), y
+   cancelado/devuelto son decisiones, no pasos. */
+export const ESTADOS_MAQUILA = [
+  { id: "esperando_pago", nombre: "Esperando pago", color: "#94a3b8" },
+  { id: "recibido", nombre: "Recibido", color: "#0984e3" },
+  { id: "pendiente_produccion", nombre: "Pendiente de producción", color: "#f59e0b" },
+  { id: "en_produccion", nombre: "En producción", color: "#e17055" },
+  { id: "terminado", nombre: "Terminado", color: "#6c5ce7" },
+  { id: "enviado", nombre: "Enviado", color: "#16a34a" },
+  { id: "entregado", nombre: "Entregado", color: "#22c55e" },
+  { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
+  { id: "devuelto", nombre: "Devuelto", color: "#64748b" },
+] as const;
+
+/* Los estados en los que la pieza sigue en manos de Eduardo: los que vigilan la
+   fecha prometida y cuentan como atrasados si se pasa. */
+export const ESTADOS_MAQUILA_ACTIVOS = [
+  "recibido",
+  "pendiente_produccion",
+  "en_produccion",
+  "terminado",
+] as const;
+
+/* Sub-estados de la producción por lote (sublimado/bordado): la trazabilidad
+   del TERCERO —bordador/impresor—, que es el riesgo #1 del proyecto. Solo
+   existen dentro de `en_produccion` y la BD lo exige con un CHECK. */
+export const SUBESTADOS_MAQUILA = [
+  { id: "entregado_a_tercero", nombre: "Con el tercero", color: "#e84393" },
+  { id: "recogido_de_tercero", nombre: "Recogido del tercero", color: "#0984e3" },
+  { id: "en_confeccion", nombre: "En confección", color: "#f59e0b" },
+  { id: "listo_para_envio", nombre: "Listo para envío", color: "#22c55e" },
+] as const;
+
+/* `llevaPalanca` es la regla "un Powerlift requiere palanca" hecha dato: la
+   ingesta y el formulario la leen de aquí en vez de repetir el if. */
+export const MODELOS_MAQUILA = [
+  { id: "powerlift", nombre: "Powerlift", llevaPalanca: true },
+  { id: "hebilla", nombre: "Hebilla", llevaPalanca: false },
+] as const;
+
+/* El acabado decide la ruta de producción (ver rutaDeAcabado en
+   lib/maquila/reglas.ts): prensado sale directo, el resto va por corte. */
+export const ACABADOS_MAQUILA = [
+  { id: "prensado", nombre: "Prensado", color: "#0984e3" },
+  { id: "sublimado", nombre: "Sublimado", color: "#e84393" },
+  { id: "bordado", nombre: "Bordado", color: "#6c5ce7" },
+  { id: "bordado_gamuza", nombre: "Bordado + Gamuza", color: "#8b5cf6" },
+] as const;
+
+export const COMBOS_MAQUILA = [
+  { id: "ninguno", nombre: "Sin combo" },
+  { id: "munequeras", nombre: "Muñequeras" },
+  { id: "straps", nombre: "Straps" },
+  { id: "ambos", nombre: "Muñequeras + Straps" },
+] as const;
+
+/* El color se etiqueta con sticker en el taller y es donde más se equivoca el
+   armado: por eso es un catálogo y no texto libre, y por eso la ficha
+   imprimible lo grita en grande. */
+export const COLORES_PALANCA = [
+  { id: "plateada", nombre: "Plateada", color: "#94a3b8" },
+  { id: "negra", nombre: "Negra", color: "#2d3436" },
+] as const;
+
 /* --- Insumos ---------------------------------------------------------------
    Las secciones de la hoja «Recursos FRESA FIT», con el color con el que están
    pintadas ahí: el equipo ya reconoce cada bloque por su color y perderlo al
@@ -539,6 +616,12 @@ export const MODULOS = [
   /* Los cinturones personalizados son su propio negocio dentro del negocio: los
      capturan y los mueven los diseñadores, que no entran a bodega. */
   { id: "personalizados", nombre: "Personalizados", icono: "🎨", href: "/personalizados", activo: true, espacio: "fresafit" },
+  /* Producción bajo pedido con Eduardo. Para el equipo es un módulo normal de
+     Fresafit; para el rol `maquilero` es EL ÚNICO que existe (paraMaquilero +
+     la rama de puedeVerModulo). No lleva soloAdmin: operaciones y plataformas
+     lo consultan a diario, y el dinero de venta ni siquiera viaja en sus
+     tablas — el corte financiero lo hace el esquema, no el menú. */
+  { id: "maquila", nombre: "Maquila México", icono: "🧵", href: "/maquila", activo: true, espacio: "fresafit", paraMaquilero: true },
   { id: "pedidos", nombre: "Pedidos y envíos", icono: "📦", href: "/pedidos", activo: true, espacio: "fresafit" },
   /* Nómina y reportes existen en los dos negocios: son las mismas tablas
      filtradas por empresa (null = Fresafit). Sueldos internos, así que Nómina va
@@ -675,6 +758,24 @@ export function obtenerCategoriaDocumento(id: string | null | undefined) {
 export function obtenerEstadoIncidencia(id: string | null | undefined) {
   return ESTADOS_INCIDENCIA.find((e) => e.id === id) ?? null;
 }
+export function obtenerEstadoMaquila(id: string | null | undefined) {
+  return ESTADOS_MAQUILA.find((e) => e.id === id) ?? null;
+}
+export function obtenerSubestadoMaquila(id: string | null | undefined) {
+  return SUBESTADOS_MAQUILA.find((s) => s.id === id) ?? null;
+}
+export function obtenerModeloMaquila(id: string | null | undefined) {
+  return MODELOS_MAQUILA.find((m) => m.id === id) ?? null;
+}
+export function obtenerAcabadoMaquila(id: string | null | undefined) {
+  return ACABADOS_MAQUILA.find((a) => a.id === id) ?? null;
+}
+export function obtenerComboMaquila(id: string | null | undefined) {
+  return COMBOS_MAQUILA.find((c) => c.id === id) ?? null;
+}
+export function obtenerColorPalanca(id: string | null | undefined) {
+  return COLORES_PALANCA.find((c) => c.id === id) ?? null;
+}
 export function obtenerLadoIncidencia(id: string | null | undefined) {
   return LADOS_INCIDENCIA.find((l) => l.id === id) ?? null;
 }
@@ -711,6 +812,13 @@ export function puedeAdministrar(rol: string | null | undefined) {
    guardias y en los formularios. */
 export function esExterno(rol: string | null | undefined) {
   return rol === "externo";
+}
+
+/* ¿Es el maquilero? Espejo de public.es_maquilero(). La tercera rama del
+   árbol: ni equipo de casa ni cliente del portal. Produce los pedidos de
+   Maquila México y no alcanza nada más. */
+export function esMaquilero(rol: string | null | undefined) {
+  return rol === "maquilero";
 }
 
 /* ¿Es el administrador de su empresa? Espejo de public.es_externo_admin().
@@ -757,6 +865,14 @@ export type PerfilPermisos =
 export const MODULO_PORTADA = "tareas";
 
 export function puedeVerModulo(m: (typeof MODULOS)[number], perfil: PerfilPermisos): boolean {
+  /* El maquilero va primero y en corte absoluto, igual que el portal para los
+     externos: Eduardo solo alcanza Maquila México, y nadie más que él entra por
+     esta rama — para el equipo de casa `paraMaquilero` no abre ni cierra nada
+     (el módulo de maquila es de espacio fresafit y pasa por las reglas de
+     siempre). */
+  if (esMaquilero(perfil?.rol)) {
+    return "paraMaquilero" in m && !!m.paraMaquilero;
+  }
   return (
     (!("soloAdmin" in m && m.soloAdmin) || puedeAdministrar(perfil?.rol)) &&
     (!("soloDireccion" in m && m.soloDireccion) || esDireccion(perfil?.rol)) &&

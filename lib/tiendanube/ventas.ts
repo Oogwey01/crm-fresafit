@@ -21,6 +21,7 @@ import {
 } from "@/lib/canales/ventas-cuadre";
 import { diaMX } from "@/lib/fecha";
 import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
+import { aplicarOrdenesMaquila } from "@/lib/maquila/ingesta";
 import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/integraciones";
 import { HUB_VENTAS_ACTIVO, productosDelPiloto } from "@/lib/inventario/hub-config";
 import { propagarStock, type FilaVinculada } from "@/lib/inventario/stock-hub";
@@ -447,6 +448,18 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
         }
       }
     }
+  }
+
+  /* Maquila México: los renglones cuyo producto tiene ficha de maquila van
+     ADEMÁS al tablero de Eduardo — incluidas las órdenes pendientes de pago,
+     que a `sales` nunca entran (bandeja "Esperando pago"). Va al final porque
+     la promoción a producción liga la venta hermana recién upserteada, y en
+     try/catch porque un tropiezo de maquila no puede tirar la importación de
+     ventas, que es la que cuadra el dinero. */
+  try {
+    await aplicarOrdenesMaquila(ordenes);
+  } catch (e) {
+    console.error("[maquila] ingesta desde Tienda Nube:", e);
   }
 
   return {

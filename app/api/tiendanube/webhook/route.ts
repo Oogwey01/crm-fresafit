@@ -4,10 +4,14 @@ import { conexionTiendanube, obtenerProductoTN } from "@/lib/tiendanube/api";
 import { desactivarProductoTN, sincronizarProductosTN } from "@/lib/tiendanube/sync";
 import { procesarOrdenTN } from "@/lib/tiendanube/ventas";
 
-/* Receptor de webhooks de Tienda Nube (product/* y order/paid|cancelled).
+/* Receptor de webhooks de Tienda Nube (product/* y order/created|paid|cancelled).
    Exigen un 2XX en menos de 3 segundos, así que se responde de inmediato y el
    trabajo corre con after(). Pueden llegar duplicados: no estorban porque la
-   sincronización es un upsert idempotente. */
+   sincronización es un upsert idempotente.
+
+   `order/created` existe por la maquila (bandeja "Esperando pago"); el orden de
+   llegada no importa porque procesarOrdenTN relee la orden FRESCA de la API: un
+   order/paid sin su order/created previo cae directo en la rama de pagadas. */
 export async function POST(request: Request) {
   const secreto = process.env.TIENDANUBE_CLIENT_SECRET;
   if (!secreto) return NextResponse.json({ error: "Integración no configurada." }, { status: 503 });
@@ -29,7 +33,7 @@ export async function POST(request: Request) {
   const { event, id } = evento;
   // Evento que no manejamos: 200 para que Tienda Nube no lo reintente.
   const esProducto = !!event?.startsWith("product/");
-  const esOrden = event === "order/paid" || event === "order/cancelled";
+  const esOrden = event === "order/created" || event === "order/paid" || event === "order/cancelled";
   if ((!esProducto && !esOrden) || typeof id !== "number") {
     return NextResponse.json({ ok: true });
   }
