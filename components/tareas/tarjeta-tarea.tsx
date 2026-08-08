@@ -3,7 +3,7 @@
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, Building2, CheckSquare, ChevronLeft, ChevronRight } from "lucide-react";
-import { ESTADOS, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
+import { ESTADOS_TABLERO, obtenerPrioridad, obtenerArea, obtenerEtiqueta } from "@/lib/catalogos";
 import { formatearFecha, esVencida } from "@/lib/fecha";
 import { type TaskConResponsable, type EstadoId } from "@/lib/types";
 import { tieneNovedades } from "@/lib/tareas/reglas";
@@ -29,7 +29,7 @@ export function TaskCard({
 
   const prioridad = obtenerPrioridad(tarea.prioridad);
   const area = obtenerArea(tarea.area);
-  const idx = ESTADOS.findIndex((e) => e.id === tarea.estado);
+  const idx = ESTADOS_TABLERO.findIndex((e) => e.id === tarea.estado);
   const vencida = esVencida(tarea.fecha_limite, tarea.estado);
   const novedades = tieneNovedades(tarea);
 
@@ -160,25 +160,25 @@ export function TaskCard({
           {idx > 0 && (
             <button
               type="button"
-              aria-label={`Mover a ${ESTADOS[idx - 1].nombre}`}
-              title={`Mover a ${ESTADOS[idx - 1].nombre}`}
+              aria-label={`Mover a ${ESTADOS_TABLERO[idx - 1].nombre}`}
+              title={`Mover a ${ESTADOS_TABLERO[idx - 1].nombre}`}
               onClick={(e) => {
                 e.stopPropagation();
-                onMover?.(tarea.id, ESTADOS[idx - 1].id);
+                onMover?.(tarea.id, ESTADOS_TABLERO[idx - 1].id);
               }}
               className="flex size-6 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             >
               <ChevronLeft className="size-3.5" />
             </button>
           )}
-          {idx < ESTADOS.length - 1 && (
+          {idx < ESTADOS_TABLERO.length - 1 && (
             <button
               type="button"
-              aria-label={`Mover a ${ESTADOS[idx + 1].nombre}`}
-              title={`Mover a ${ESTADOS[idx + 1].nombre}`}
+              aria-label={`Mover a ${ESTADOS_TABLERO[idx + 1].nombre}`}
+              title={`Mover a ${ESTADOS_TABLERO[idx + 1].nombre}`}
               onClick={(e) => {
                 e.stopPropagation();
-                onMover?.(tarea.id, ESTADOS[idx + 1].id);
+                onMover?.(tarea.id, ESTADOS_TABLERO[idx + 1].id);
               }}
               className="flex size-6 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             >

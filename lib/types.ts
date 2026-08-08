@@ -24,6 +24,11 @@ import type {
   ROLES_COMPONENTE,
   CATEGORIAS_INSUMO,
   ESTADOS_COMPROBANTE,
+  VISIBILIDADES,
+  CATEGORIAS_TAREA,
+  CATEGORIAS_DOCUMENTO,
+  ESTADOS_INCIDENCIA,
+  ROLES_PORTAL,
   EspacioId,
 } from "@/lib/catalogos";
 import type { DireccionEnvio } from "@/lib/canales/direccion";
@@ -68,6 +73,12 @@ export type TierInfluencerId = (typeof TIERS_INFLUENCER)[number]["id"];
 export type EtapaInfluencerId = (typeof ETAPAS_INFLUENCER)[number]["id"];
 export type CategoriaInsumoId = (typeof CATEGORIAS_INSUMO)[number]["id"];
 export type EstadoComprobanteId = (typeof ESTADOS_COMPROBANTE)[number]["id"];
+/* Módulo de empresas (el espacio compartido con cada cliente). */
+export type VisibilidadId = (typeof VISIBILIDADES)[number]["id"];
+export type CategoriaTareaId = (typeof CATEGORIAS_TAREA)[number]["id"];
+export type RolPortalId = (typeof ROLES_PORTAL)[number]["id"];
+export type CategoriaDocumentoId = (typeof CATEGORIAS_DOCUMENTO)[number]["id"];
+export type EstadoIncidenciaId = (typeof ESTADOS_INCIDENCIA)[number]["id"];
 
 /* Perfil de usuario (tabla `profiles`, 1:1 con auth.users). */
 export type Profile = {
@@ -85,6 +96,14 @@ export type Profile = {
   /* Secciones que esta persona NO ve, por id de MODULOS. Lista negra: resta
      sobre lo que su rol ya permite, nunca suma. Se reparte desde /equipo. */
   modulos_ocultos?: string[];
+  /* Empresa cliente a la que pertenece, cuando es gente de fuera (rol
+     `externo`). Es lo que la aísla del resto del CRM: la RLS compara contra
+     ella en cada consulta del módulo de empresas. Null en todo el equipo de
+     casa, y la BD lo obliga (profiles_externo_empresa_check). */
+  empresa_id?: string | null;
+  /* Su papel dentro de esa empresa: admin_cliente o colaborador. Ver
+     ROLES_PORTAL en lib/catalogos.ts. */
+  rol_portal?: RolPortalId | null;
 };
 
 /* Perfil con el correo de Auth al lado. Solo lo arma la pantalla de Equipo,
@@ -103,6 +122,14 @@ export type Task = {
   /* Cliente de la agencia dueño de la tarea. Null en Fresafit siempre, y en la
      agencia cuando es trabajo interno (juntas, prospección). */
   empresa_id: string | null;
+  /* Quién puede verla: privado (dirección), interno (el equipo) o compartido
+     (el equipo y la empresa cliente). Nace `interno` SIEMPRE — compartir es un
+     acto deliberado— y el corte lo aplica la RLS, no la pantalla. */
+  visibilidad: VisibilidadId;
+  /* Categoría del acuerdo con el cliente (documentos, accesos, pago…). Decide
+     además qué se exige para cerrarla; ver CATEGORIAS_TAREA. Null en las tareas
+     internas de Fresafit, que no la usan. */
+  categoria: CategoriaTareaId | null;
   area: AreaId;
   prioridad: PrioridadId;
   estado: EstadoId;
@@ -741,6 +768,113 @@ export type AgenciaEmpresa = {
   activa: boolean;
   inicio: string | null;
   notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* --- Archivo de documentos del espacio compartido con cada empresa.
+
+   Un documento es el CONCEPTO («la constancia de situación fiscal de Nutravia»)
+   y sus versiones son los archivos que lo han representado. Por eso reemplazar
+   uno no pierde el anterior: se agrega una versión y la vieja sigue ahí. */
+export type EmpresaDocumento = {
+  id: string;
+  empresa_id: string;
+  nombre: string;
+  categoria: CategoriaDocumentoId;
+  descripcion: string | null;
+  etiquetas: string[];
+  visibilidad: VisibilidadId;
+  /* Hasta cuándo sirve. Es lo que convierte el archivo en algo vivo: sin fecha,
+     una constancia vencida se ve igual que una al día. El cron avisa 30 días
+     antes (DIAS_AVISO_VENCIMIENTO). */
+  vigente_hasta: string | null; // "AAAA-MM-DD"
+  /* Cuándo se mandó ese aviso, para no repetirlo cada día. */
+  aviso_vencimiento_en: string | null;
+  /* Nada se borra: se archiva. */
+  archivado_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type EmpresaDocumentoVersion = {
+  id: string;
+  documento_id: string;
+  version: number;
+  storage_path: string;
+  nombre_archivo: string;
+  mime: string | null;
+  tamano: number | null;
+  nota: string | null;
+  subido_por: string | null;
+  created_at: string;
+};
+
+/* El documento con su versión vigente y cuántas lleva: lo que pinta la lista sin
+   tener que abrir cada uno. */
+export type EmpresaDocumentoConVersion = EmpresaDocumento & {
+  version_actual: EmpresaDocumentoVersion | null;
+  total_versiones: number;
+  autor: Pick<Profile, "id" | "nombre" | "color"> | null;
+};
+
+/* --- Avance del proyecto de una empresa cliente.
+
+   Cuatro piezas que contestan cuatro preguntas distintas: dónde estamos, qué
+   viene, qué se ha hecho y qué está frenando. */
+export type EmpresaAvance = {
+  empresa_id: string;
+  estado_actual: string | null;
+  actualizado_por: string | null;
+  updated_at: string;
+};
+
+export type EmpresaEvento = {
+  id: string;
+  empresa_id: string;
+  titulo: string;
+  descripcion: string | null;
+  inicia_en: string; // ISO con hora: un live se agenda a una hora
+  visibilidad: VisibilidadId;
+  archivado_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+/* `fecha` es la del HECHO, no la del registro: se apunta el lunes lo que pasó el
+   viernes, y el reporte de periodo ordena por cuándo ocurrió. */
+export type EmpresaBitacora = {
+  id: string;
+  empresa_id: string;
+  fecha: string; // "AAAA-MM-DD"
+  titulo: string;
+  descripcion: string | null;
+  visibilidad: VisibilidadId;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+export type EmpresaBitacoraConAutor = EmpresaBitacora & {
+  autor: Pick<Profile, "id" | "nombre" | "color"> | null;
+};
+
+/* `desbloquea` es la columna que importa: un bloqueo sin dueño se queda
+   semanas. Escrito, cada parte ve lo suyo y deja de haber discusión. */
+export type EmpresaIncidencia = {
+  id: string;
+  empresa_id: string;
+  titulo: string;
+  descripcion: string | null;
+  desbloquea: "fresafit" | "cliente";
+  impacto: string | null;
+  detectada_en: string; // "AAAA-MM-DD"
+  estado: EstadoIncidenciaId;
+  resuelta_en: string | null;
+  visibilidad: VisibilidadId;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;

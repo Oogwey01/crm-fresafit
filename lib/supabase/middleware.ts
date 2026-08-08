@@ -23,6 +23,11 @@ const RUTAS_PUBLICAS = [
   "/api/inventario/reconciliacion",
   "/api/tareas/recordatorios",
   "/api/cron/purga",
+  /* El barrido diario del módulo de empresas: vencimientos de documentos,
+     tareas compartidas pasadas de fecha y el resumen del día para los clientes.
+     Mismo trato que los de arriba — lo dispara cron-job.org y valida
+     CRON_SECRET adentro. */
+  "/api/cron/portal",
   /* El service worker y el manifest los pide el navegador SIN cookies de sesión
      (y a veces antes de que exista sesión). Si se redirigen al login, el
      registro del worker falla y no llega ni un aviso push. */

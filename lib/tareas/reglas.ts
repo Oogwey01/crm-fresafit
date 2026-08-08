@@ -8,8 +8,14 @@
    no tocan Supabase ni leen sesión — reciben lo que necesitan por parámetro.
    ============================================================================ */
 
-import { esGestor } from "@/lib/catalogos";
-import type { Profile, TaskAttachment, TaskConResponsable } from "@/lib/types";
+import { esGestor, obtenerCategoriaTarea } from "@/lib/catalogos";
+import type {
+  CategoriaTareaId,
+  EstadoId,
+  Profile,
+  TaskAttachment,
+  TaskConResponsable,
+} from "@/lib/types";
 
 /* Todas las personas que trabajan una tarea: la principal primero y luego los
    coasignados. Es lo que se pinta en las tarjetas y lo que decide si la tarea
@@ -53,6 +59,45 @@ export function tieneNovedades(t: Pick<TaskConResponsable, "ultima_actividad_at"
   return t.ultima_actividad_at > t.leido_at;
 }
 
+
+/* ============================================================================
+   Cierre de una tarea con la empresa cliente
+   ----------------------------------------------------------------------------
+   Hay categorías en las que decir «ya está» no es suficiente: una tarea de
+   Documentos SIN el documento no entregó nada —el archivo ES el resultado—, y
+   una de Pago o de Accesos sin una línea que diga cuándo y cómo deja la
+   conversación abierta justo donde luego se discute.
+
+   Vive aquí, en las reglas, porque la preguntan los dos lados: la acción del
+   equipo y la del portal. La lista de qué exige cada categoría está en
+   CATEGORIAS_TAREA (lib/catalogos.ts).
+   ============================================================================ */
+
+const ESTADOS_QUE_CIERRAN: readonly EstadoId[] = ["hecho"];
+
+/* Qué le falta a una tarea para poder darse por terminada. Devuelve null si no
+   le falta nada — o si ni siquiera se está cerrando, que es el caso normal. */
+export function faltaParaCerrar(
+  t: {
+    categoria?: CategoriaTareaId | null;
+    espacio?: string;
+  },
+  estadoNuevo: EstadoId,
+  tiene: { adjuntos: number; comentarios: number },
+): string | null {
+  /* Cancelar no es cerrar: una tarea que se decidió no hacer no debe nada. */
+  if (!ESTADOS_QUE_CIERRAN.includes(estadoNuevo)) return null;
+  const cat = obtenerCategoriaTarea(t.categoria);
+  if (!cat) return null;
+
+  if (cat.exigeAdjunto && tiene.adjuntos === 0) {
+    return `Las tareas de «${cat.nombre}» se cierran con el archivo adjunto. Súbelo y vuelve a marcarla.`;
+  }
+  if (cat.exigeComentario && tiene.comentarios === 0) {
+    return `Las tareas de «${cat.nombre}» se cierran con un comentario que diga cómo quedó.`;
+  }
+  return null;
+}
 
 /* ¿Este adjunto es una foto? Se mira el mime que mandó el navegador y, si no
    llegó —los adjuntos viejos se guardaron sin él y algunos navegadores no lo

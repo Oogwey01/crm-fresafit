@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, Loader2, Lock, Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { esExterno } from "@/lib/catalogos";
 import { LogoFresafit } from "@/components/layout/logo-fresafit";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +63,7 @@ export default function LoginPage() {
     setCargando(true);
 
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
@@ -73,8 +74,24 @@ export default function LoginPage() {
       return;
     }
 
+    /* A dónde entra cada quien. El equipo va al tablero de siempre; la gente de
+       la empresa cliente, a su portal —/tareas les rebotaría—. Se pregunta por
+       el perfil recién iniciada la sesión en vez de mandar a todos al mismo
+       sitio: el rebote funciona (lo hace exigirModulo), pero se ve como un
+       parpadeo raro justo en la primera pantalla que alguien conoce del CRM.
+       Si la consulta falla, /tareas y que rebote: nadie se queda fuera. */
+    let destino = "/tareas";
+    if (data.user) {
+      const { data: perfil } = await supabase
+        .from("profiles")
+        .select("rol")
+        .eq("id", data.user.id)
+        .maybeSingle();
+      if (esExterno(perfil?.rol)) destino = "/portal/tareas";
+    }
+
     // Refrescar para que el middleware/servidor vean la sesión nueva.
-    router.push("/tareas");
+    router.push(destino);
     router.refresh();
   }
 

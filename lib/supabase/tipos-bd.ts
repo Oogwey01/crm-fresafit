@@ -14,6 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
+      actividad_empresas: {
+        Row: {
+          accion: string
+          actor_id: string | null
+          actor_nombre: string | null
+          created_at: string
+          detalle: Json | null
+          empresa_id: string | null
+          entidad: string | null
+          entidad_id: string | null
+          id: number
+        }
+        Insert: {
+          accion: string
+          actor_id?: string | null
+          actor_nombre?: string | null
+          created_at?: string
+          detalle?: Json | null
+          empresa_id?: string | null
+          entidad?: string | null
+          entidad_id?: string | null
+          id?: never
+        }
+        Update: {
+          accion?: string
+          actor_id?: string | null
+          actor_nombre?: string | null
+          created_at?: string
+          detalle?: Json | null
+          empresa_id?: string | null
+          entidad?: string | null
+          entidad_id?: string | null
+          id?: never
+        }
+        Relationships: [
+          {
+            foreignKeyName: "actividad_empresas_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "actividad_empresas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "agencia_empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agencia_asignaciones: {
         Row: {
           activo: boolean
@@ -648,6 +699,372 @@ export type Database = {
             columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_avance: {
+        Row: {
+          actualizado_por: string | null
+          empresa_id: string
+          estado_actual: string | null
+          updated_at: string
+        }
+        Insert: {
+          actualizado_por?: string | null
+          empresa_id: string
+          estado_actual?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actualizado_por?: string | null
+          empresa_id?: string
+          estado_actual?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_avance_actualizado_por_fkey"
+            columns: ["actualizado_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_avance_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: true
+            referencedRelation: "agencia_empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_bitacora: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          descripcion: string | null
+          empresa_id: string
+          fecha: string
+          id: string
+          titulo: string
+          updated_at: string | null
+          visibilidad: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          descripcion?: string | null
+          empresa_id: string
+          fecha?: string
+          id?: string
+          titulo: string
+          updated_at?: string | null
+          visibilidad?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          descripcion?: string | null
+          empresa_id?: string
+          fecha?: string
+          id?: string
+          titulo?: string
+          updated_at?: string | null
+          visibilidad?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_bitacora_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_bitacora_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "agencia_empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_bitacora_adjuntos: {
+        Row: {
+          created_at: string
+          entrada_id: string
+          id: string
+          mime: string | null
+          nombre: string
+          storage_path: string
+          subido_por: string | null
+        }
+        Insert: {
+          created_at?: string
+          entrada_id: string
+          id?: string
+          mime?: string | null
+          nombre: string
+          storage_path: string
+          subido_por?: string | null
+        }
+        Update: {
+          created_at?: string
+          entrada_id?: string
+          id?: string
+          mime?: string | null
+          nombre?: string
+          storage_path?: string
+          subido_por?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_bitacora_adjuntos_entrada_id_fkey"
+            columns: ["entrada_id"]
+            isOneToOne: false
+            referencedRelation: "empresa_bitacora"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_bitacora_adjuntos_subido_por_fkey"
+            columns: ["subido_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_documento_versiones: {
+        Row: {
+          created_at: string
+          documento_id: string
+          id: string
+          mime: string | null
+          nombre_archivo: string
+          nota: string | null
+          storage_path: string
+          subido_por: string | null
+          tamano: number | null
+          version: number
+        }
+        Insert: {
+          created_at?: string
+          documento_id: string
+          id?: string
+          mime?: string | null
+          nombre_archivo: string
+          nota?: string | null
+          storage_path: string
+          subido_por?: string | null
+          tamano?: number | null
+          version: number
+        }
+        Update: {
+          created_at?: string
+          documento_id?: string
+          id?: string
+          mime?: string | null
+          nombre_archivo?: string
+          nota?: string | null
+          storage_path?: string
+          subido_por?: string | null
+          tamano?: number | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_documento_versiones_documento_id_fkey"
+            columns: ["documento_id"]
+            isOneToOne: false
+            referencedRelation: "empresa_documentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_documento_versiones_subido_por_fkey"
+            columns: ["subido_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_documentos: {
+        Row: {
+          archivado_at: string | null
+          aviso_vencimiento_en: string | null
+          categoria: string
+          created_at: string
+          created_by: string | null
+          descripcion: string | null
+          empresa_id: string
+          etiquetas: string[]
+          id: string
+          nombre: string
+          updated_at: string | null
+          vigente_hasta: string | null
+          visibilidad: string
+        }
+        Insert: {
+          archivado_at?: string | null
+          aviso_vencimiento_en?: string | null
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          descripcion?: string | null
+          empresa_id: string
+          etiquetas?: string[]
+          id?: string
+          nombre: string
+          updated_at?: string | null
+          vigente_hasta?: string | null
+          visibilidad?: string
+        }
+        Update: {
+          archivado_at?: string | null
+          aviso_vencimiento_en?: string | null
+          categoria?: string
+          created_at?: string
+          created_by?: string | null
+          descripcion?: string | null
+          empresa_id?: string
+          etiquetas?: string[]
+          id?: string
+          nombre?: string
+          updated_at?: string | null
+          vigente_hasta?: string | null
+          visibilidad?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_documentos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_documentos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "agencia_empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_eventos: {
+        Row: {
+          archivado_at: string | null
+          created_at: string
+          created_by: string | null
+          descripcion: string | null
+          empresa_id: string
+          id: string
+          inicia_en: string
+          titulo: string
+          updated_at: string | null
+          visibilidad: string
+        }
+        Insert: {
+          archivado_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          descripcion?: string | null
+          empresa_id: string
+          id?: string
+          inicia_en: string
+          titulo: string
+          updated_at?: string | null
+          visibilidad?: string
+        }
+        Update: {
+          archivado_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          descripcion?: string | null
+          empresa_id?: string
+          id?: string
+          inicia_en?: string
+          titulo?: string
+          updated_at?: string | null
+          visibilidad?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_eventos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_eventos_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "agencia_empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      empresa_incidencias: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          desbloquea: string
+          descripcion: string | null
+          detectada_en: string
+          empresa_id: string
+          estado: string
+          id: string
+          impacto: string | null
+          resuelta_en: string | null
+          titulo: string
+          updated_at: string | null
+          visibilidad: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          desbloquea: string
+          descripcion?: string | null
+          detectada_en?: string
+          empresa_id: string
+          estado?: string
+          id?: string
+          impacto?: string | null
+          resuelta_en?: string | null
+          titulo: string
+          updated_at?: string | null
+          visibilidad?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          desbloquea?: string
+          descripcion?: string | null
+          detectada_en?: string
+          empresa_id?: string
+          estado?: string
+          id?: string
+          impacto?: string | null
+          resuelta_en?: string | null
+          titulo?: string
+          updated_at?: string | null
+          visibilidad?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_incidencias_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_incidencias_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "agencia_empresas"
             referencedColumns: ["id"]
           },
         ]
@@ -1826,33 +2243,47 @@ export type Database = {
           area: string | null
           color: string
           created_at: string
+          empresa_id: string | null
           id: string
           modulos_ocultos: string[]
           nombre: string
           rol: string
+          rol_portal: string | null
           ve_agencia: boolean
         }
         Insert: {
           area?: string | null
           color?: string
           created_at?: string
+          empresa_id?: string | null
           id: string
           modulos_ocultos?: string[]
           nombre?: string
           rol?: string
+          rol_portal?: string | null
           ve_agencia?: boolean
         }
         Update: {
           area?: string | null
           color?: string
           created_at?: string
+          empresa_id?: string | null
           id?: string
           modulos_ocultos?: string[]
           nombre?: string
           rol?: string
+          rol_portal?: string | null
           ve_agencia?: boolean
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "agencia_empresas"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       push_subscriptions: {
         Row: {
@@ -3007,6 +3438,7 @@ export type Database = {
       tasks: {
         Row: {
           area: string
+          categoria: string | null
           created_at: string
           created_by: string | null
           deleted_at: string | null
@@ -3027,9 +3459,11 @@ export type Database = {
           titulo: string
           ultima_actividad_at: string | null
           updated_at: string | null
+          visibilidad: string
         }
         Insert: {
           area?: string
+          categoria?: string | null
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
@@ -3050,9 +3484,11 @@ export type Database = {
           titulo: string
           ultima_actividad_at?: string | null
           updated_at?: string | null
+          visibilidad?: string
         }
         Update: {
           area?: string
+          categoria?: string | null
           created_at?: string
           created_by?: string | null
           deleted_at?: string | null
@@ -3073,6 +3509,7 @@ export type Database = {
           titulo?: string
           ultima_actividad_at?: string | null
           updated_at?: string | null
+          visibilidad?: string
         }
         Relationships: [
           {
@@ -3248,6 +3685,8 @@ export type Database = {
       es_admin: { Args: { uid: string }; Returns: boolean }
       es_administrativo: { Args: never; Returns: boolean }
       es_asignado_tarea: { Args: { tid: string }; Returns: boolean }
+      es_externo: { Args: never; Returns: boolean }
+      es_externo_admin: { Args: never; Returns: boolean }
       es_gestor: { Args: never; Returns: boolean }
       es_interno: { Args: never; Returns: boolean }
       etiqueta_estado: { Args: { e: string }; Returns: string }
@@ -3276,6 +3715,7 @@ export type Database = {
         Returns: Json
       }
       mi_area: { Args: never; Returns: string }
+      mi_empresa: { Args: never; Returns: string }
       mi_rol: { Args: never; Returns: string }
       mover_insumo: {
         Args: {
@@ -3301,6 +3741,8 @@ export type Database = {
       puede_contribuir_tarea: { Args: { tid: string }; Returns: boolean }
       puede_gestionar_tarea: { Args: { tid: string }; Returns: boolean }
       puede_mover_insumos: { Args: never; Returns: boolean }
+      puede_ver_bitacora: { Args: { bid: string }; Returns: boolean }
+      puede_ver_documento: { Args: { did: string }; Returns: boolean }
       puede_ver_tarea: { Args: { tid: string }; Returns: boolean }
       purgar_logs: { Args: { solo_contar?: boolean }; Returns: Json }
       recibir_pedido_proveedor: {
@@ -3317,6 +3759,7 @@ export type Database = {
         }
         Returns: Json
       }
+      siguiente_version_documento: { Args: { did: string }; Returns: number }
       sincronizar_renglones_venta: {
         Args: { p_canal: string; p_filas: Json }
         Returns: number

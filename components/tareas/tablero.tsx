@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { AlertTriangle, ChevronDown, Clapperboard, Clock, Info, List, LayoutGrid, Calendar as CalendarIcon, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { ESTADOS, AREAS, ROLES, esGestor, esInterno, obtenerPrioridad } from "@/lib/catalogos";
+import { ESTADOS_TABLERO, AREAS, ROLES, esGestor, esInterno, obtenerPrioridad } from "@/lib/catalogos";
 import { esVencida } from "@/lib/fecha";
 import {
   moverTarea,
@@ -290,7 +290,7 @@ export function Board({
     const raw = String(over.id);
     const [prefijo, sufijo] = raw.includes("::") ? raw.split("::") : [null, raw];
     const estado = sufijo as EstadoId;
-    if (!ESTADOS.some((es) => es.id === estado)) return;
+    if (!ESTADOS_TABLERO.some((es) => es.id === estado)) return;
     mover(id, estado);
     // En carriles por persona el prefijo es el id del responsable destino
     // ("sin" = sin asignar): además de mover, reasigna.
@@ -731,7 +731,7 @@ export function Board({
             )}
             {/* Móvil: carril horizontal con snap (columnas lado a lado). Escritorio: grid. */}
             <div className="-mx-4 flex snap-x snap-mandatory items-start gap-4 overflow-x-auto px-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-5">
-              {ESTADOS.map((estado) => (
+              {ESTADOS_TABLERO.map((estado) => (
                 <div key={estado.id} className="w-[85%] shrink-0 snap-start md:w-auto">
                   <Column
                     estadoId={estado.id}
@@ -754,7 +754,7 @@ export function Board({
             {/* Encabezado de columnas (una vez, arriba) — solo si hay algún carril abierto */}
             {grupos.some((g) => areasAbiertas.has(g.id)) && (
               <div className="hidden gap-4 xl:grid xl:grid-cols-5">
-                {ESTADOS.map((e) => (
+                {ESTADOS_TABLERO.map((e) => (
                   <div key={e.id} className="px-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">
                     {e.nombre}
                   </div>
@@ -801,7 +801,7 @@ export function Board({
                           abierta ? "opacity-100" : "opacity-0",
                         )}
                       >
-                        {ESTADOS.map((estado) => (
+                        {ESTADOS_TABLERO.map((estado) => (
                           <div key={estado.id} className="w-[85%] shrink-0 snap-start md:w-auto">
                             <Column
                               estadoId={estado.id}

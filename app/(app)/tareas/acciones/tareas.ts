@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import {
   areaDeResponsable,
+  categoriaParaEspacio,
   empresaParaEspacio,
   empujarAvisos,
   exigirMandoTarea,
@@ -19,6 +20,8 @@ import {
   registrarActividad,
   revalidarTareas,
   sincronizarCoasignados,
+  validarCierre,
+  visibilidadParaEspacio,
   type TaskInput,
 } from "@/app/(app)/tareas/acciones/comun";
 
@@ -44,14 +47,19 @@ export async function crearTarea(input: TaskInput): Promise<Resultado> {
   const titulo = input.titulo.trim();
   if (!titulo) return { error: "La tarea necesita un título." };
 
+  const espacio = input.espacio ?? "fresafit";
+  const empresa = empresaParaEspacio(espacio, input.empresa_id);
+
   const { data, error } = await cx.supabase
     .from("tasks")
     .insert({
       titulo,
       descripcion: textoONulo(input.descripcion),
       responsable_id: input.responsable_id,
-      espacio: input.espacio ?? "fresafit",
-      empresa_id: empresaParaEspacio(input.espacio ?? "fresafit", input.empresa_id),
+      espacio,
+      empresa_id: empresa,
+      visibilidad: visibilidadParaEspacio(espacio, empresa, input.visibilidad),
+      categoria: categoriaParaEspacio(espacio, input.categoria),
       area: await areaDeResponsable(cx.supabase, input.responsable_id, input.area),
       prioridad: input.prioridad,
       estado: input.estado,
@@ -91,11 +99,35 @@ export async function editarTarea(id: string, input: TaskInput): Promise<Resulta
 
   /* El espacio NO se edita: una tarea nace en el tablero donde se creó. El
      cliente sí, y solo se toca si el formulario lo mandó (el de Fresafit no lo
-     tiene y no debe borrar el que ya trae la tarea). */
+     tiene y no debe borrar el que ya trae la tarea). Con él viajan la
+     visibilidad y la categoría, que son del mismo acuerdo y solo existen ahí. */
   const cliente =
     input.espacio === "agencia" && input.empresa_id !== undefined
-      ? { empresa_id: input.empresa_id || null }
+      ? {
+          empresa_id: input.empresa_id || null,
+          /* Solo se tocan si el formulario las mandó: un formulario viejo (o el
+             de estado rápido) que no las conoce NO debe regresar a `interno`
+             una tarea ya compartida. `undefined` = no opinar. */
+          ...(input.visibilidad !== undefined
+            ? {
+                visibilidad: visibilidadParaEspacio(
+                  "agencia",
+                  input.empresa_id || null,
+                  input.visibilidad,
+                ),
+              }
+            : {}),
+          ...(input.categoria !== undefined
+            ? { categoria: categoriaParaEspacio("agencia", input.categoria) }
+            : {}),
+        }
       : {};
+
+  /* Cerrar una tarea de ciertas categorías exige la prueba (el documento, o al
+     menos una línea que diga cómo quedó). Se comprueba antes de escribir para
+     poder decirlo con palabras; si no se está cerrando nada, ni se consulta. */
+  const falta = await validarCierre(cx.supabase, id, input.estado);
+  if (falta) return { error: falta };
 
   const { error } = await cx.supabase
     .from("tasks")
@@ -143,6 +175,12 @@ export async function moverTarea(
 ): Promise<Resultado> {
   const cx = await exigirRol("autenticado");
   if ("error" in cx) return cx;
+
+  /* Mismo requisito de cierre que al editar: da igual que la tarea se dé por
+     terminada arrastrándola en el tablero o desde su detalle. */
+  const falta = await validarCierre(cx.supabase, id, estado);
+  if (falta) return { error: falta };
+
   const { error } = await cx.supabase
     .from("tasks")
     .update({ estado, motivo_atorado: motivoParaEstado(estado, motivoAtorado) })

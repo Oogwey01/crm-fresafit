@@ -10,7 +10,8 @@
    `descripcion` sí viaja: el detalle se abre desde la tarjeta sin volver a
    consultar, y quitarla obligaría a un viaje extra por cada tarea que se abre. */
 export const COLUMNAS_TAREA =
-  "id, titulo, descripcion, responsable_id, espacio, empresa_id, area, prioridad," +
+  "id, titulo, descripcion, responsable_id, espacio, empresa_id, visibilidad," +
+  " categoria, area, prioridad," +
   " estado, fecha_limite, fecha_inicio, motivo_atorado, etiquetas, orden," +
   " recordatorio_at, recordatorio_enviado, deleted_at, ultima_actividad_at," +
   " created_by, created_at, updated_at";

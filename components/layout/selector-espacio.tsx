@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Building2, Store } from "lucide-react";
+import { Building2, Handshake, Store } from "lucide-react";
 import { ESPACIOS, type EspacioId } from "@/lib/catalogos";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +20,9 @@ import { cn } from "@/lib/utils";
 const ICONOS: Record<EspacioId, typeof Store> = {
   fresafit: Store,
   agencia: Building2,
+  /* El portal nunca se pinta aquí —quien lo tiene no tiene ningún otro espacio,
+     así que el selector se oculta solo—, pero el mapa es exhaustivo por tipo. */
+  portal: Handshake,
 };
 
 export function SelectorEspacio({

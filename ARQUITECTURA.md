@@ -122,6 +122,37 @@ antes `node_modules/next/dist/docs/01-app/02-guides/migrating-to-cache-component
 
 Todo esto es la primera capa; la RLS es el candado de verdad.
 
+## El módulo de empresas (portal de clientes)
+
+Gente de FUERA entra al CRM: los contactos de las empresas cliente (rol
+`externo` + `profiles.empresa_id`) ven `/portal/*` y NADA más. Las reglas que
+lo sostienen, y que no se relajan:
+
+- **Todo elemento del módulo lleva `visibilidad`** (`privado` | `interno` |
+  `compartido`) **y nace `interno`**. Compartir es un acto deliberado — default
+  en la columna, en los formularios y en las acciones. El corte lo aplica la
+  RLS, nunca la pantalla: las consultas del portal NO llevan filtro de
+  visibilidad a propósito (lo que la base no da, no llega).
+- **Las policies se suman (OR)**: toda policy de lectura del módulo empieza con
+  su candado de rol (`es_interno()` / `es_externo()`). Sin él, una rama como
+  `responsable_id = auth.uid()` le abriría a un externo lo no compartido.
+- **`actividad_empresas` es evidencia**: INSERT-only, sin UPDATE/DELETE ni para
+  dirección (revoke + sin policies + trigger que revienta), fuera de
+  `purgar_logs`. Los triggers la llenan; `lib/actividad.ts` cubre lo que no
+  pasa por una tabla (descargas, exports, logins). Las descargas de documentos
+  van SIEMPRE por la acción `abrirArchivoDocumento` — la UI nunca firma URLs
+  directo, o el registro se queda ciego.
+- **Un solo componente para las dos caras** (bandejas, documentos, avance,
+  reporte): lo que cambia entre el equipo y el cliente es la RLS de la sesión y
+  un `puedeGestionar`/`puedeEditar`. Dos componentes acabarían enseñando cosas
+  distintas.
+- **Correo**: `lib/correo/` (Resend por `fetch`, sin SDK). Sin
+  `RESEND_API_KEY` degrada a campana+push sin romper. Urgente = inmediato con
+  `after()`; el resto lo agrupa `/api/cron/portal` (cron-job.org, diario).
+- **Altas de externos**: `scripts/crear-usuario.mjs --rol externo --empresa
+  <slug> --rol-portal <admin_cliente|colaborador>`. La frontera casa↔portal no
+  se cruza con un cambio de rol (checks en BD + guarda en /equipo).
+
 ## Formato y catálogos
 
 Nunca escribas un formateador local. Ya existen y una copia se desvía:

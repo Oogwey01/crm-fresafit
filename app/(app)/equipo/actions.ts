@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { invalidar, TAGS } from "@/lib/supabase/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
-import { AREAS, MODULO_PORTADA, ROLES, obtenerModulo } from "@/lib/catalogos";
-import type { AreaId, RolId } from "@/lib/types";
+import { AREAS, MODULO_PORTADA, ROLES, ROLES_PORTAL, obtenerModulo } from "@/lib/catalogos";
+import type { AreaId, RolId, RolPortalId } from "@/lib/types";
 
 /* Cambiar el acceso de alguien cambia lo que ve en TODO el CRM, así que se
    revalida el layout entero: el menú se pinta con el perfil, y si solo se
@@ -37,7 +37,56 @@ export async function cambiarRol(userId: string, rol: RolId): Promise<Resultado>
     return { error: "No puedes cambiar tu propio rol. Pídeselo a la otra persona de Dirección." };
   }
 
+  /* La frontera entre la casa y el portal no se cruza desde aquí. Un `externo`
+     lleva empresa y papel de portal amarrados por la BD
+     (`profiles_externo_empresa_check`): convertirlo en miembro —o al revés—
+     exige decidir qué pasa con esa empresa, y eso es un alta nueva con
+     scripts/crear-usuario.mjs, no un cambio de select. Sin esta guarda, el
+     update reventaría contra el check con un error ilegible. */
+  const { data: actual } = await cx.supabase
+    .from("profiles")
+    .select("rol")
+    .eq("id", userId)
+    .maybeSingle();
+  if ((actual?.rol === "externo") !== (rol === "externo")) {
+    return {
+      error:
+        actual?.rol === "externo"
+          ? "Esta persona es de una empresa cliente. Para pasarla al equipo, dala de alta de nuevo con el script."
+          : "Para volver externa a una persona del equipo hay que ligarla a su empresa: usa scripts/crear-usuario.mjs.",
+    };
+  }
+
   const { error } = await cx.supabase.from("profiles").update({ rol }).eq("id", userId);
+  if (error) return { error: error.message };
+  revalidarTodo();
+  return { ok: true };
+}
+
+/* Cambiar el papel de un contacto DENTRO de su empresa: administrador (pide
+   cosas y cierra) o colaborador (participa). Solo aplica a externos; para el
+   equipo de casa el campo ni existe. */
+export async function cambiarRolPortal(
+  userId: string,
+  rolPortal: RolPortalId,
+): Promise<Resultado> {
+  const cx = await exigirRol("direccion", SOLO_DIRECCION);
+  if ("error" in cx) return cx;
+  if (!ROLES_PORTAL.some((r) => r.id === rolPortal)) return { error: "Ese papel no existe." };
+
+  const { data: actual } = await cx.supabase
+    .from("profiles")
+    .select("rol")
+    .eq("id", userId)
+    .maybeSingle();
+  if (actual?.rol !== "externo") {
+    return { error: "El papel del portal es solo para la gente de las empresas cliente." };
+  }
+
+  const { error } = await cx.supabase
+    .from("profiles")
+    .update({ rol_portal: rolPortal })
+    .eq("id", userId);
   if (error) return { error: error.message };
   revalidarTodo();
   return { ok: true };

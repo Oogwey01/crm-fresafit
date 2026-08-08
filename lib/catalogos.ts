@@ -11,18 +11,39 @@
 
 import { SLUG_A_CANAL_VENTA } from "@/lib/canales/tipos";
 
-/* --- Estados del tablero (las 4 columnas del Kanban). El orden = orden de columnas.
-   `color` se usa para la pastilla de estado en la vista de tabla y el calendario. */
+/* --- Estados del tablero (las columnas del Kanban). El orden = orden de columnas.
+   `color` se usa para la pastilla de estado en la vista de tabla y el calendario.
+
+   `fueraDelTablero` marca los estados que existen pero NO son columna: cancelada
+   es una decisión, no un paso del trabajo, y darle carril propio llenaría el
+   tablero de cosas que ya nadie va a mover. Se elige desde el detalle y desde el
+   selector de estado; para pintar columnas está ESTADOS_TABLERO. */
 export const ESTADOS = [
   { id: "por_hacer", nombre: "Por hacer", color: "#94a3b8" },   // gris
   { id: "en_proceso", nombre: "En proceso", color: "#f59e0b" }, // ámbar
   { id: "atorado", nombre: "Atorado", color: "#f97316" },       // naranja: bloqueada, necesita algo de vuelta
   { id: "en_revision", nombre: "En revisión", color: "#8b5cf6" },// morado
   { id: "hecho", nombre: "Hecho", color: "#22c55e" },           // verde
+  /* Se pidió con el módulo de empresas: las tareas del cliente NO se borran, se
+     cancelan, y el registro permanece. Sirve igual para el tablero interno. */
+  { id: "cancelada", nombre: "Cancelada", color: "#64748b", fueraDelTablero: true }, // pizarra
 ] as const;
 
-/* --- Prioridades (con color para verse de un vistazo). --- */
+/* Las columnas del Kanban: todo lo que no está marcado como fuera del tablero. */
+export const ESTADOS_TABLERO = ESTADOS.filter(
+  (e) => !("fueraDelTablero" in e && e.fueraDelTablero),
+);
+
+/* Una tarea deja de contar como pendiente cuando se terminó o se canceló. La
+   lista vive aquí para que los contadores del menú, el cron de recordatorios y
+   los resúmenes no se desincronicen cada vez que aparece un estado nuevo. */
+export const ESTADOS_CERRADOS = ["hecho", "cancelada"] as const;
+
+/* --- Prioridades (con color para verse de un vistazo).
+   `urgente` la trajo el módulo de empresas: además de pintarse distinto, es la
+   que avisa en el momento en vez de esperar al resumen diario. --- */
 export const PRIORIDADES = [
+  { id: "urgente", nombre: "Urgente", color: "#b91c1c" }, // rojo oscuro
   { id: "alta", nombre: "Alta", color: "#d63031" },  // rojo
   { id: "media", nombre: "Media", color: "#f59e0b" },// ámbar
   { id: "baja", nombre: "Baja", color: "#94a3b8" },  // gris
@@ -55,6 +76,89 @@ export const ROLES = [
      gestor es meterse en las tareas AJENAS. */
   { id: "miembro", nombre: "Miembro", desc: "Crea tareas y ve las suyas (asignadas o creadas); manda en las que él creó, y de las demás mueve el estado, comenta y adjunta." },
   { id: "externo", nombre: "Externo", desc: "Solo ve lo que se le comparte." },
+] as const;
+
+/* --- Módulo de empresas: el papel de cada persona DENTRO de la empresa cliente.
+   Va aparte del rol porque son dos preguntas distintas: `rol` dice si alguien es
+   de casa o de fuera, y esto dice qué puede hacer el de fuera. Espejo de
+   public.es_externo_admin(). --- */
+export const ROLES_PORTAL = [
+  { id: "admin_cliente", nombre: "Administrador", desc: "Pide cosas a Fresafit, sube documentos y cierra lo que su empresa abrió." },
+  { id: "colaborador", nombre: "Colaborador", desc: "Ve lo compartido, comenta y sube documentos. No abre pedidos nuevos ni cierra los nuestros." },
+] as const;
+
+/* --- El nivel de visibilidad que lleva CADA elemento del módulo de empresas
+   (tareas, documentos, bitácora, incidencias).
+
+   El default es `interno` en todas partes —columna, formularios y acciones— y no
+   es un detalle: compartir tiene que ser deliberado. Es más fácil compartir
+   después que arrepentirse de haber expuesto algo.
+
+   Quien manda de verdad es la RLS: estas etiquetas solo pintan lo que la base ya
+   decidió. --- */
+export const VISIBILIDADES = [
+  { id: "privado", nombre: "Privado", desc: "Solo dirección.", color: "#7f1d1d", icono: "🔒" },
+  { id: "interno", nombre: "Interno", desc: "Solo el equipo de Fresafit.", color: "#475569", icono: "🏠" },
+  { id: "compartido", nombre: "Compartido", desc: "El equipo y la empresa cliente.", color: "#0e7490", icono: "🤝" },
+] as const;
+
+/* --- Categorías del archivo de documentos de una empresa cliente.
+
+   `caduca` marca las que suelen traer fecha de vigencia: al elegirlas, el
+   formulario pide la fecha en vez de esconderla. Es lo que hace que la alerta de
+   vencimiento sirva de algo — una constancia sin fecha capturada no avisa nunca,
+   y es justo la que hay que renovar. --- */
+export const CATEGORIAS_DOCUMENTO = [
+  { id: "fiscal", nombre: "Fiscal", desc: "Constancia de situación fiscal, RFC, régimen.", color: "#00b894", caduca: true },
+  { id: "legal", nombre: "Legal", desc: "Contratos, anexos, convenios, poderes, INE.", color: "#2d3436", caduca: true },
+  { id: "facturas_pagos", nombre: "Facturas y pagos", desc: "CFDI emitidos y recibidos, comprobantes.", color: "#00cec9" },
+  { id: "sanitario", nombre: "Sanitario", desc: "Registros COFEPRIS, permisos, etiquetado aprobado.", color: "#e17055", caduca: true },
+  { id: "marca", nombre: "Marca", desc: "Brandbook, logos, tipografías, fotos de producto.", color: "#e84393" },
+  { id: "producto", nombre: "Producto", desc: "Fichas técnicas, certificados de análisis, listas de precios.", color: "#0984e3" },
+  { id: "operacion", nombre: "Operación", desc: "Reportes, capturas, evidencias.", color: "#6c5ce7" },
+  { id: "otros", nombre: "Otros", desc: "Lo que no cae en las anteriores.", color: "#94a3b8" },
+] as const;
+
+/* --- Incidencias del avance: en qué va cada bloqueo, y de qué lado está la
+   pelota. `desbloquea` no es un estado sino un dueño, y por eso va aparte: son
+   las dos preguntas que se hacen a la vez ante algo frenado —«¿cómo va?» y «¿a
+   quién le toca?»— y mezclarlas dejaba una sin respuesta. --- */
+export const ESTADOS_INCIDENCIA = [
+  { id: "abierta", nombre: "Abierta", color: "#d63031" },
+  { id: "en_resolucion", nombre: "En resolución", color: "#f59e0b" },
+  { id: "resuelta", nombre: "Resuelta", color: "#22c55e" },
+] as const;
+
+export const LADOS_INCIDENCIA = [
+  { id: "fresafit", nombre: "Fresafit", desc: "Nos toca a nosotros destrabarlo." },
+  { id: "cliente", nombre: "El cliente", desc: "Está en su cancha." },
+] as const;
+
+/* Cuánto antes se avisa de que un documento pierde vigencia. Treinta días es lo
+   que tarda en la práctica renovar una constancia o un permiso: avisar el mismo
+   día solo sirve para enterarse de que ya es tarde. */
+export const DIAS_AVISO_VENCIMIENTO = 30;
+
+/* --- Categorías de las tareas con una empresa cliente.
+
+   `exigeAdjunto` / `exigeComentario`: qué hace falta para poder darlas por
+   cerradas. Una tarea de «Documentos» sin archivo no está resuelta —el archivo
+   ES el resultado—, y una de «Pago» sin una línea que diga cuándo y por cuánto
+   deja la conversación abierta. Se valida en la acción de cambio de estado.
+
+   Vive como constante y no como tabla de configuración a propósito: son ocho
+   categorías que se acordaron una vez, y una pantalla para editarlas costaría
+   más que el problema que resuelve. Si algún día se quieren cambiar sin
+   desplegar, esto se vuelve tabla y la acción la lee. --- */
+export const CATEGORIAS_TAREA = [
+  { id: "documentos", nombre: "Documentos", color: "#0984e3", exigeAdjunto: true, exigeComentario: false },
+  { id: "accesos", nombre: "Accesos", color: "#6c5ce7", exigeAdjunto: false, exigeComentario: true },
+  { id: "producto", nombre: "Producto", color: "#00b894", exigeAdjunto: false, exigeComentario: false },
+  { id: "inventario", nombre: "Inventario", color: "#e17055", exigeAdjunto: false, exigeComentario: false },
+  { id: "pago", nombre: "Pago", color: "#00cec9", exigeAdjunto: false, exigeComentario: true },
+  { id: "contenido", nombre: "Contenido", color: "#e84393", exigeAdjunto: false, exigeComentario: false },
+  { id: "legal", nombre: "Legal", color: "#2d3436", exigeAdjunto: true, exigeComentario: false },
+  { id: "otro", nombre: "Otro", color: "#94a3b8", exigeAdjunto: false, exigeComentario: false },
 ] as const;
 
 /* --- Etiquetas sugeridas (varias por tarea; se guardan en tasks.etiquetas).
@@ -401,6 +505,10 @@ export const CATEGORIAS_GASTO = [
 export const ESPACIOS = [
   { id: "fresafit", nombre: "Fresafit", desc: "La marca: inventario, ventas y pedidos." },
   { id: "agencia", nombre: "Agencia", desc: "Los negocios que atendemos y lo que nos pagan." },
+  /* El tercer espacio no es del equipo: es el de la gente de la empresa cliente
+     cuando entra al CRM. No aparece en el selector —quien lo tiene no tiene
+     ningún otro— y es el ÚNICO que alcanza; ver puedeVerModulo(). */
+  { id: "portal", nombre: "Portal", desc: "Lo que la empresa cliente ve de su proyecto." },
 ] as const;
 
 export type EspacioId = (typeof ESPACIOS)[number]["id"];
@@ -450,16 +558,32 @@ export const MODULOS = [
      ajenos y sueldos— sigue pidiendo además `soloAdmin`, y la RLS lo refuerza.
      Las TAREAS no piden nada más: las trabaja quien atiende a cada cliente. */
   { id: "agencia-tareas", nombre: "Tareas", icono: "✅", href: "/agencia/tareas", activo: true, espacio: "agencia" },
+  /* El espacio de trabajo compartido con cada cliente: lo que nos pedimos, los
+     documentos que nos pasamos y en qué va el proyecto. Es la otra cara del
+     portal —lo mismo, visto desde aquí, más lo interno—.
+     Sin `soloAdmin` a propósito: /agencia/empresas es lo COMERCIAL (contratos y
+     lo que se cobra) y esto es el trabajo del día, que lo lleva quien atiende al
+     cliente, no quien le factura. */
+  { id: "agencia-clientes", nombre: "Clientes", icono: "🤝", href: "/agencia/clientes", activo: true, espacio: "agencia" },
   { id: "agencia-empresas", nombre: "Empresas", icono: "🏢", href: "/agencia/empresas", activo: true, soloAdmin: true, espacio: "agencia" },
   { id: "agencia-cobros", nombre: "Cobros", icono: "🧾", href: "/agencia/cobros", activo: true, soloAdmin: true, espacio: "agencia" },
   { id: "agencia-nomina", nombre: "Nómina", icono: "👥", href: "/agencia/nomina", activo: true, soloAdmin: true, espacio: "agencia" },
   { id: "agencia-reportes", nombre: "Reportes", icono: "📈", href: "/agencia/reportes", activo: true, soloAdmin: true, espacio: "agencia" },
+  /* Portal: lo que ve la empresa cliente. Estas tres entradas son las ÚNICAS que
+     alcanza un rol `externo`, y a la vez son invisibles para el equipo de casa
+     (ver puedeVerModulo): el portal enseña los datos ya cortados por la RLS, así
+     que un interno que entrara ahí vería su propia pantalla a medias. */
+  { id: "portal-tareas", nombre: "Tareas", icono: "✅", href: "/portal/tareas", activo: true, espacio: "portal" },
+  { id: "portal-documentos", nombre: "Documentos", icono: "📄", href: "/portal/documentos", activo: true, espacio: "portal" },
+  { id: "portal-avance", nombre: "Avance", icono: "📈", href: "/portal/avance", activo: true, espacio: "portal" },
 ] as const;
 
 /* A qué espacio pertenece una ruta. Todo lo que cuelga de /agencia es de la
-   agencia; el resto es Fresafit. */
+   agencia y lo de /portal es del cliente; el resto es Fresafit. */
 export function espacioDeRuta(pathname: string): EspacioId {
-  return pathname.startsWith("/agencia") ? "agencia" : "fresafit";
+  if (pathname.startsWith("/agencia")) return "agencia";
+  if (pathname.startsWith("/portal")) return "portal";
+  return "fresafit";
 }
 
 /* --- Referencia para sembrar los perfiles iniciales del equipo (scripts/seed.mjs).
@@ -536,6 +660,24 @@ export function obtenerTierInfluencer(id: string | null | undefined) {
 export function obtenerEtapaInfluencer(id: string | null | undefined) {
   return ETAPAS_INFLUENCER.find((e) => e.id === id) ?? null;
 }
+export function obtenerVisibilidad(id: string | null | undefined) {
+  return VISIBILIDADES.find((v) => v.id === id) ?? null;
+}
+export function obtenerCategoriaTarea(id: string | null | undefined) {
+  return CATEGORIAS_TAREA.find((c) => c.id === id) ?? null;
+}
+export function obtenerRolPortal(id: string | null | undefined) {
+  return ROLES_PORTAL.find((r) => r.id === id) ?? null;
+}
+export function obtenerCategoriaDocumento(id: string | null | undefined) {
+  return CATEGORIAS_DOCUMENTO.find((c) => c.id === id) ?? null;
+}
+export function obtenerEstadoIncidencia(id: string | null | undefined) {
+  return ESTADOS_INCIDENCIA.find((e) => e.id === id) ?? null;
+}
+export function obtenerLadoIncidencia(id: string | null | undefined) {
+  return LADOS_INCIDENCIA.find((l) => l.id === id) ?? null;
+}
 
 /* --- Ayudantes de rol ---
    Tres niveles, de mayor a menor alcance, espejo de los helpers de la BD:
@@ -561,6 +703,24 @@ export function esInterno(rol: string | null | undefined) {
 /* ¿Puede entrar a los módulos administrativos (dinero y papeles)? */
 export function puedeAdministrar(rol: string | null | undefined) {
   return rol === "direccion" || rol === "administracion";
+}
+
+/* ¿Es gente de la empresa cliente? Espejo de public.es_externo().
+   Se escribe como función y no como `rol === "externo"` suelto porque es la
+   pregunta que separa los dos lados del CRM, y aparece en el menú, en las
+   guardias y en los formularios. */
+export function esExterno(rol: string | null | undefined) {
+  return rol === "externo";
+}
+
+/* ¿Es el administrador de su empresa? Espejo de public.es_externo_admin().
+   El colaborador ve lo mismo, comenta y sube archivos; lo que NO hace es abrir
+   pedidos nuevos ni cerrar los que abrió Fresafit. La RLS lo impone; esto solo
+   evita pintarle botones que le van a rebotar. */
+export function esExternoAdmin(
+  perfil: { rol?: string | null; rol_portal?: string | null } | null | undefined,
+) {
+  return esExterno(perfil?.rol) && perfil?.rol_portal === "admin_cliente";
 }
 
 /* El escalón de arriba. Existe como función —y no como `rol === "direccion"`
@@ -601,6 +761,13 @@ export function puedeVerModulo(m: (typeof MODULOS)[number], perfil: PerfilPermis
     (!("soloAdmin" in m && m.soloAdmin) || puedeAdministrar(perfil?.rol)) &&
     (!("soloDireccion" in m && m.soloDireccion) || esDireccion(perfil?.rol)) &&
     (m.espacio !== "agencia" || veAgencia(perfil)) &&
+    /* El corte entre la casa y el cliente, y va en los DOS sentidos: quien es de
+       fuera solo alcanza el portal, y quien es de casa no lo pisa. Esta línea es
+       lo que expulsa a un externo de Inventario o de /agencia/tareas — sin ella,
+       cualquier módulo sin banderas le quedaría abierto, porque hasta hoy el rol
+       `externo` nunca había entrado al CRM. La puerta de cada página es
+       exigirModulo(), que pregunta justo aquí. */
+    (m.espacio === "portal") === esExterno(perfil?.rol) &&
     /* Restricciones sueltas puestas desde /equipo. Lista NEGRA: solo resta.
        Nunca podría sumar, porque el dinero lo cierra la RLS y no esta línea. */
     !(perfil?.modulos_ocultos ?? []).includes(m.id)

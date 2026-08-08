@@ -8,6 +8,8 @@ import {
   ClipboardCheck,
   DollarSign,
   Factory,
+  FileText,
+  Handshake,
   LogOut,
   Package,
   Palette,
@@ -55,6 +57,10 @@ const ICONOS: Record<string, LucideIcon> = {
   "agencia-cobros": Receipt,
   "agencia-nomina": Users,
   "agencia-reportes": TrendingUp,
+  "agencia-clientes": Handshake,
+  "portal-tareas": ClipboardCheck,
+  "portal-documentos": FileText,
+  "portal-avance": TrendingUp,
 };
 
 /* Envoltura de escritorio: el aside fijo lateral (oculto en móvil, donde la
@@ -127,10 +133,14 @@ export function SidebarContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col p-4.5 pb-4">
-      {/* Marca */}
+      {/* Marca. Para la gente de la empresa cliente no dice «Sistema interno»:
+          está en el CRM de otra empresa y el rótulo tiene que decirle que este
+          es SU espacio, no que se asomó a algo que no le tocaba. */}
       <div className="mb-5 flex flex-col items-start gap-1.5 px-1.5 pb-1">
         <LogoFresafit priority className="h-7 w-auto" />
-        <div className="text-[11.5px] text-muted-foreground">Sistema interno</div>
+        <div className="text-[11.5px] text-muted-foreground">
+          {espacio === "portal" ? "Tu espacio de trabajo" : "Sistema interno"}
+        </div>
       </div>
 
       {/* Menú de módulos. El scroll vive AQUÍ, no en el menú entero: así el pie
@@ -143,7 +153,11 @@ export function SidebarContent({
             en la primera pantalla de la Agencia sin haberla pedido. */}
         <SelectorEspacio actual={espacio} destinos={destinos} />
         <div className="px-2.5 pb-2 text-[10.5px] font-semibold tracking-wide text-muted-foreground/80 uppercase">
-          {espacio === "agencia" ? "Agencia Fresafit" : "Operación"}
+          {espacio === "agencia"
+            ? "Agencia Fresafit"
+            : espacio === "portal"
+              ? "Tu proyecto"
+              : "Operación"}
         </div>
         {activos.map((m) => {
           const activo = pathname === m.href || pathname.startsWith(m.href + "/");
@@ -162,7 +176,7 @@ export function SidebarContent({
             >
               <Icono className="size-[18px]" strokeWidth={1.9} />
               <span className="flex-1">{m.nombre}</span>
-              {(m.id === "tareas" || m.id === "agencia-tareas") &&
+              {(m.id === "tareas" || m.id === "agencia-tareas" || m.id === "portal-tareas") &&
                 tareasActivas[m.espacio] > 0 && (
                   <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">
                     {tareasActivas[m.espacio]}

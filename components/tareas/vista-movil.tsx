@@ -34,6 +34,7 @@ const TINTE_ESTADO: Record<EstadoId, { bg: string; color: string }> = {
   atorado: { bg: "#FEE9DC", color: "#C2410C" },
   en_revision: { bg: "#F1ECFE", color: "#6D28D9" },
   hecho: { bg: "#E9F8F1", color: "#0E8A5F" },
+  cancelada: { bg: "#EEF1F5", color: "#475569" },
 };
 
 const ESTILO_ESTADO = Object.fromEntries(

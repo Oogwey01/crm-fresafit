@@ -17,6 +17,19 @@
 
      node --env-file=.env.local scripts/crear-usuario.mjs … --dry-run
 
+   ALTA DE UN CONTACTO DE EMPRESA CLIENTE (portal). Lleva dos flags más y NO
+   lleva área —esa persona no es de ninguna de nuestras áreas—:
+
+     node --env-file=.env.local scripts/crear-usuario.mjs \
+       --email contacto@nutravia.mx --nombre "…" --rol externo \
+       --empresa nutravia --rol-portal admin_cliente --password "…"
+
+   `--empresa` es el SLUG de agencia_empresas (nutravia, bart-jerseys) y
+   `--rol-portal` es admin_cliente (pide cosas) o colaborador (solo participa).
+   Las dos son obligatorias con --rol externo, y la base lo exige además con el
+   check `profiles_externo_empresa_check`: un externo sin empresa no vería nada
+   y parecería un CRM roto.
+
    Requiere en el entorno:
      NEXT_PUBLIC_SUPABASE_URL
      SUPABASE_SERVICE_ROLE_KEY   (service role — NUNCA en el cliente ni en git)
@@ -26,6 +39,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const ROLES = ["direccion", "administracion", "coordinador", "miembro", "externo"];
 const AREAS = ["direccion", "administracion", "operaciones", "diseno", "contenido", "logistica", "tech"];
+const ROLES_PORTAL = ["admin_cliente", "colaborador"];
 
 /* --flag valor  →  { flag: "valor" }. Los booleanos (--dry-run) quedan en true. */
 function leerArgs(argv) {
@@ -64,12 +78,25 @@ const rol = String(args.rol ?? "miembro").trim();
 const area = String(args.area ?? "operaciones").trim();
 const color = String(args.color ?? "#94a3b8").trim();
 const password = String(args.password ?? "").trim();
+/* Solo para el rol `externo`: a qué empresa cliente pertenece y con qué papel. */
+const empresaSlug = String(args.empresa ?? "").trim().toLowerCase();
+const rolPortal = String(args["rol-portal"] ?? "").trim();
+const esExterno = rol === "externo";
 
 const problemas = [];
 if (!email.includes("@")) problemas.push("--email debe ser un correo válido");
 if (!nombre) problemas.push("--nombre es obligatorio");
 if (!ROLES.includes(rol)) problemas.push(`--rol debe ser uno de: ${ROLES.join(", ")}`);
-if (!AREAS.includes(area)) problemas.push(`--area debe ser una de: ${AREAS.join(", ")}`);
+/* El área es de la casa: quien viene de una empresa cliente no tiene ninguna, y
+   la BD guarda null. Pedírsela sería inventarle un puesto en Fresafit. */
+if (!esExterno && !AREAS.includes(area)) problemas.push(`--area debe ser una de: ${AREAS.join(", ")}`);
+if (esExterno && !empresaSlug) problemas.push("--empresa es obligatoria con --rol externo (el slug de la empresa cliente)");
+if (esExterno && !ROLES_PORTAL.includes(rolPortal)) {
+  problemas.push(`--rol-portal debe ser uno de: ${ROLES_PORTAL.join(", ")}`);
+}
+if (!esExterno && (empresaSlug || rolPortal)) {
+  problemas.push("--empresa y --rol-portal solo aplican con --rol externo");
+}
 if (password.length < 8) problemas.push("--password debe tener al menos 8 caracteres");
 if (problemas.length) {
   console.error("No se puede dar de alta:\n  - " + problemas.join("\n  - "));
@@ -81,9 +108,26 @@ const admin = createClient(URL, SERVICE_KEY, {
 });
 
 async function main() {
-  console.log(
-    `${SIMULACRO ? "[simulacro] " : ""}${nombre} <${email}> — rol ${rol}, área ${area}`,
-  );
+  /* La empresa se resuelve ANTES de tocar Auth: si el slug está mal escrito, es
+     mejor enterarse sin haber creado ya la cuenta. */
+  let empresaId = null;
+  if (esExterno) {
+    const { data, error } = await admin
+      .from("agencia_empresas")
+      .select("id, nombre")
+      .eq("slug", empresaSlug)
+      .maybeSingle();
+    if (error) throw new Error(`buscando la empresa: ${error.message}`);
+    if (!data) throw new Error(`No existe ninguna empresa con el slug "${empresaSlug}".`);
+    empresaId = data.id;
+    console.log(
+      `${SIMULACRO ? "[simulacro] " : ""}${nombre} <${email}> — contacto de ${data.nombre} (${rolPortal})`,
+    );
+  } else {
+    console.log(
+      `${SIMULACRO ? "[simulacro] " : ""}${nombre} <${email}> — rol ${rol}, área ${area}`,
+    );
+  }
 
   const { data: lista, error: errLista } = await admin.auth.admin.listUsers({ perPage: 1000 });
   if (errLista) throw errLista;
@@ -117,13 +161,20 @@ async function main() {
 
   /* El trigger `handle_new_user` ya insertó la fila del perfil con los valores
      por defecto; esto le pone el rol, el área y el color que tocan. */
+  const perfil = esExterno
+    ? { id, nombre, rol, area: null, color, empresa_id: empresaId, rol_portal: rolPortal }
+    : { id, nombre, rol, area, color, empresa_id: null, rol_portal: null };
+
   const { error: errPerfil } = await admin
     .from("profiles")
-    .upsert({ id, nombre, rol, area, color }, { onConflict: "id" });
+    .upsert(perfil, { onConflict: "id" });
   if (errPerfil) throw new Error(`perfil de ${email}: ${errPerfil.message}`);
   console.log("· perfil listo");
 
   console.log("\nListo. Entrega la contraseña en privado y pídele cambiarla.");
+  if (esExterno) {
+    console.log("Al entrar verá solo /portal: lo COMPARTIDO de su empresa y nada más.");
+  }
 }
 
 main().catch((e) => {

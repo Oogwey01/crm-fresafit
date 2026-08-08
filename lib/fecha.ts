@@ -64,10 +64,11 @@ export function hoyISO(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-/* ¿La tarea está vencida? (fecha límite pasada y no está "hecho"). */
+/* ¿La tarea está vencida? (fecha límite pasada y todavía abierta).
+   `cancelada` cuenta como cerrada: lo que se decidió no hacer no se vence. */
 export function esVencida(fechaLimite: string | null, estado: string): boolean {
   if (!fechaLimite) return false;
-  return fechaLimite < hoyISO() && estado !== "hecho";
+  return fechaLimite < hoyISO() && estado !== "hecho" && estado !== "cancelada";
 }
 
 /* ---- Recordatorios: puente entre <input type="datetime-local"> e ISO ----

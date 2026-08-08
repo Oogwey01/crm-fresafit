@@ -1,14 +1,19 @@
 import type { User } from "@supabase/supabase-js";
 import { usuarioActual, esInterno } from "@/lib/supabase/usuario-actual";
-import { esGestor, puedeAdministrar } from "@/lib/catalogos";
+import { esExterno, esExternoAdmin, esGestor, puedeAdministrar } from "@/lib/catalogos";
+import type { Profile } from "@/lib/types";
 
 type Sesion = Awaited<ReturnType<typeof usuarioActual>>;
 
 /* El retorno va anotado explícito: sin la anotación, TS infiere la unión con
    `error?: undefined` en la rama de éxito y el narrowing `"error" in cx` de
-   los callers deja de discriminar. */
+   los callers deja de discriminar.
+
+   `perfil` viaja al lado del rol porque el módulo de empresas necesita algo más
+   que el rol para decidir: de qué empresa es quien llama y qué papel tiene
+   dentro de ella. Ya venía cacheado por request; no cuesta una consulta. */
 export type ContextoRol =
-  | { supabase: Sesion["supabase"]; user: User; rol: string }
+  | { supabase: Sesion["supabase"]; user: User; rol: string; perfil: Profile | null }
   | { error: string };
 
 /* Portero único de los server actions: autentica y exige un nivel de rol,
@@ -19,7 +24,19 @@ export type ContextoRol =
 /* `admin` = quien lleva la administración (dirección + administración): gastos,
    nómina, reportes y agencia. `direccion` sigue siendo el nivel de arriba, para
    lo que decide quién es quién: roles del equipo y ventas importadas por API. */
-export type NivelRol = "autenticado" | "interno" | "gestor" | "admin" | "direccion";
+/* Los dos niveles del final NO son escalones de los otros: son el otro lado del
+   CRM. Un `cliente` es gente de la empresa a la que atendemos, y ni sube ni baja
+   respecto a `interno` — son ramas distintas del mismo árbol. Existen para que
+   una acción del portal no tenga que conformarse con «autenticado», que también
+   deja pasar al equipo de casa a una pantalla que no es la suya. */
+export type NivelRol =
+  | "autenticado"
+  | "interno"
+  | "gestor"
+  | "admin"
+  | "direccion"
+  | "cliente"
+  | "cliente_admin";
 
 const MENSAJE_POR_NIVEL: Record<NivelRol, string> = {
   autenticado: "No autenticado.",
@@ -27,17 +44,21 @@ const MENSAJE_POR_NIVEL: Record<NivelRol, string> = {
   gestor: "Solo dirección, administración o coordinación puede hacer esto.",
   admin: "Solo dirección o administración puede hacer esto.",
   direccion: "Solo Dirección puede hacer esto.",
+  cliente: "Esto solo se hace desde el portal de la empresa.",
+  cliente_admin: "Solo el administrador de tu empresa puede hacer esto.",
 };
 
 export async function exigirRol(nivel: NivelRol, mensaje?: string): Promise<ContextoRol> {
-  const { supabase, user, rol } = await usuarioActual();
+  const { supabase, user, rol, perfil } = await usuarioActual();
   if (!user) return { error: "No autenticado." };
   const pasa =
     nivel === "autenticado" ||
     (nivel === "interno" && esInterno(rol)) ||
     (nivel === "gestor" && esGestor(rol)) ||
     (nivel === "admin" && puedeAdministrar(rol)) ||
-    (nivel === "direccion" && rol === "direccion");
+    (nivel === "direccion" && rol === "direccion") ||
+    (nivel === "cliente" && esExterno(rol)) ||
+    (nivel === "cliente_admin" && esExternoAdmin(perfil));
   if (!pasa) return { error: mensaje ?? MENSAJE_POR_NIVEL[nivel] };
-  return { supabase, user, rol: rol ?? "miembro" };
+  return { supabase, user, rol: rol ?? "miembro", perfil };
 }

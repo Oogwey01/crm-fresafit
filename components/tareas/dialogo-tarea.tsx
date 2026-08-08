@@ -15,13 +15,28 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ESTADOS, PRIORIDADES, AREAS, obtenerArea } from "@/lib/catalogos";
+import {
+  ESTADOS,
+  PRIORIDADES,
+  AREAS,
+  CATEGORIAS_TAREA,
+  VISIBILIDADES,
+  obtenerArea,
+} from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { localInputAIso, hoyISO } from "@/lib/fecha";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
 import { DatePicker } from "@/components/compartido/date-picker";
-import type { Profile, AreaId, EspacioId, EstadoId, PrioridadId } from "@/lib/types";
+import type {
+  Profile,
+  AreaId,
+  CategoriaTareaId,
+  EspacioId,
+  EstadoId,
+  PrioridadId,
+  VisibilidadId,
+} from "@/lib/types";
 
 const SIN_ASIGNAR = "none";
 /* "Sin cliente" en el Select: es trabajo de la propia agencia (juntas,
@@ -81,6 +96,11 @@ export function TaskDialog({
   const [etiquetas, setEtiquetas] = useState<string[]>(inicial?.etiquetas ?? []);
   const [coasignados, setCoasignados] = useState<string[]>([]);
   const [empresa, setEmpresa] = useState(empresaInicial ?? SIN_EMPRESA);
+  /* Nace INTERNA siempre. Es la regla del módulo de empresas y no una
+     preferencia del formulario: compartir es un acto deliberado, y es más fácil
+     compartir después que arrepentirse de haber expuesto algo. */
+  const [visibilidad, setVisibilidad] = useState<VisibilidadId>("interno");
+  const [categoria, setCategoria] = useState<CategoriaTareaId>("otro");
 
   /* Al elegir responsable, el área se autollena con la de su perfil (editable).
      Si esa persona estaba como acompañante, se sale de la lista: ya está en la
@@ -116,6 +136,8 @@ export function TaskDialog({
       responsable_id: responsable === SIN_ASIGNAR ? null : responsable,
       espacio,
       empresa_id: esAgencia && empresa !== SIN_EMPRESA ? empresa : null,
+      visibilidad: esAgencia ? visibilidad : undefined,
+      categoria: esAgencia ? categoria : null,
       coasignados,
       area,
       prioridad,
@@ -196,6 +218,37 @@ export function TaskDialog({
           />
         </div>
       </Paso>
+
+      {/* Solo en la agencia: de qué va el pedido y quién puede verlo. En el
+          tablero de Fresafit no hay a quién compartirle nada, así que el paso
+          entero desaparece en vez de enseñar dos campos que no aplican. */}
+      {esAgencia && (
+        <Paso
+          titulo="¿De qué va y quién la ve?"
+          ayuda="Nace interna: el cliente no la verá hasta que alguien lo decida."
+        >
+          <CampoOpcion
+            etiqueta="Categoría"
+            opciones={CATEGORIAS_TAREA}
+            valor={categoria}
+            onCambio={setCategoria}
+            ayuda="Decide también qué hace falta para poder cerrarla."
+          />
+          <CampoOpcion
+            etiqueta="Quién la ve"
+            opciones={VISIBILIDADES}
+            valor={visibilidad}
+            onCambio={setVisibilidad}
+            ayuda={
+              visibilidad === "compartido"
+                ? "El cliente verá el título, la descripción, los comentarios y los archivos."
+                : visibilidad === "privado"
+                  ? "Solo dirección. Ni el resto del equipo."
+                  : "Solo el equipo de Fresafit."
+            }
+          />
+        </Paso>
+      )}
 
       <Paso
         titulo="¿Quién la hace?"

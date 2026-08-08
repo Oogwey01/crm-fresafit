@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
+import { ESTADOS_CERRADOS } from "@/lib/catalogos";
 import type { Notificacion } from "@/lib/types";
 
 /* Shell de la app protegida: sidebar + área principal.
@@ -22,13 +23,17 @@ export default async function AppLayout({
   if (!user) redirect("/login?sesion=expirada");
 
   /* Un contador por negocio: el menú muestra un espacio a la vez, y una sola
-     cifra global marcaba «12 tareas» en Fresafit contando las de la agencia. */
+     cifra global marcaba «12 tareas» en Fresafit contando las de la agencia.
+
+     Para la gente de la empresa cliente el contador sale del MISMO `tasks`: la
+     RLS ya solo le devuelve lo compartido de su empresa, así que no hace falta
+     una consulta aparte ni un filtro extra que se pueda olvidar. */
   const contarPendientes = (espacio: string) =>
     supabase
       .from("tasks")
       .select("id", { count: "exact", head: true })
       .eq("espacio", espacio)
-      .neq("estado", "hecho")
+      .not("estado", "in", `(${ESTADOS_CERRADOS.join(",")})`)
       .is("deleted_at", null);
 
   const [{ count: pendientesFresafit }, { count: pendientesAgencia }, notisRes] = await Promise.all([
@@ -51,6 +56,10 @@ export default async function AppLayout({
     tareasActivas: {
       fresafit: pendientesFresafit ?? 0,
       agencia: pendientesAgencia ?? 0,
+      /* El portal es el mismo espacio `agencia` visto desde el otro lado: la
+         RLS ya recortó la consulta a lo compartido de SU empresa, así que la
+         cifra sale de la misma consulta y no de una tercera. */
+      portal: pendientesAgencia ?? 0,
     },
     notificaciones,
   };

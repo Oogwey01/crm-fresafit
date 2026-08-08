@@ -12,13 +12,16 @@ import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { despacharPushPendientes } from "@/lib/push/enviar";
 import { esGestor } from "@/lib/catalogos";
+import { faltaParaCerrar } from "@/lib/tareas/reglas";
 import { exigirRol, type ContextoRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
 import type {
   AreaId,
+  CategoriaTareaId,
   EspacioId,
   EstadoId,
   PrioridadId,
+  VisibilidadId,
 } from "@/lib/types";
 
 /* Los avisos los insertan TRIGGERS de Postgres (asignación, comentario), que no
@@ -34,10 +37,14 @@ export function empujarAvisos() {
   });
 }
 
-/* Los dos tableros (Fresafit y Agencia) comparten estos actions, así que cada
-   cambio tiene que refrescar ambos: una tarea puede cambiar de cliente y aparecer
-   en el otro listado, y el badge del menú cuenta por espacio. */
-const RUTAS_TAREAS = ["/tareas", "/agencia/tareas"];
+/* Los tableros comparten estos actions, así que cada cambio tiene que refrescar
+   todos: una tarea puede cambiar de cliente y aparecer en otro listado, y el
+   badge del menú cuenta por espacio.
+
+   `/agencia/clientes` y `/portal/tareas` son las dos caras del espacio compartido
+   con la empresa: compartir una tarea desde el tablero interno tiene que hacerla
+   aparecer al otro lado sin que nadie recargue. */
+const RUTAS_TAREAS = ["/tareas", "/agencia/tareas", "/agencia/clientes", "/portal/tareas"];
 export const revalidarTareas = () => RUTAS_TAREAS.forEach((r) => revalidatePath(r));
 
 export type TaskInput = {
@@ -50,6 +57,13 @@ export type TaskInput = {
   /* Cliente de la agencia. Solo aplica en el espacio "agencia": en Fresafit se
      ignora, porque la marca no tiene cliente que pida el trabajo. */
   empresa_id?: string | null;
+  /* Quién puede ver la tarea. Sin definir = `interno`, que es también el default
+     de la columna: compartirle algo a un cliente es un acto deliberado, nunca lo
+     que pasa por no elegir nada. Solo tiene sentido en el espacio "agencia". */
+  visibilidad?: VisibilidadId;
+  /* Categoría del acuerdo con el cliente (documentos, accesos, pago…). Decide
+     qué se exige para poder cerrarla; ver CATEGORIAS_TAREA en lib/catalogos.ts. */
+  categoria?: CategoriaTareaId | null;
   /* Las DEMÁS personas que trabajan la tarea (tabla task_assignees). El
      responsable principal no va aquí: es quien manda en el área y en el carril
      del tablero. Sin definir = no se toca el equipo actual. */
@@ -175,4 +189,75 @@ export function empresaParaEspacio(
   empresaId: string | null | undefined,
 ): string | null {
   return espacio === "agencia" ? (empresaId || null) : null;
+}
+
+/* La visibilidad que de verdad se guarda.
+
+   Tres reglas, y ninguna es cosmética:
+     * En Fresafit no hay a quién compartirle nada: siempre `interno`.
+     * Sin cliente elegido, tampoco: `compartido` sin empresa lo rechaza el
+       check `tasks_compartida_con_empresa`, y es mejor corregirlo aquí que
+       enseñar un error de la base.
+     * Y ante la duda, `interno`. El default nunca es compartir. */
+export function visibilidadParaEspacio(
+  espacio: EspacioId,
+  empresaId: string | null,
+  visibilidad: VisibilidadId | undefined,
+): VisibilidadId {
+  if (espacio !== "agencia") return "interno";
+  if (visibilidad === "compartido" && !empresaId) return "interno";
+  return visibilidad ?? "interno";
+}
+
+/* La categoría es del acuerdo con el cliente: en el tablero de Fresafit no
+   significa nada y se descarta aunque el formulario la mande. */
+export function categoriaParaEspacio(
+  espacio: EspacioId,
+  categoria: CategoriaTareaId | null | undefined,
+): CategoriaTareaId | null {
+  return espacio === "agencia" ? (categoria ?? null) : null;
+}
+
+/* ¿Se puede dar por cerrada esta tarea? Devuelve el motivo por el que NO, o null
+   si sí (que es el caso normal).
+
+   Hay categorías del acuerdo con el cliente que se cierran con una prueba: la de
+   Documentos, con el archivo; las de Pago y Accesos, con una línea que diga cómo
+   quedó. La regla está en faltaParaCerrar() (lib/tareas/reglas.ts) y los
+   contadores se piden con `head: true` —solo el número, sin traer filas— y solo
+   cuando de verdad se está cerrando algo con categoría.
+
+   Es defensa amable, no el candado: sirve para decirlo con palabras en el toast
+   en vez de dejar que la persona suba el archivo después de que nadie se lo
+   pidió. */
+export async function validarCierre(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  taskId: string,
+  estadoNuevo: EstadoId,
+): Promise<string | null> {
+  if (estadoNuevo !== "hecho") return null;
+
+  const { data } = await supabase
+    .from("tasks")
+    .select("categoria, espacio")
+    .eq("id", taskId)
+    .maybeSingle();
+  if (!data?.categoria) return null;
+
+  const [adj, com] = await Promise.all([
+    supabase
+      .from("task_attachments")
+      .select("id", { count: "exact", head: true })
+      .eq("task_id", taskId),
+    supabase
+      .from("task_comments")
+      .select("id", { count: "exact", head: true })
+      .eq("task_id", taskId),
+  ]);
+
+  return faltaParaCerrar(
+    { categoria: data.categoria as CategoriaTareaId, espacio: data.espacio as string },
+    estadoNuevo,
+    { adjuntos: adj.count ?? 0, comentarios: com.count ?? 0 },
+  );
 }

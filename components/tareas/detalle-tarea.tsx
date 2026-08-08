@@ -32,10 +32,13 @@ import {
   ESTADOS,
   PRIORIDADES,
   AREAS,
+  CATEGORIAS_TAREA,
+  VISIBILIDADES,
   esGestor,
   obtenerArea,
   obtenerEstado,
   obtenerPrioridad,
+  obtenerVisibilidad,
 } from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";
@@ -64,8 +67,10 @@ import type {
   Profile,
   RolId,
   AreaId,
+  CategoriaTareaId,
   EstadoId,
   PrioridadId,
+  VisibilidadId,
   TaskAttachment,
   TaskDetalle,
 } from "@/lib/types";
@@ -265,6 +270,8 @@ export function TaskDetail({
   );
   const esAgencia = tarea.espacio === "agencia";
   const [empresa, setEmpresa] = useState(tarea.empresa_id ?? SIN_EMPRESA);
+  const [visibilidad, setVisibilidad] = useState<VisibilidadId>(tarea.visibilidad ?? "interno");
+  const [categoria, setCategoria] = useState<CategoriaTareaId | "">(tarea.categoria ?? "");
 
   /* Al cambiar el responsable, el área se autollena con la de su perfil. Si esa
      persona acompañaba la tarea, deja de hacerlo: ahora es la principal. */
@@ -317,6 +324,8 @@ export function TaskDetail({
       /* Solo se manda en la agencia: si fuera undefined en Fresafit el action ni
          lo mira, y así una tarea propia nunca puede acabar con cliente. */
       empresa_id: esAgencia ? (empresa === SIN_EMPRESA ? null : empresa) : undefined,
+      visibilidad: esAgencia ? visibilidad : undefined,
+      categoria: esAgencia ? (categoria || null) : undefined,
       coasignados,
       area,
       prioridad,
@@ -867,6 +876,32 @@ export function TaskDetail({
                         </Select>
                       </Meta>
                     )}
+                    {/* Con quién se comparte y de qué va el acuerdo. Solo en la
+                        agencia, y solo aquí — desde el tablero de Fresafit
+                        estos campos no existen. Compartir desde este select es
+                        tan deliberado como desde el interruptor del workspace:
+                        se guarda con el botón de la ficha. */}
+                    {esAgencia && (
+                      <Meta label="Quién la ve">
+                        <Select value={visibilidad} onValueChange={(v) => v && setVisibilidad(v as VisibilidadId)}>
+                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => obtenerVisibilidad(v)?.nombre ?? "Interno"}</SelectValue></SelectTrigger>
+                          <SelectContent>
+                            {VISIBILIDADES.map((vi) => (<SelectItem key={vi.id} value={vi.id}>{vi.nombre} — {vi.desc}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </Meta>
+                    )}
+                    {esAgencia && (
+                      <Meta label="Categoría">
+                        <Select value={categoria || "sin"} onValueChange={(v) => setCategoria(v === "sin" ? "" : (v as CategoriaTareaId))}>
+                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => CATEGORIAS_TAREA.find((c) => c.id === v)?.nombre ?? "Sin categoría"}</SelectValue></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sin">Sin categoría</SelectItem>
+                            {CATEGORIAS_TAREA.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>))}
+                          </SelectContent>
+                        </Select>
+                      </Meta>
+                    )}
                     <Meta label="Responsable">
                       <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
                         <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
@@ -928,6 +963,16 @@ export function TaskDetail({
                   <div className="flex flex-col gap-3">
                     {tarea.empresa && (
                       <Dato label="Cliente">{tarea.empresa.nombre}</Dato>
+                    )}
+                    {/* Quien la trabaja tiene que saber si el cliente está
+                        leyendo el hilo ANTES de escribir en él. */}
+                    {esAgencia && (
+                      <Dato label="Quién la ve">
+                        {obtenerVisibilidad(tarea.visibilidad)?.nombre ?? "Interno"}
+                        {tarea.visibilidad === "compartido" && tarea.empresa
+                          ? ` — ${tarea.empresa.nombre} ve el hilo y los archivos`
+                          : ""}
+                      </Dato>
                     )}
                     <Dato label="Responsable">{nombrePorId(tarea.responsable_id)}</Dato>
                     {(tarea.coasignados ?? []).length > 0 && (

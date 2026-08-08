@@ -45,7 +45,12 @@ export const usuarioActual = cache(async () => {
   const consultaPerfil = (id: string) =>
     supabase
       .from("profiles")
-      .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos")
+      /* `empresa_id` y `rol_portal` viajan aquí porque el portal los necesita en
+         CADA pantalla (para saber de qué empresa es quien mira y si puede pedir
+         cosas), y este perfil ya está cacheado por request: pedirlos aparte
+         sería una segunda consulta por navegación. En el equipo de casa van
+         null y no pesan. */
+      .select("id, nombre, rol, area, color, ve_agencia, modulos_ocultos, empresa_id, rol_portal")
       .eq("id", id)
       .single();
 
