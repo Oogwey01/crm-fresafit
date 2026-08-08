@@ -2,12 +2,19 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { DialogoPasos, Paso } from "@/components/compartido/dialogo-pasos";
-import { CampoOpcion } from "@/components/compartido/campo-opcion";
-import { DatePicker } from "@/components/compartido/date-picker";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
   editarDocumento,
@@ -133,48 +140,45 @@ export function DialogoDocumento({
   }
 
   return (
-    <DialogoPasos
+    <DialogoFormulario
       titulo={editar ? "Editar documento" : `Subir documento de ${empresaNombre}`}
       onCerrar={onCerrar}
       onGuardar={guardar}
       etiquetaGuardar={editar ? "Guardar cambios" : "Subir documento"}
       pending={pending}
     >
-      <Paso
-        titulo="¿Qué documento es?"
+      <Hero
+        pasoTitulo="¿Qué documento es?"
         valido={Boolean(nombre.trim())}
         motivoInvalido="Ponle un nombre al documento."
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="doc-nombre">Nombre</Label>
-          <Input
-            id="doc-nombre"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            placeholder="Constancia de situación fiscal 2026"
-          />
-        </div>
-        <CampoOpcion
-          etiqueta="Categoría"
-          opciones={CATEGORIAS_DOCUMENTO}
-          valor={categoria}
-          onCambio={setCategoria}
+        <CampoHero
+          id="doc-nombre"
+          etiqueta="Nombre"
+          placeholder="Constancia de situación fiscal 2026"
+          valor={nombre}
+          onCambio={setNombre}
         />
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="doc-desc">Notas (opcional)</Label>
-          <Textarea
-            id="doc-desc"
-            rows={2}
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            placeholder="De qué es, para qué sirve, quién lo pidió…"
+        <DescripcionHero
+          id="doc-desc"
+          etiqueta="Notas"
+          placeholder="De qué es, para qué sirve, quién lo pidió… (opcional)"
+          valor={descripcion}
+          onCambio={setDescripcion}
+        />
+        <div className="md:mt-1">
+          <PastillaOpcion
+            etiqueta="Categoría"
+            opciones={CATEGORIAS_DOCUMENTO}
+            valor={categoria}
+            onCambio={setCategoria}
           />
         </div>
-      </Paso>
+      </Hero>
 
-      <Paso
-        titulo="El archivo"
-        ayuda={
+      <Propiedades
+        pasoTitulo="El archivo"
+        pasoAyuda={
           editar
             ? "Solo si llegó uno nuevo. El anterior se conserva en el histórico."
             : "PDF, imagen o lo que sea. Hasta 25 MB."
@@ -182,10 +186,11 @@ export function DialogoDocumento({
         valido={editar || Boolean(archivo)}
         motivoInvalido="Elige el archivo que quieres guardar."
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="doc-file">
-            {editar ? "Reemplazar por una versión nueva" : "Archivo"}
-          </Label>
+        <Campo
+          etiqueta={editar ? "Reemplazar por una versión nueva" : "Archivo"}
+          htmlFor="doc-file"
+          className="w-full"
+        >
           <input
             id="doc-file"
             type="file"
@@ -197,53 +202,50 @@ export function DialogoDocumento({
               {archivo.name} · {(archivo.size / 1024 / 1024).toFixed(1)} MB
             </span>
           )}
-        </div>
+        </Campo>
 
         {editar && archivo && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="doc-nota">Qué cambió (opcional)</Label>
+          <Campo etiqueta="Qué cambió" opcional htmlFor="doc-nota" className="w-full">
             <Input
               id="doc-nota"
               value={nota}
               onChange={(e) => setNota(e.target.value)}
               placeholder="La que mandaron el 3 de agosto"
             />
-          </div>
+          </Campo>
         )}
-      </Paso>
+      </Propiedades>
 
-      <Paso
-        titulo="Vigencia y quién lo ve"
-        ayuda={
+      <Propiedades
+        pasoTitulo="Vigencia y quién lo ve"
+        pasoAyuda={
           caduca
             ? "Con la fecha capturada, el CRM avisa 30 días antes de que caduque."
             : "La fecha solo si aplica."
         }
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="doc-vigencia">Vigente hasta</Label>
-          <DatePicker id="doc-vigencia" value={vigencia} onChange={setVigencia} limpiable />
-          {caduca && !vigencia && (
-            <span className="text-[12.5px] text-amber-700 dark:text-amber-500">
-              Sin fecha, este documento no avisará nunca de que venció.
-            </span>
-          )}
-        </div>
+        <PastillaFecha
+          etiqueta="Vigente hasta"
+          etiquetaVacia="Vigencia"
+          valor={vigencia}
+          onCambio={setVigencia}
+          limpiable
+        />
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="doc-etiquetas">Etiquetas (separadas por comas)</Label>
-          <Input
-            id="doc-etiquetas"
-            value={etiquetas}
-            onChange={(e) => setEtiquetas(e.target.value)}
-            placeholder="sat, 2026, matriz"
-          />
-        </div>
+        <PastillaEntrada
+          etiqueta="Etiquetas"
+          valor={etiquetas}
+          onCambio={setEtiquetas}
+          placeholder="sat, 2026, matriz"
+          ayuda="Separadas por comas."
+          opcional
+          idMovil="doc-etiquetas"
+        />
 
         {/* El cliente no elige: lo que sube nace compartido —para eso nos lo
             manda— y la acción lo impone igual aunque este campo no se pinte. */}
         {puedeGestionar && (
-          <CampoOpcion
+          <PastillaOpcion
             etiqueta="Quién lo ve"
             opciones={VISIBILIDADES}
             valor={visibilidad}
@@ -257,7 +259,13 @@ export function DialogoDocumento({
             }
           />
         )}
-      </Paso>
-    </DialogoPasos>
+
+        {caduca && !vigencia && (
+          <span className="w-full text-[12.5px] text-amber-700 dark:text-amber-500">
+            Sin fecha, este documento no avisará nunca de que venció.
+          </span>
+        )}
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

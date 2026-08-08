@@ -5,11 +5,17 @@ import { Paperclip, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import {
   Select,
   SelectContent,
@@ -19,10 +25,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import { aNumero } from "@/lib/validacion";
 import { ESTADOS_PEDIDO_PROVEEDOR } from "@/lib/catalogos";
@@ -144,6 +148,11 @@ export function PedidoProvDialog({
   const [paqueteria, setPaqueteria] = useState(pedido?.paqueteria ?? "");
   const [numGuia, setNumGuia] = useState(pedido?.num_guia ?? "");
   const [urlRastreo, setUrlRastreo] = useState(pedido?.url_rastreo ?? "");
+  /* Si el pedido YA traía datos de rastreo, la sección nace abierta (se captura
+     al montar: que teclear una guía no ande abriendo secciones solo). */
+  const [rastreoConDatos] = useState(
+    Boolean(pedido && (pedido.paqueteria || pedido.num_guia || pedido.url_rastreo)),
+  );
 
   /* Pagos + incidencias: solo se gestionan sobre un pedido ya guardado (necesitan
      su id). Se cargan al abrir en modo edición. */
@@ -241,346 +250,345 @@ export function PedidoProvDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{pedido ? "Editar pedido a proveedor" : "Nuevo pedido a proveedor"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
-              <Label>Proveedor</Label>
-              <Select value={proveedorId || undefined} onValueChange={(v) => v && setProveedorId(v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Elegir…">
-                    {(v: string) => proveedores.find((p) => p.id === v)?.nombre ?? "Elegir…"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {proveedores.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ped-fecha">Fecha del pedido</Label>
-              <DatePicker id="ped-fecha" value={fechaPedido} onChange={setFechaPedido} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ped-eta">Llega (aprox.)</Label>
-              <DatePicker id="ped-eta" value={fechaEstimada} onChange={setEtaOverride} limpiable />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Estado</Label>
-              <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoPedidoProvId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => ESTADOS_PEDIDO_PROVEEDOR.find((e) => e.id === v)?.nombre ?? "Estado"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {ESTADOS_PEDIDO_PROVEEDOR.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Renglones del pedido */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Qué se pidió</Label>
-            <div className="flex flex-col gap-2">
-              {renglones.map((r, idx) => (
-                <div key={idx} className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-2">
-                  {/* Producto del catálogo o descripción libre (renglón completo
-                      para que el nombre no se corte) */}
-                  <div className="flex items-center gap-2">
-                    <Select
-                      value={r.producto_id ?? PRODUCTO_LIBRE}
-                      onValueChange={(v) =>
-                        editarRenglon(idx, { producto_id: !v || v === PRODUCTO_LIBRE ? null : v })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue>
-                          {(v: string) => {
-                            if (v === PRODUCTO_LIBRE) return "Otro (describir)";
-                            const p = productos.find((x) => x.id === v);
-                            return p ? `${p.nombre}${p.variante ? ` · ${p.variante}` : ""}` : "Producto";
-                          }}
-                        </SelectValue>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={PRODUCTO_LIBRE}>Otro (describir)</SelectItem>
-                        {productos
-                          .filter((p) => p.activo)
-                          .map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.nombre}
-                              {p.variante ? ` · ${p.variante}` : ""}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                    {r.producto_id === null && (
-                      <Input
-                        placeholder="Descripción"
-                        value={r.descripcion}
-                        onChange={(e) => editarRenglon(idx, { descripcion: e.target.value })}
-                      />
-                    )}
-                  </div>
-                  {/* Cantidad · costo · quitar: fila propia en móvil, inline en escritorio */}
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      step="1"
-                      aria-label="Cantidad"
-                      title="Cantidad"
-                      className="w-20 shrink-0"
-                      value={r.cantidad}
-                      onChange={(e) => editarRenglon(idx, { cantidad: e.target.value })}
-                    />
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="$ c/u"
-                      aria-label="Costo unitario"
-                      title="Costo unitario"
-                      className="w-28 shrink-0"
-                      value={r.costo_unitario}
-                      onChange={(e) => editarRenglon(idx, { costo_unitario: e.target.value })}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setRenglones((prev) => prev.filter((_, i) => i !== idx))}
-                      disabled={renglones.length === 1}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent disabled:opacity-40 md:size-8"
-                      aria-label="Quitar renglón"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  </div>
-                </div>
+    <DialogoFormulario
+      titulo={pedido ? "Editar pedido a proveedor" : "Nuevo pedido a proveedor"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={pedido ? "Guardar cambios" : "Registrar pedido"}
+      pending={pending}
+      onBorrar={pedido && gestor ? borrar : undefined}
+      anchoEscritorio="md:max-w-2xl"
+    >
+      <Hero pasoTitulo="¿A quién se le pidió?">
+        <Campo etiqueta="Proveedor" className="w-full">
+          <Select value={proveedorId || undefined} onValueChange={(v) => v && setProveedorId(v)}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Elegir…">
+                {(v: string) => proveedores.find((p) => p.id === v)?.nombre ?? "Elegir…"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {proveedores.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.nombre}
+                </SelectItem>
               ))}
-              <div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setRenglones((prev) => [...prev, renglonVacio()])}
+            </SelectContent>
+          </Select>
+        </Campo>
+        <DescripcionHero
+          id="ped-notas"
+          etiqueta="Notas"
+          placeholder="Condiciones, aduana… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo="Fechas y estado">
+        <PastillaFecha
+          etiqueta="Fecha del pedido"
+          etiquetaVacia="Fecha del pedido"
+          valor={fechaPedido}
+          onCambio={setFechaPedido}
+        />
+        {/* La ETA respeta etaOverride: mientras nadie la toque sigue a la fecha
+            del pedido + días de entrega del proveedor. */}
+        <PastillaFecha
+          etiqueta="Llega (aprox.)"
+          etiquetaVacia="Llega (aprox.)"
+          valor={fechaEstimada}
+          onCambio={setEtaOverride}
+          limpiable
+          ayuda="Se propone con los días de entrega del proveedor; si la fijas a mano, tu fecha manda."
+        />
+        <PastillaOpcion
+          etiqueta="Estado"
+          opciones={ESTADOS_PEDIDO_PROVEEDOR}
+          valor={estado}
+          onCambio={setEstado}
+        />
+      </Propiedades>
+
+      {/* Renglones del pedido: sin renglones no hay pedido, así que la sección
+          nace abierta. */}
+      <SeccionFormulario
+        titulo="Renglones"
+        pasoTitulo="¿Qué se pidió?"
+        contador={renglones.length}
+        abiertaPorDefecto
+      >
+        <div className="flex flex-col gap-2">
+          {renglones.map((r, idx) => (
+            <div key={idx} className="flex flex-col gap-2 rounded-lg border bg-muted/20 p-2">
+              {/* Producto del catálogo o descripción libre (renglón completo
+                  para que el nombre no se corte) */}
+              <div className="flex items-center gap-2">
+                <Select
+                  value={r.producto_id ?? PRODUCTO_LIBRE}
+                  onValueChange={(v) =>
+                    editarRenglon(idx, { producto_id: !v || v === PRODUCTO_LIBRE ? null : v })
+                  }
                 >
-                  + Agregar renglón
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ped-total">
-                Costo total{" "}
-                {sumaRenglones > 0 && totalManual.trim() === "" && (
-                  <span className="font-normal text-muted-foreground">
-                    (sugerido: {formatearMXN(sumaRenglones)})
-                  </span>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(v: string) => {
+                        if (v === PRODUCTO_LIBRE) return "Otro (describir)";
+                        const p = productos.find((x) => x.id === v);
+                        return p ? `${p.nombre}${p.variante ? ` · ${p.variante}` : ""}` : "Producto";
+                      }}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={PRODUCTO_LIBRE}>Otro (describir)</SelectItem>
+                    {productos
+                      .filter((p) => p.activo)
+                      .map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nombre}
+                          {p.variante ? ` · ${p.variante}` : ""}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                {r.producto_id === null && (
+                  <Input
+                    placeholder="Descripción"
+                    value={r.descripcion}
+                    onChange={(e) => editarRenglon(idx, { descripcion: e.target.value })}
+                  />
                 )}
-              </Label>
-              <Input
-                id="ped-total"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder={sumaRenglones > 0 ? sumaRenglones.toFixed(2) : "0.00"}
-                value={totalManual}
-                onChange={(e) => setTotalManual(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ped-notas">Notas (opcional)</Label>
-              <Textarea
-                id="ped-notas"
-                rows={1}
-                placeholder="Condiciones, aduana…"
-                value={notas}
-                onChange={(e) => setNotas(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Rastreo del envío */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Rastreo del envío</Label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              <Input
-                placeholder="Paquetería"
-                value={paqueteria}
-                onChange={(e) => setPaqueteria(e.target.value)}
-              />
-              <Input
-                placeholder="Nº de guía"
-                value={numGuia}
-                onChange={(e) => setNumGuia(e.target.value)}
-              />
-              <Input
-                placeholder="Link de rastreo (https://…)"
-                value={urlRastreo}
-                onChange={(e) => setUrlRastreo(e.target.value)}
-                className="col-span-2 sm:col-span-1"
-              />
-            </div>
-          </div>
-
-          {/* Pagos e incidencias: solo sobre un pedido ya guardado. */}
-          {pedido && (
-            <>
-              <div className="mt-1 border-t pt-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Pagos</h3>
-                  <span className="text-[12.5px] text-muted-foreground">
-                    Pagado <b className="text-foreground">{formatearMXN(totalPagado)}</b>
-                    {total != null && total > 0 && ` de ${formatearMXN(total)}`}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-1">
-                  {(detalle?.pagos ?? []).map((p) => (
-                    <div key={p.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
-                      <span className="tabular-nums font-semibold">{formatearMXN(Number(p.monto))}</span>
-                      <span className="text-muted-foreground">{formatearFecha(p.fecha)}</span>
-                      {p.nota && <span className="truncate text-muted-foreground">· {p.nota}</span>}
-                      {p.comprobante_path && (
-                        <button
-                          type="button"
-                          onClick={() => verComprobante(p.comprobante_path!)}
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
-                          title={p.comprobante_nombre ?? "Ver comprobante"}
-                        >
-                          <Paperclip className="size-3.5" /> comprobante
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          ejecutar(() => borrarPagoPedido(p.id, p.comprobante_path), {
-                            ok: "Pago borrado.",
-                            alExito: recargar,
-                          })
-                        }
-                        className="ml-auto text-muted-foreground hover:text-destructive"
-                        aria-label="Borrar pago"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {detalle && detalle.pagos.length === 0 && (
-                    <p className="text-[13px] text-muted-foreground">Sin pagos registrados.</p>
-                  )}
-                </div>
-                {/* Alta de pago */}
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    placeholder="$ monto"
-                    className="w-28"
-                    value={pagoMonto}
-                    onChange={(e) => setPagoMonto(e.target.value)}
-                  />
-                  <div className="w-40">
-                    <DatePicker value={pagoFecha} onChange={setPagoFecha} />
-                  </div>
-                  <Input
-                    placeholder="Nota (opcional)"
-                    className="min-w-[120px] flex-1"
-                    value={pagoNota}
-                    onChange={(e) => setPagoNota(e.target.value)}
-                  />
-                  <input ref={pagoFileRef} type="file" className="hidden" />
-                  <Button variant="outline" size="sm" onClick={() => pagoFileRef.current?.click()}>
-                    <Paperclip className="size-3.5" /> Comprobante
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={agregarPago} disabled={pending}>
-                    Registrar pago
-                  </Button>
-                </div>
               </div>
-
-              <div className="mt-1 border-t pt-3">
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Incidencias
-                </h3>
-                <div className="flex flex-col gap-1">
-                  {(detalle?.incidencias ?? []).map((inc) => (
-                    <div key={inc.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={inc.resuelto}
-                        onChange={(e) =>
-                          ejecutar(() => resolverIncidenciaPedido(inc.id, e.target.checked), {
-                            ok: e.target.checked ? "Incidencia resuelta." : "Incidencia reabierta.",
-                            alExito: recargar,
-                          })
-                        }
-                        title="Marcar resuelta"
-                        className="size-4 accent-primary"
-                      />
-                      <span className={cn("min-w-0 flex-1 truncate", inc.resuelto && "text-muted-foreground line-through")} title={inc.texto}>
-                        {inc.texto}
-                      </span>
-                      <span className="shrink-0 text-[12px] text-muted-foreground">{formatearFecha(inc.fecha)}</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          ejecutar(() => borrarIncidenciaPedido(inc.id), {
-                            ok: "Incidencia borrada.",
-                            alExito: recargar,
-                          })
-                        }
-                        className="text-muted-foreground hover:text-destructive"
-                        aria-label="Borrar incidencia"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {detalle && detalle.incidencias.length === 0 && (
-                    <p className="text-[13px] text-muted-foreground">Sin incidencias.</p>
-                  )}
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <Input
-                    placeholder="Describe una incidencia…"
-                    value={incidenciaTexto}
-                    onChange={(e) => setIncidenciaTexto(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && agregarIncidencia()}
-                  />
-                  <Button variant="outline" size="sm" onClick={agregarIncidencia} disabled={pending}>
-                    Agregar
-                  </Button>
-                </div>
+              {/* Cantidad · costo · quitar: fila propia en móvil, inline en escritorio */}
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="1"
+                  step="1"
+                  aria-label="Cantidad"
+                  title="Cantidad"
+                  className="w-20 shrink-0"
+                  value={r.cantidad}
+                  onChange={(e) => editarRenglon(idx, { cantidad: e.target.value })}
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="$ c/u"
+                  aria-label="Costo unitario"
+                  title="Costo unitario"
+                  className="w-28 shrink-0"
+                  value={r.costo_unitario}
+                  onChange={(e) => editarRenglon(idx, { costo_unitario: e.target.value })}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRenglones((prev) => prev.filter((_, i) => i !== idx))}
+                  disabled={renglones.length === 1}
+                  className="flex size-9 shrink-0 items-center justify-center rounded-md border text-muted-foreground hover:bg-accent disabled:opacity-40 md:size-8"
+                  aria-label="Quitar renglón"
+                >
+                  <X className="size-4" />
+                </button>
               </div>
-            </>
-          )}
+            </div>
+          ))}
+          <div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setRenglones((prev) => [...prev, renglonVacio()])}
+            >
+              + Agregar renglón
+            </Button>
+          </div>
         </div>
 
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={pedido ? "Guardar cambios" : "Registrar pedido"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={pedido && gestor ? borrar : undefined}
-        />
-      </DialogContent>
-    </Dialog>
+        <div className="flex flex-col gap-1.5 sm:max-w-56">
+          <Label htmlFor="ped-total">
+            Costo total{" "}
+            {sumaRenglones > 0 && totalManual.trim() === "" && (
+              <span className="font-normal text-muted-foreground">
+                (sugerido: {formatearMXN(sumaRenglones)})
+              </span>
+            )}
+          </Label>
+          <Input
+            id="ped-total"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder={sumaRenglones > 0 ? sumaRenglones.toFixed(2) : "0.00"}
+            value={totalManual}
+            onChange={(e) => setTotalManual(e.target.value)}
+          />
+        </div>
+      </SeccionFormulario>
+
+      {/* Rastreo del envío */}
+      <SeccionFormulario
+        titulo="Rastreo del envío"
+        pasoTitulo="Rastreo del envío"
+        pasoAyuda="Opcional: la paquetería y la guía cuando ya viene en camino."
+        abiertaPorDefecto={rastreoConDatos}
+      >
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <Input
+            placeholder="Paquetería"
+            value={paqueteria}
+            onChange={(e) => setPaqueteria(e.target.value)}
+          />
+          <Input
+            placeholder="Nº de guía"
+            value={numGuia}
+            onChange={(e) => setNumGuia(e.target.value)}
+          />
+          <Input
+            placeholder="Link de rastreo (https://…)"
+            value={urlRastreo}
+            onChange={(e) => setUrlRastreo(e.target.value)}
+            className="col-span-2 sm:col-span-1"
+          />
+        </div>
+      </SeccionFormulario>
+
+      {/* Pagos e incidencias: solo sobre un pedido ya guardado. */}
+      {pedido && (
+        <SeccionFormulario
+          titulo="Pagos"
+          pasoTitulo="Pagos"
+          contador={detalle ? detalle.pagos.length : null}
+          abiertaPorDefecto={(detalle?.pagos.length ?? 0) > 0}
+        >
+          <p className="text-[12.5px] text-muted-foreground">
+            Pagado <b className="text-foreground">{formatearMXN(totalPagado)}</b>
+            {total != null && total > 0 && ` de ${formatearMXN(total)}`}
+          </p>
+          <div className="flex flex-col gap-1">
+            {(detalle?.pagos ?? []).map((p) => (
+              <div key={p.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                <span className="tabular-nums font-semibold">{formatearMXN(Number(p.monto))}</span>
+                <span className="text-muted-foreground">{formatearFecha(p.fecha)}</span>
+                {p.nota && <span className="truncate text-muted-foreground">· {p.nota}</span>}
+                {p.comprobante_path && (
+                  <button
+                    type="button"
+                    onClick={() => verComprobante(p.comprobante_path!)}
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                    title={p.comprobante_nombre ?? "Ver comprobante"}
+                  >
+                    <Paperclip className="size-3.5" /> comprobante
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    ejecutar(() => borrarPagoPedido(p.id, p.comprobante_path), {
+                      ok: "Pago borrado.",
+                      alExito: recargar,
+                    })
+                  }
+                  className="ml-auto text-muted-foreground hover:text-destructive"
+                  aria-label="Borrar pago"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            {detalle && detalle.pagos.length === 0 && (
+              <p className="text-[13px] text-muted-foreground">Sin pagos registrados.</p>
+            )}
+          </div>
+          {/* Alta de pago */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="$ monto"
+              className="w-28"
+              value={pagoMonto}
+              onChange={(e) => setPagoMonto(e.target.value)}
+            />
+            <div className="w-40">
+              <DatePicker value={pagoFecha} onChange={setPagoFecha} />
+            </div>
+            <Input
+              placeholder="Nota (opcional)"
+              className="min-w-[120px] flex-1"
+              value={pagoNota}
+              onChange={(e) => setPagoNota(e.target.value)}
+            />
+            <input ref={pagoFileRef} type="file" className="hidden" />
+            <Button variant="outline" size="sm" onClick={() => pagoFileRef.current?.click()}>
+              <Paperclip className="size-3.5" /> Comprobante
+            </Button>
+            <Button variant="outline" size="sm" onClick={agregarPago} disabled={pending}>
+              Registrar pago
+            </Button>
+          </div>
+        </SeccionFormulario>
+      )}
+
+      {pedido && (
+        <SeccionFormulario
+          titulo="Incidencias"
+          pasoTitulo="Incidencias"
+          contador={detalle ? detalle.incidencias.length : null}
+          abiertaPorDefecto={(detalle?.incidencias.length ?? 0) > 0}
+        >
+          <div className="flex flex-col gap-1">
+            {(detalle?.incidencias ?? []).map((inc) => (
+              <div key={inc.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={inc.resuelto}
+                  onChange={(e) =>
+                    ejecutar(() => resolverIncidenciaPedido(inc.id, e.target.checked), {
+                      ok: e.target.checked ? "Incidencia resuelta." : "Incidencia reabierta.",
+                      alExito: recargar,
+                    })
+                  }
+                  title="Marcar resuelta"
+                  className="size-4 accent-primary"
+                />
+                <span className={cn("min-w-0 flex-1 truncate", inc.resuelto && "text-muted-foreground line-through")} title={inc.texto}>
+                  {inc.texto}
+                </span>
+                <span className="shrink-0 text-[12px] text-muted-foreground">{formatearFecha(inc.fecha)}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    ejecutar(() => borrarIncidenciaPedido(inc.id), {
+                      ok: "Incidencia borrada.",
+                      alExito: recargar,
+                    })
+                  }
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Borrar incidencia"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            {detalle && detalle.incidencias.length === 0 && (
+              <p className="text-[13px] text-muted-foreground">Sin incidencias.</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Describe una incidencia…"
+              value={incidenciaTexto}
+              onChange={(e) => setIncidenciaTexto(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && agregarIncidencia()}
+            />
+            <Button variant="outline" size="sm" onClick={agregarIncidencia} disabled={pending}>
+              Agregar
+            </Button>
+          </div>
+        </SeccionFormulario>
+      )}
+    </DialogoFormulario>
   );
 }

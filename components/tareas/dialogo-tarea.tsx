@@ -3,8 +3,21 @@
 import { useState } from "react";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { toast } from "sonner";
-import { DialogoPasos, Paso } from "@/components/compartido/dialogo-pasos";
-import { CampoOpcion } from "@/components/compartido/campo-opcion";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaEtiquetas,
+  PastillaFecha,
+  PastillaFechaHora,
+  PastillaOpcion,
+  PastillaPersona,
+  PastillaPersonas,
+} from "@/components/compartido/pastillas-campo";
 import {
   Select,
   SelectContent,
@@ -12,7 +25,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -24,11 +36,8 @@ import {
   obtenerArea,
   veAgencia,
 } from "@/lib/catalogos";
-import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
-import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { localInputAIso, hoyISO } from "@/lib/fecha";
 import { crearTarea, type TaskInput } from "@/app/(app)/tareas/actions";
-import { DatePicker } from "@/components/compartido/date-picker";
 import type {
   Profile,
   AreaId,
@@ -40,7 +49,7 @@ import type {
 } from "@/lib/types";
 
 const SIN_ASIGNAR = "none";
-/* "Sin cliente" en el Select: es trabajo de la propia agencia (juntas,
+/* "Sin cliente" en el selector: es trabajo de la propia agencia (juntas,
    prospección, cobranza), no una tarea sin dueño. */
 const SIN_EMPRESA = "sin-empresa";
 
@@ -56,7 +65,13 @@ export type TaskInicial = {
 /* Diálogo para CREAR una tarea — lo abre cualquiera del equipo de casa, no solo
    quien coordina. Arranca con uno mismo como responsable, que es el caso de
    todos los días ("mi pendiente"), y desde ahí se puede pasar a quien sea.
-   La edición y el detalle rico viven en task-detail.tsx. */
+
+   En la computadora va "estilo Linear": título y descripción grandes arriba, y
+   todo lo que ya trae un buen default (responsable=yo, fecha=hoy, prioridad
+   media…) como pastillas compactas que solo se tocan para cambiar. En el
+   teléfono sigue siendo el wizard por pasos de siempre.
+
+   La edición y el detalle rico viven en detalle-tarea.tsx. */
 export function TaskDialog({
   equipo,
   currentUserId,
@@ -111,6 +126,11 @@ export function TaskDialog({
   const [visibilidad, setVisibilidad] = useState<VisibilidadId>("interno");
   const [categoria, setCategoria] = useState<CategoriaTareaId>("otro");
 
+  const opcionesEmpresa = [
+    ...empresas.map((e) => ({ id: e.id, nombre: e.nombre, color: e.color })),
+    { id: SIN_EMPRESA, nombre: "De la agencia (sin cliente)" },
+  ];
+
   /* Al elegir responsable, el área se autollena con la de su perfil (editable).
      Si esa persona estaba como acompañante, se sale de la lista: ya está en la
      tarea como principal. */
@@ -164,86 +184,65 @@ export function TaskDialog({
   }
 
   return (
-    <DialogoPasos
+    <DialogoFormulario
       titulo={esAgencia ? "Nueva tarea de la Agencia" : "Nueva tarea"}
       onCerrar={onClose}
       onGuardar={guardar}
       etiquetaGuardar="Crear tarea"
       pending={pending}
-      anchoEscritorio="md:max-w-lg"
+      anchoEscritorio="md:max-w-xl"
     >
-      <Paso
-        titulo="¿Qué hay que hacer?"
+      <Hero
+        pasoTitulo="¿Qué hay que hacer?"
         valido={Boolean(titulo.trim())}
         motivoInvalido="Ponle un título a la tarea."
       >
         {/* El cliente va primero en la agencia: es la primera decisión ("¿de
-            quién es esto?") y de ahí cuelga todo lo demás. */}
+            quién es esto?") y de ahí cuelga todo lo demás. En escritorio es la
+            pastillita sobre el título, como el proyecto en Linear. */}
         {esAgencia && (
-          <div className="flex flex-col gap-1.5">
-            <Label>Cliente</Label>
-            <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) =>
-                    v === SIN_EMPRESA
-                      ? "De la agencia (sin cliente)"
-                      : (empresas.find((e) => e.id === v)?.nombre ?? "Cliente")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {empresas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                  </SelectItem>
-                ))}
-                <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="md:mb-1">
+            <PastillaOpcion
+              etiqueta="Cliente"
+              opciones={opcionesEmpresa}
+              valor={empresa}
+              onCambio={setEmpresa}
+            />
           </div>
         )}
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="titulo">Título</Label>
-          {/* Sin autoFocus a propósito: el initialFocus de Base UI ya evita
-              enfocar cuando el diálogo se abrió por toque, y así el teclado no
-              salta encima de la pantalla completa del teléfono. */}
-          <Input
-            id="titulo"
-            placeholder="¿Qué hay que hacer?"
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="descripcion">Descripción (opcional)</Label>
-          <Textarea
-            id="descripcion"
-            rows={3}
-            placeholder="Detalles, contexto…"
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-          />
-        </div>
-      </Paso>
+        <CampoHero
+          id="titulo"
+          etiqueta="Título"
+          placeholder="¿Qué hay que hacer?"
+          valor={titulo}
+          onCambio={setTitulo}
+        />
+        <DescripcionHero
+          id="descripcion"
+          etiqueta="Descripción"
+          placeholder="Detalles, contexto… (opcional)"
+          valor={descripcion}
+          onCambio={setDescripcion}
+        />
+      </Hero>
 
       {/* Solo en la agencia: de qué va el pedido y quién puede verlo. En el
-          tablero de Fresafit no hay a quién compartirle nada, así que el paso
-          entero desaparece en vez de enseñar dos campos que no aplican. */}
+          tablero de Fresafit no hay a quién compartirle nada, así que la zona
+          entera desaparece en vez de enseñar dos campos que no aplican. */}
       {esAgencia && (
-        <Paso
-          titulo="¿De qué va y quién la ve?"
-          ayuda="Nace interna: el cliente no la verá hasta que alguien lo decida."
+        <Propiedades
+          pasoTitulo="¿De qué va y quién la ve?"
+          pasoAyuda="Nace interna: el cliente no la verá hasta que alguien lo decida."
         >
-          <CampoOpcion
+          <PastillaOpcion
             etiqueta="Categoría"
             opciones={CATEGORIAS_TAREA}
             valor={categoria}
             onCambio={setCategoria}
             ayuda="Decide también qué hace falta para poder cerrarla."
           />
-          <CampoOpcion
+          <PastillaOpcion
             etiqueta="Quién la ve"
             opciones={VISIBILIDADES}
             valor={visibilidad}
@@ -256,103 +255,102 @@ export function TaskDialog({
                   : "Solo el equipo de Fresafit."
             }
           />
-        </Paso>
+        </Propiedades>
       )}
 
-      <Paso
-        titulo="¿Quién la hace?"
-        ayuda="El área se llena sola con la de la responsable."
+      <Propiedades
+        pasoTitulo="¿Quién la hace?"
+        pasoAyuda="El área se llena sola con la de la responsable."
       >
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label>Responsable</Label>
-            <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) =>
-                    v === SIN_ASIGNAR ? "Sin asignar" : (asignables.find((p) => p.id === v)?.nombre ?? "Responsable")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
-                {asignables.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <PastillaPersona
+          etiqueta="Responsable"
+          equipo={asignables}
+          valor={responsable}
+          onCambio={elegirResponsable}
+          opcionNula={{ id: SIN_ASIGNAR, nombre: "Sin asignar" }}
+        />
 
-          {/* El área la dicta el perfil del responsable: pedirla otra vez al
-              crear la tarea es trabajo de más ("si le creo una tarea a René no
-              es necesario poner el área, su área ya es operaciones"). Se
-              enseña como dato y solo se edita si alguien lo pide. */}
-          <div className="flex flex-col gap-1.5">
-            <Label>Área</Label>
-            {areaManual ? (
-              <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {AREAS.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <div className="flex h-9 items-center gap-2 text-sm">
-                <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
-                <button
-                  type="button"
-                  onClick={() => setAreaManual(true)}
-                  className="ml-auto text-xs font-medium text-primary hover:underline"
-                >
-                  cambiar
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* El área la dicta el perfil del responsable: pedirla otra vez al
+            crear la tarea es trabajo de más. En escritorio la pastilla ya ES
+            compacta (tocarla equivale al "cambiar"); en el teléfono se conserva
+            el dato con su botoncito. */}
+        <PastillaOpcion
+          etiqueta="Área"
+          opciones={AREAS}
+          valor={area}
+          onCambio={(v) => {
+            setArea(v);
+            setAreaManual(true);
+          }}
+          sinTinte
+          contenidoMovil={
+            <div className="flex flex-col gap-1.5">
+              <Label>Área</Label>
+              {areaManual ? (
+                <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue>
+                      {(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AREAS.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="flex h-9 items-center gap-2 text-sm">
+                  <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAreaManual(true)}
+                    className="ml-auto text-xs font-medium text-primary hover:underline"
+                  >
+                    cambiar
+                  </button>
+                </div>
+              )}
+            </div>
+          }
+        />
 
-        <div className="flex flex-col gap-1.5">
-          <Label>¿Alguien más? (opcional)</Label>
-          <SelectorPersonas
-            equipo={asignables}
-            seleccionados={coasignados}
-            principalId={responsable === SIN_ASIGNAR ? null : responsable}
-            onToggle={toggleCoasignado}
-          />
-          <span className="text-xs text-muted-foreground">
-            Verán la tarea, podrán moverla y les llegarán los avisos igual que a la responsable.
-          </span>
-        </div>
-      </Paso>
+        <PastillaPersonas
+          etiqueta="¿Alguien más?"
+          etiquetaVacia="Alguien más"
+          equipo={asignables}
+          seleccionados={coasignados}
+          principalId={responsable === SIN_ASIGNAR ? null : responsable}
+          onToggle={toggleCoasignado}
+          ayuda="Verán la tarea, podrán moverla y les llegarán los avisos igual que a la responsable."
+        />
+      </Propiedades>
 
-      <Paso titulo="¿Para cuándo y cómo va?">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <CampoOpcion
-            etiqueta="Prioridad"
-            opciones={PRIORIDADES}
-            valor={prioridad}
-            onCambio={setPrioridad}
-          />
-          <CampoOpcion etiqueta="Estado" opciones={ESTADOS} valor={estado} onCambio={setEstado} />
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="fecha">Fecha límite</Label>
-            <DatePicker id="fecha" value={fecha} onChange={setFecha} limpiable abiertoEnMovil />
-          </div>
-        </div>
+      <Propiedades pasoTitulo="¿Para cuándo y cómo va?">
+        <PastillaOpcion etiqueta="Estado" opciones={ESTADOS} valor={estado} onCambio={setEstado} />
+        <PastillaOpcion
+          etiqueta="Prioridad"
+          opciones={PRIORIDADES}
+          valor={prioridad}
+          onCambio={setPrioridad}
+        />
+        <PastillaFecha
+          etiqueta="Fecha límite"
+          etiquetaVacia="Fecha límite"
+          valor={fecha}
+          onCambio={setFecha}
+          limpiable
+        />
 
         {estado === "atorado" && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="motivo-atorado">¿Por qué está atorada?</Label>
+          <Campo
+            etiqueta="¿Por qué está atorada?"
+            htmlFor="motivo-atorado"
+            ayuda="Le llegará un aviso a quien la delegó."
+            className="w-full"
+          >
             <Textarea
               id="motivo-atorado"
               rows={2}
@@ -360,35 +358,24 @@ export function TaskDialog({
               value={motivoAtorado}
               onChange={(e) => setMotivoAtorado(e.target.value)}
             />
-            <span className="text-xs text-muted-foreground">
-              Le llegará un aviso a quien la delegó.
-            </span>
-          </div>
+          </Campo>
         )}
-      </Paso>
+      </Propiedades>
 
-      <Paso
-        titulo="Recordatorio y etiquetas"
-        ayuda="Opcional: puedes crearla así y ajustarlo después."
+      <Propiedades
+        pasoTitulo="Recordatorio y etiquetas"
+        pasoAyuda="Opcional: puedes crearla así y ajustarlo después."
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="recordatorio">Recordarme el… (opcional)</Label>
-          <Input
-            id="recordatorio"
-            type="datetime-local"
-            value={recordatorio}
-            onChange={(e) => setRecordatorio(e.target.value)}
-          />
-          <span className="text-xs text-muted-foreground">
-            Les llegará un aviso al responsable y a ti (quien delega) en ese momento.
-          </span>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label>Etiquetas</Label>
-          <SelectorEtiquetas area={area} seleccionadas={etiquetas} onToggle={toggleEtiqueta} />
-        </div>
-      </Paso>
-    </DialogoPasos>
+        <PastillaFechaHora
+          etiqueta="Recordarme el…"
+          etiquetaVacia="Aviso"
+          valor={recordatorio}
+          onCambio={setRecordatorio}
+          ayuda="Les llegará un aviso al responsable y a ti (quien delega) en ese momento."
+          idMovil="recordatorio"
+        />
+        <PastillaEtiquetas area={area} seleccionadas={etiquetas} onToggle={toggleEtiqueta} />
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

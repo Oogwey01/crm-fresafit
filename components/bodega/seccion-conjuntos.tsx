@@ -12,14 +12,22 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
+import { Campo } from "@/components/compartido/campo";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { CampoHero } from "@/components/compartido/campo-hero";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { PastillaPropiedad } from "@/components/compartido/pastilla-propiedad";
+import { PastillaEntrada } from "@/components/compartido/pastillas-campo";
 import { Resaltado } from "@/components/compartido/resaltado";
 import { SelectorProducto } from "@/components/compartido/selector-producto";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -534,120 +542,173 @@ function DialogoConjunto({
     });
   }
 
+  /* Componentes con SKU capturado: es lo que cuenta el rótulo de la sección
+     (y lo único que guardar() manda de verdad). */
+  const conSku = componentes.filter((c) => c.sku_componente.trim()).length;
+
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>{conjunto ? "Editar conjunto" : "Nuevo conjunto"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cj-sku">SKU del conjunto</Label>
-              <Input
-                id="cj-sku"
-                className="font-mono"
-                value={sku}
-                onChange={(e) => setSku(e.target.value.toUpperCase())}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cj-talla">Talla</Label>
-              <Input id="cj-talla" value={talla} onChange={(e) => setTalla(e.target.value)} />
-            </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label htmlFor="cj-titulo">Título</Label>
-              <Input id="cj-titulo" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
-            </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label htmlFor="cj-cat">Categoría</Label>
-              <Input id="cj-cat" value={categoria} onChange={(e) => setCategoria(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cj-ficha">Ficha en el inventario</Label>
-            <SelectorProducto
-              id="cj-ficha"
-              valor={skuFicha}
-              productoId={productoId}
-              productos={productos}
-              placeholder="El SKU con el que se vende el conjunto…"
-              onCambio={(valor, id) => {
-                setSkuFicha(valor);
-                setProductoId(id);
-              }}
-            />
-            <p className="text-[12.5px] text-muted-foreground">
-              Ahí se acredita lo que se arme, y es el SKU que se publica en los canales. Sin ficha el
-              conjunto se puede capturar, pero no armar.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Se arma con</Label>
-            {componentes.map((c, idx) => (
-              /* items-start, no center: el selector crece hacia abajo con la
-                 línea de la ficha ligada y arrastraría a los demás campos. */
-              <div key={idx} className="flex items-start gap-2">
-                <span className="mt-2 w-24 shrink-0 text-[12.5px] text-muted-foreground">
-                  {ROLES_COMPONENTE.find((r) => r.id === c.rol)?.nombre ?? "Componente"}
-                </span>
-                <SelectorProducto
-                  valor={c.sku_componente}
-                  productoId={c.producto_id}
-                  productos={productos}
-                  placeholder="SKU o nombre del producto…"
-                  onCambio={(sku, productoId) =>
-                    editar(idx, { sku_componente: sku, producto_id: productoId })
-                  }
-                />
-                <Input
-                  type="number"
-                  min="1"
-                  aria-label="Cantidad"
-                  className="w-20 shrink-0"
-                  value={c.cantidad}
-                  onChange={(e) => editar(idx, { cantidad: e.target.value })}
-                />
-              </div>
-            ))}
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  setComponentes((prev) => [
-                    ...prev,
-                    { sku_componente: "", producto_id: null, rol: "otro", cantidad: "1" },
-                  ])
-                }
-              >
-                + Otro componente
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={conjunto ? "Guardar cambios" : "Crear conjunto"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={
-            conjunto
-              ? () =>
-                  ejecutar(() => borrarConjunto(conjunto.id), {
-                    confirmar: `¿Borrar el conjunto ${conjunto.sku}?`,
-                    ok: "Conjunto borrado.",
-                    alExito: onClose,
-                  })
-              : undefined
-          }
+    <DialogoFormulario
+      titulo={conjunto ? "Editar conjunto" : "Nuevo conjunto"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={conjunto ? "Guardar cambios" : "Crear conjunto"}
+      pending={pending}
+      onBorrar={
+        conjunto
+          ? () =>
+              ejecutar(() => borrarConjunto(conjunto.id), {
+                confirmar: `¿Borrar el conjunto ${conjunto.sku}?`,
+                ok: "Conjunto borrado.",
+                alExito: onClose,
+              })
+          : undefined
+      }
+    >
+      <Hero pasoTitulo="¿Qué conjunto es?">
+        <CampoHero
+          id="cj-titulo"
+          etiqueta="Título"
+          placeholder="Conjunto Olimpo G"
+          valor={titulo}
+          onCambio={setTitulo}
         />
-      </DialogContent>
-    </Dialog>
+        <Campo etiqueta="SKU del conjunto" htmlFor="cj-sku" className="md:mt-2">
+          <Input
+            id="cj-sku"
+            className="font-mono md:max-w-60"
+            value={sku}
+            onChange={(e) => setSku(e.target.value.toUpperCase())}
+          />
+        </Campo>
+      </Hero>
+
+      <Propiedades pasoTitulo="Talla, categoría y ficha">
+        <PastillaEntrada
+          etiqueta="Talla"
+          valor={talla}
+          onCambio={setTalla}
+          opcional
+          idMovil="cj-talla"
+        />
+        <PastillaEntrada
+          etiqueta="Categoría"
+          valor={categoria}
+          onCambio={setCategoria}
+          opcional
+          idMovil="cj-cat"
+        />
+        <PastillaFicha
+          skuFicha={skuFicha}
+          productoId={productoId}
+          productos={productos}
+          onCambio={(valor, id) => {
+            setSkuFicha(valor);
+            setProductoId(id);
+          }}
+        />
+      </Propiedades>
+
+      <SeccionFormulario
+        titulo="Se arma con"
+        pasoTitulo="¿Con qué se arma?"
+        pasoAyuda="Las piezas que se descuentan del inventario al armarlo."
+        contador={conSku || null}
+        abiertaPorDefecto
+      >
+        {componentes.map((c, idx) => (
+          /* items-start, no center: el selector crece hacia abajo con la
+             línea de la ficha ligada y arrastraría a los demás campos. */
+          <div key={idx} className="flex items-start gap-2">
+            <span className="mt-2 w-24 shrink-0 text-[12.5px] text-muted-foreground">
+              {ROLES_COMPONENTE.find((r) => r.id === c.rol)?.nombre ?? "Componente"}
+            </span>
+            <SelectorProducto
+              valor={c.sku_componente}
+              productoId={c.producto_id}
+              productos={productos}
+              placeholder="SKU o nombre del producto…"
+              onCambio={(sku, productoId) =>
+                editar(idx, { sku_componente: sku, producto_id: productoId })
+              }
+            />
+            <Input
+              type="number"
+              min="1"
+              aria-label="Cantidad"
+              className="w-20 shrink-0"
+              value={c.cantidad}
+              onChange={(e) => editar(idx, { cantidad: e.target.value })}
+            />
+          </div>
+        ))}
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setComponentes((prev) => [
+                ...prev,
+                { sku_componente: "", producto_id: null, rol: "otro", cantidad: "1" },
+              ])
+            }
+          >
+            + Otro componente
+          </Button>
+        </div>
+      </SeccionFormulario>
+    </DialogoFormulario>
+  );
+}
+
+/* La ficha del conjunto como pastilla: el SelectorProducto vive dentro del
+   popover en escritorio (el mismo truco que CeldaFicha) y como campo normal en
+   el paso del teléfono. */
+const AYUDA_FICHA =
+  "Ahí se acredita lo que se arme, y es el SKU que se publica en los canales. Sin ficha el conjunto se puede capturar, pero no armar.";
+
+function PastillaFicha({
+  skuFicha,
+  productoId,
+  productos,
+  onCambio,
+}: {
+  skuFicha: string;
+  productoId: string | null;
+  productos: ProductoLigeroFila[];
+  onCambio: (valor: string, id: string | null) => void;
+}) {
+  const ficha = productoId ? (productos.find((p) => p.id === productoId) ?? null) : null;
+  return (
+    <PastillaPropiedad
+      etiqueta="Ficha en el inventario"
+      vacia={!ficha}
+      etiquetaVacia="Ficha en el inventario"
+      valor={ficha && <span className="font-mono">{ficha.sku}</span>}
+      textoValor={ficha?.sku ?? undefined}
+      ayuda={AYUDA_FICHA}
+      anchoPopover="w-80"
+      contenidoMovil={
+        <Campo etiqueta="Ficha en el inventario" htmlFor="cj-ficha" ayuda={AYUDA_FICHA}>
+          <SelectorProducto
+            id="cj-ficha"
+            valor={skuFicha}
+            productoId={productoId}
+            productos={productos}
+            placeholder="El SKU con el que se vende el conjunto…"
+            onCambio={onCambio}
+          />
+        </Campo>
+      }
+    >
+      <SelectorProducto
+        valor={skuFicha}
+        productoId={productoId}
+        productos={productos}
+        autoFocus
+        placeholder="El SKU con el que se vende el conjunto…"
+        onCambio={onCambio}
+      />
+    </PastillaPropiedad>
   );
 }
 

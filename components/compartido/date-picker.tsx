@@ -8,43 +8,26 @@ import { cn } from "@/lib/utils";
 
 const DIAS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
-/* Date-picker con la UI de la app: un botón que abre un calendario en popover.
-   Reemplazo directo de <Input type="date">: value/onChange usan ISO "AAAA-MM-DD".
-   Reutiliza matrizMes/nombreMes/hoyISO de lib/fecha.ts.
-
-   Con `abiertoEnMovil` el calendario se pinta ya desplegado en el teléfono (y
-   sigue siendo popover en la computadora): dentro de un diálogo por pasos la
-   pantalla está prácticamente vacía, y hacer que la gente toque para abrir una
-   capa encima de otra capa es un toque de más para nada. El mes visible vive en
-   este componente, así que las dos ramas comparten estado. */
-export function DatePicker({
-  value,
-  onChange,
-  id,
-  placeholder = "Elegir fecha",
+/* El calendario en sí, sin disparador: lo comparten DatePicker (abajo) y el
+   popover de PastillaFecha. `grande` engorda las celdas y las flechas para el
+   dedo cuando va desplegado a todo el ancho del teléfono. El mes visible vive
+   aquí y arranca en el de la fecha elegida, o en el actual (anclado a México). */
+export function Calendario({
+  valor,
+  onCambio,
   min,
   max,
-  disabled,
-  className,
-  limpiable = false,
-  abiertoEnMovil = false,
+  grande = false,
 }: {
-  value: string; // "AAAA-MM-DD" o ""
-  onChange: (iso: string) => void;
-  id?: string;
-  placeholder?: string;
+  valor: string; // "AAAA-MM-DD" o ""
+  onCambio: (iso: string) => void;
   min?: string; // ISO: días anteriores quedan deshabilitados
   max?: string; // ISO: días posteriores quedan deshabilitados
-  disabled?: boolean;
-  className?: string;
-  limpiable?: boolean; // muestra una ✕ para vaciar la fecha
-  abiertoEnMovil?: boolean; // calendario desplegado bajo md:
+  grande?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  /* Mes visible: el de la fecha elegida, o el actual (anclado a México). */
   const [ym, setYm] = useState(() => {
-    if (value) {
-      const [a, m] = value.split("-").map(Number);
+    if (valor) {
+      const [a, m] = valor.split("-").map(Number);
       if (a && m) return { anio: a, mes: m - 1 };
     }
     const d = ahoraMX();
@@ -61,14 +44,7 @@ export function DatePicker({
     });
   }
 
-  function elegir(iso: string) {
-    onChange(iso);
-    setOpen(false);
-  }
-
-  /* El calendario en sí. `grande` engorda las celdas y las flechas para el
-     dedo cuando va desplegado a todo el ancho del teléfono. */
-  const calendario = (grande: boolean) => (
+  return (
     <>
       {/* Encabezado del mes */}
       <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
@@ -110,7 +86,7 @@ export function DatePicker({
       {semanas.map((semana, i) => (
         <div key={i} className="grid grid-cols-7">
           {semana.map((celda) => {
-            const seleccionada = celda.iso === value;
+            const seleccionada = celda.iso === valor;
             const esHoy = celda.iso === hoy;
             const fueraRango = (min && celda.iso < min) || (max && celda.iso > max);
             return (
@@ -118,7 +94,7 @@ export function DatePicker({
                 key={celda.iso}
                 type="button"
                 disabled={!!fueraRango}
-                onClick={() => elegir(celda.iso)}
+                onClick={() => onCambio(celda.iso)}
                 className={cn(
                   "m-0.5 flex items-center justify-center rounded-md transition-colors",
                   grande ? "h-10 text-sm" : "size-8 text-[13px]",
@@ -137,12 +113,53 @@ export function DatePicker({
       ))}
     </>
   );
+}
+
+/* Date-picker con la UI de la app: un botón que abre un calendario en popover.
+   Reemplazo directo de <Input type="date">: value/onChange usan ISO "AAAA-MM-DD".
+   Reutiliza matrizMes/nombreMes/hoyISO de lib/fecha.ts.
+
+   Con `abiertoEnMovil` el calendario se pinta ya desplegado en el teléfono (y
+   sigue siendo popover en la computadora): dentro de un diálogo por pasos la
+   pantalla está prácticamente vacía, y hacer que la gente toque para abrir una
+   capa encima de otra capa es un toque de más para nada. */
+export function DatePicker({
+  value,
+  onChange,
+  id,
+  placeholder = "Elegir fecha",
+  min,
+  max,
+  disabled,
+  className,
+  limpiable = false,
+  abiertoEnMovil = false,
+}: {
+  value: string; // "AAAA-MM-DD" o ""
+  onChange: (iso: string) => void;
+  id?: string;
+  placeholder?: string;
+  min?: string; // ISO: días anteriores quedan deshabilitados
+  max?: string; // ISO: días posteriores quedan deshabilitados
+  disabled?: boolean;
+  className?: string;
+  limpiable?: boolean; // muestra una ✕ para vaciar la fecha
+  abiertoEnMovil?: boolean; // calendario desplegado bajo md:
+}) {
+  const [open, setOpen] = useState(false);
+
+  function elegir(iso: string) {
+    onChange(iso);
+    setOpen(false);
+  }
 
   const desplegado = (
     /* Sin `id` aquí: se queda en el disparador del popover para no duplicarlo en
        el DOM. En el teléfono no hay nada que enfocar — el calendario ya se ve. */
     <div className="md:hidden">
-      <div className="rounded-xl border p-2">{calendario(true)}</div>
+      <div className="rounded-xl border p-2">
+        <Calendario valor={value} onCambio={onChange} min={min} max={max} grande />
+      </div>
       {limpiable && value && (
         <button
           type="button"
@@ -185,7 +202,9 @@ export function DatePicker({
           </span>
         )}
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-2">{calendario(false)}</PopoverContent>
+      <PopoverContent className="w-auto p-2">
+        <Calendario valor={value} onCambio={elegir} min={min} max={max} />
+      </PopoverContent>
     </Popover>
   );
 

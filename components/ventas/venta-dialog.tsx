@@ -4,28 +4,28 @@ import { useMemo, useState } from "react";
 import { Plus, Unlock, X } from "lucide-react";
 import { toast } from "sonner";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { DescripcionHero } from "@/components/compartido/campo-hero";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  PastillaDato,
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { aNumero } from "@/lib/validacion";
 import { CANALES, obtenerCanal } from "@/lib/catalogos";
 import { cn } from "@/lib/utils";
-import { hoyISO } from "@/lib/fecha";
+import { hoyISO, formatearFecha } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
   registrarVenta,
@@ -210,251 +210,273 @@ export function VentaDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{venta ? "Editar venta" : "Registrar venta"}</DialogTitle>
-        </DialogHeader>
+    <DialogoFormulario
+      titulo={venta ? "Editar venta" : "Registrar venta"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={venta ? "Guardar cambios" : "Registrar venta"}
+      pending={pending}
+      onBorrar={venta && gestor ? borrar : undefined}
+    >
+      <Hero pasoTitulo="¿Qué se vendió?">
+        {importada && (
+          <div
+            className={cn(
+              "rounded-lg px-3 py-2 text-xs",
+              bloqueado
+                ? "bg-muted text-muted-foreground"
+                : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
+            )}
+          >
+            <p className="wrap-anywhere">
+              Venta importada de {nombreCanal}
+              {venta?.referencia_externa ? ` (ref. ${venta.referencia_externa})` : ""}.{" "}
+              {bloqueado
+                ? "Producto, canal, fecha, cantidad y total los manda la plataforma: aquí solo se editan el cliente y las notas."
+                : "Edición manual abierta: lo que cambies dejará de coincidir con la plataforma y la sincronización no lo va a revertir."}
+            </p>
+            {/* La llave es de Dirección, y solo aparece mientras está cerrada. */}
+            {bloqueado && direccion && (
+              <button
+                type="button"
+                onClick={() => setDesbloqueado(true)}
+                className="mt-1.5 inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+              >
+                <Unlock className="size-3" />
+                Corregir a mano
+              </button>
+            )}
+          </div>
+        )}
 
-        <div className="flex flex-col gap-3">
-          {importada && (
-            <div
-              className={cn(
-                "rounded-lg px-3 py-2 text-xs",
-                bloqueado
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200",
-              )}
-            >
-              <p className="wrap-anywhere">
-                Venta importada de {nombreCanal}
-                {venta?.referencia_externa ? ` (ref. ${venta.referencia_externa})` : ""}.{" "}
-                {bloqueado
-                  ? "Producto, canal, fecha, cantidad y total los manda la plataforma: aquí solo se editan el cliente y las notas."
-                  : "Edición manual abierta: lo que cambies dejará de coincidir con la plataforma y la sincronización no lo va a revertir."}
-              </p>
-              {/* La llave es de Dirección, y solo aparece mientras está cerrada. */}
-              {bloqueado && direccion && (
-                <button
-                  type="button"
-                  onClick={() => setDesbloqueado(true)}
-                  className="mt-1.5 inline-flex items-center gap-1 font-semibold text-primary hover:underline"
-                >
-                  <Unlock className="size-3" />
-                  Corregir a mano
-                </button>
+        {/* Producto: chip seleccionado o buscador. Sigue siendo un campo con
+            label también en escritorio: es el protagonista del hero. */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="venta-producto">Producto</Label>
+          {cargandoCatalogo && productoId ? (
+            /* La venta trae producto pero el catálogo aún viene en camino:
+               decirlo en vez de enseñar el buscador vacío, que se lee como
+               «esta venta no tiene producto». */
+            <p className="text-sm text-muted-foreground">Cargando el producto…</p>
+          ) : seleccionado ? (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
+                <span className="truncate">{etiquetaProducto(seleccionado)}</span>
+                {!bloqueado && (
+                  <button
+                    type="button"
+                    onClick={() => setProductoId(null)}
+                    aria-label="Quitar producto"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </span>
+            </div>
+          ) : bloqueado ? (
+            /* Sin producto del catálogo: la descripción que mandó el canal. */
+            <p className="text-sm text-muted-foreground">{venta?.descripcion ?? "Sin producto"}</p>
+          ) : (
+            <div className="relative">
+              <Input
+                id="venta-producto"
+                autoFocus={!venta}
+                placeholder={
+                  cargandoCatalogo
+                    ? "Cargando catálogo…"
+                    : "Busca por nombre, variante o SKU…"
+                }
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
+              {coincidencias.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-popover shadow-md">
+                  {coincidencias.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => elegirProducto(p)}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <span className="truncate">{etiquetaProducto(p)}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {p.precio ? formatearMXN(p.precio) : (p.sku ?? "")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )}
-
-          {/* Producto: chip seleccionado o buscador */}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="venta-producto">Producto</Label>
-            {cargandoCatalogo && productoId ? (
-              /* La venta trae producto pero el catálogo aún viene en camino:
-                 decirlo en vez de enseñar el buscador vacío, que se lee como
-                 «esta venta no tiene producto». */
-              <p className="text-sm text-muted-foreground">Cargando el producto…</p>
-            ) : seleccionado ? (
-              <div className="flex items-center gap-2">
-                <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
-                  <span className="truncate">{etiquetaProducto(seleccionado)}</span>
-                  {!bloqueado && (
-                    <button
-                      type="button"
-                      onClick={() => setProductoId(null)}
-                      aria-label="Quitar producto"
-                      className="shrink-0 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="size-3.5" />
-                    </button>
-                  )}
-                </span>
-              </div>
-            ) : bloqueado ? (
-              /* Sin producto del catálogo: la descripción que mandó el canal. */
-              <p className="text-sm text-muted-foreground">{venta?.descripcion ?? "Sin producto"}</p>
-            ) : (
-              <div className="relative">
-                <Input
-                  id="venta-producto"
-                  autoFocus={!venta}
-                  placeholder={
-                    cargandoCatalogo
-                      ? "Cargando catálogo…"
-                      : "Busca por nombre, variante o SKU…"
-                  }
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                />
-                {coincidencias.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-popover shadow-md">
-                    {coincidencias.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => elegirProducto(p)}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
-                      >
-                        <span className="truncate">{etiquetaProducto(p)}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {p.precio ? formatearMXN(p.precio) : (p.sku ?? "")}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-            {!seleccionado && !bloqueado && (
-              <Input
-                placeholder="…o describe qué se vendió (fuera de catálogo)"
-                value={descripcion}
-                onChange={(e) => setDescripcion(e.target.value)}
-              />
-            )}
-          </div>
-
-          <div className={cn("grid grid-cols-2 gap-3", pedirMonto ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
-            <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
-              <Label>Canal</Label>
-              <Select
-                value={canal}
-                onValueChange={(v) => v && setCanal(v as CanalId)}
-                disabled={bloqueado}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => obtenerCanal(v)?.nombre ?? "Canal"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {CANALES.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="venta-fecha">Fecha</Label>
-              <DatePicker id="venta-fecha" value={fecha} onChange={setFecha} disabled={bloqueado} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="venta-cantidad">Cantidad</Label>
-              <Input
-                id="venta-cantidad"
-                type="number"
-                min="1"
-                step="1"
-                value={cantidad}
-                disabled={bloqueado}
-                onChange={(e) => {
-                  setCantidad(e.target.value);
-                  recalcularMonto(seleccionado, e.target.value, montoTocado);
-                }}
-              />
-            </div>
-            {pedirMonto && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="venta-monto">Total ($)</Label>
-                <Input
-                  id="venta-monto"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={monto}
-                  disabled={bloqueado}
-                  onChange={(e) => {
-                    setMontoTocado(true);
-                    setMonto(e.target.value);
-                  }}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Cliente (opcional): buscador + alta rápida con solo el nombre. */}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="venta-cliente">Cliente (opcional)</Label>
-            {cargandoCatalogo && clienteId ? (
-              <p className="text-sm text-muted-foreground">Cargando el cliente…</p>
-            ) : clienteSel ? (
-              <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
-                <span className="truncate">{clienteSel.nombre}</span>
-                <button
-                  type="button"
-                  onClick={() => setClienteId(null)}
-                  aria-label="Quitar cliente"
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </span>
-            ) : (
-              <div className="relative">
-                <Input
-                  id="venta-cliente"
-                  placeholder={
-                    cargandoCatalogo ? "Cargando clientes…" : "Busca por nombre, correo o teléfono…"
-                  }
-                  value={busquedaCliente}
-                  onChange={(e) => setBusquedaCliente(e.target.value)}
-                />
-                {busquedaCliente.trim().length >= 2 && (
-                  <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-popover shadow-md">
-                    {clientesCoincidentes.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => {
-                          setClienteId(c.id);
-                          setBusquedaCliente("");
-                        }}
-                        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
-                      >
-                        <span className="truncate">{c.nombre}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {c.correo ?? c.telefono ?? ""}
-                        </span>
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={altaRapidaCliente}
-                      disabled={creandoCliente}
-                      className="flex w-full items-center gap-1.5 border-t px-3 py-1.5 text-left text-sm font-semibold text-primary hover:bg-accent disabled:opacity-60"
-                    >
-                      <Plus className="size-3.5" />
-                      {creandoCliente ? "Creando…" : `Crear «${busquedaCliente.trim()}»`}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="venta-notas">Notas (opcional)</Label>
+          {!seleccionado && !bloqueado && (
             <Input
-              id="venta-notas"
-              placeholder="Mayoreo, cliente frecuente…"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
+              placeholder="…o describe qué se vendió (fuera de catálogo)"
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
             />
-          </div>
+          )}
         </div>
 
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={venta ? "Guardar cambios" : "Registrar venta"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={venta && gestor ? borrar : undefined}
+        {/* El total protagonista: se autollena con precio × cantidad mientras
+            nadie lo toque (montoTocado), y respeta el candado de importadas. */}
+        {pedirMonto && (
+          <Campo etiqueta="Total ($)" htmlFor="venta-monto" className="md:mt-1">
+            <div className="flex items-baseline gap-1">
+              <span className="text-lg font-semibold md:text-xl" aria-hidden="true">
+                $
+              </span>
+              <input
+                id="venta-monto"
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={monto}
+                disabled={bloqueado}
+                onChange={(e) => {
+                  setMontoTocado(true);
+                  setMonto(e.target.value);
+                }}
+                className="w-full border-0 bg-transparent px-0 text-lg font-semibold outline-none placeholder:text-muted-foreground/50 disabled:opacity-60 md:text-xl"
+              />
+            </div>
+          </Campo>
+        )}
+
+        <DescripcionHero
+          id="venta-notas"
+          etiqueta="Notas"
+          placeholder="Mayoreo, cliente frecuente… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
         />
-      </DialogContent>
-    </Dialog>
+      </Hero>
+
+      <Propiedades pasoTitulo="Canal, fecha y cantidad">
+        {/* Cuando la venta está bloqueada, estos campos son de solo lectura:
+            los dicta la plataforma (ver el aviso de arriba). */}
+        {bloqueado ? (
+          <PastillaDato
+            etiqueta="Canal"
+            valor={obtenerCanal(canal)?.nombre ?? canal}
+            contenidoMovil={
+              <Campo etiqueta="Canal">
+                <Input value={obtenerCanal(canal)?.nombre ?? canal} disabled readOnly />
+              </Campo>
+            }
+          />
+        ) : (
+          <PastillaOpcion etiqueta="Canal" opciones={CANALES} valor={canal} onCambio={setCanal} />
+        )}
+
+        {bloqueado ? (
+          <PastillaDato
+            etiqueta="Fecha"
+            valor={formatearFecha(fecha)}
+            contenidoMovil={
+              <Campo etiqueta="Fecha">
+                <DatePicker value={fecha} onChange={setFecha} disabled />
+              </Campo>
+            }
+          />
+        ) : (
+          <PastillaFecha etiqueta="Fecha" valor={fecha} onCambio={setFecha} />
+        )}
+
+        {bloqueado ? (
+          <PastillaDato
+            etiqueta="Cantidad"
+            valor={`${cantidad} pzas`}
+            contenidoMovil={
+              <Campo etiqueta="Cantidad">
+                <Input value={cantidad} disabled readOnly />
+              </Campo>
+            }
+          />
+        ) : (
+          <PastillaEntrada
+            etiqueta="Cantidad"
+            tipo="number"
+            valor={cantidad}
+            onCambio={(v) => {
+              setCantidad(v);
+              recalcularMonto(seleccionado, v, montoTocado);
+            }}
+            sufijo="pzas"
+            idMovil="venta-cantidad"
+          />
+        )}
+      </Propiedades>
+
+      {/* Cliente (opcional): buscador + alta rápida con solo el nombre. */}
+      <SeccionFormulario
+        titulo="Cliente"
+        pasoTitulo="¿De quién fue la compra?"
+        pasoAyuda="Opcional: búscalo, o dalo de alta con solo el nombre."
+        contador={clienteSel ? 1 : null}
+        abiertaPorDefecto={Boolean(venta?.cliente_id)}
+      >
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="venta-cliente">Cliente (opcional)</Label>
+          {cargandoCatalogo && clienteId ? (
+            <p className="text-sm text-muted-foreground">Cargando el cliente…</p>
+          ) : clienteSel ? (
+            <span className="inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-3 py-1 text-sm font-medium">
+              <span className="truncate">{clienteSel.nombre}</span>
+              <button
+                type="button"
+                onClick={() => setClienteId(null)}
+                aria-label="Quitar cliente"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
+          ) : (
+            <div className="relative">
+              <Input
+                id="venta-cliente"
+                placeholder={
+                  cargandoCatalogo ? "Cargando clientes…" : "Busca por nombre, correo o teléfono…"
+                }
+                value={busquedaCliente}
+                onChange={(e) => setBusquedaCliente(e.target.value)}
+              />
+              {busquedaCliente.trim().length >= 2 && (
+                <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-popover shadow-md">
+                  {clientesCoincidentes.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => {
+                        setClienteId(c.id);
+                        setBusquedaCliente("");
+                      }}
+                      className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
+                    >
+                      <span className="truncate">{c.nombre}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {c.correo ?? c.telefono ?? ""}
+                      </span>
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={altaRapidaCliente}
+                    disabled={creandoCliente}
+                    className="flex w-full items-center gap-1.5 border-t px-3 py-1.5 text-left text-sm font-semibold text-primary hover:bg-accent disabled:opacity-60"
+                  >
+                    <Plus className="size-3.5" />
+                    {creandoCliente ? "Creando…" : `Crear «${busquedaCliente.trim()}»`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </SeccionFormulario>
+    </DialogoFormulario>
   );
 }

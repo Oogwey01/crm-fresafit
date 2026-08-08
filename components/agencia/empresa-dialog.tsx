@@ -1,11 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaInterruptor,
+} from "@/components/compartido/pastillas-campo";
+import {
+  PastillaPropiedad,
+  useCerrarPastilla,
+} from "@/components/compartido/pastilla-propiedad";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
   crearEmpresa,
@@ -38,6 +52,10 @@ export function EmpresaDialog({
   const [activa, setActiva] = useState(empresa?.activa ?? true);
   const [notas, setNotas] = useState(empresa?.notas ?? "");
 
+  const datosContacto = [contactoNombre, contactoCorreo, contactoTelefono].filter((v) =>
+    v.trim(),
+  ).length;
+
   function guardar() {
     const input: EmpresaInput = {
       nombre,
@@ -69,118 +87,145 @@ export function EmpresaDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{empresa ? "Editar empresa" : "Nueva empresa"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="emp-nombre">Nombre</Label>
-            <Input
-              id="emp-nombre"
-              autoFocus
-              placeholder="Nutravia, Bart Jerseys…"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="emp-giro">Giro</Label>
-              <Input
-                id="emp-giro"
-                placeholder="Suplementos, playeras…"
-                value={giro}
-                onChange={(e) => setGiro(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="emp-inicio">Cliente desde</Label>
-              <DatePicker id="emp-inicio" value={inicio} onChange={setInicio} />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Color</Label>
-            <div className="flex gap-2">
-              {COLORES.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setColor(c)}
-                  aria-label={`Color ${c}`}
-                  aria-pressed={color === c}
-                  className={cn(
-                    "size-7 rounded-lg transition-transform",
-                    color === c && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
-                  )}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5 border-t pt-3">
-            <Label htmlFor="emp-contacto">Contacto</Label>
-            <Input
-              id="emp-contacto"
-              placeholder="Con quién se trata"
-              value={contactoNombre}
-              onChange={(e) => setContactoNombre(e.target.value)}
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                type="email"
-                placeholder="correo@empresa.com"
-                value={contactoCorreo}
-                onChange={(e) => setContactoCorreo(e.target.value)}
-              />
-              <Input
-                placeholder="Teléfono"
-                value={contactoTelefono}
-                onChange={(e) => setContactoTelefono(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={activa}
-              onChange={(e) => setActiva(e.target.checked)}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              Cliente activo
-              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
-                Al apagarlo deja de contar en los totales, pero conserva su historial de cobros
-                y reportes.
-              </span>
-            </span>
-          </label>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="emp-notas">Notas</Label>
-            <Input
-              id="emp-notas"
-              placeholder="Lo que haya que recordar de esta cuenta"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={empresa ? "Guardar cambios" : "Crear empresa"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={empresa ? borrar : undefined}
+    <DialogoFormulario
+      titulo={empresa ? "Editar empresa" : "Nueva empresa"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={empresa ? "Guardar cambios" : "Crear empresa"}
+      pending={pending}
+      onBorrar={empresa ? borrar : undefined}
+    >
+      <Hero pasoTitulo="¿Qué empresa es?">
+        <CampoHero
+          id="emp-nombre"
+          etiqueta="Nombre"
+          placeholder="Nutravia, Bart Jerseys…"
+          valor={nombre}
+          onCambio={setNombre}
         />
-      </DialogContent>
-    </Dialog>
+        <DescripcionHero
+          id="emp-notas"
+          etiqueta="Notas"
+          placeholder="Lo que haya que recordar de esta cuenta (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo="La cuenta">
+        <PastillaEntrada
+          etiqueta="Giro"
+          placeholder="Suplementos, playeras…"
+          valor={giro}
+          onCambio={setGiro}
+          opcional
+          idMovil="emp-giro"
+        />
+        <PastillaFecha
+          etiqueta="Cliente desde"
+          etiquetaVacia="Cliente desde"
+          valor={inicio}
+          onCambio={setInicio}
+        />
+        <PastillaColor valor={color} onCambio={setColor} />
+        <PastillaInterruptor etiqueta="Cliente activo" valor={activa} onCambio={setActiva} />
+        <span className="w-full text-[12.5px] leading-relaxed text-muted-foreground md:hidden">
+          Al apagar «Cliente activo» deja de contar en los totales, pero conserva su historial de
+          cobros y reportes.
+        </span>
+      </Propiedades>
+
+      <SeccionFormulario
+        titulo="Contacto"
+        pasoTitulo="¿Con quién se trata?"
+        contador={datosContacto || null}
+        abiertaPorDefecto={datosContacto > 0}
+      >
+        <Campo etiqueta="Contacto" htmlFor="emp-contacto" className="w-full">
+          <Input
+            id="emp-contacto"
+            placeholder="Con quién se trata"
+            value={contactoNombre}
+            onChange={(e) => setContactoNombre(e.target.value)}
+          />
+        </Campo>
+        <div className="grid w-full grid-cols-2 gap-3">
+          <Campo etiqueta="Correo" htmlFor="emp-correo">
+            <Input
+              id="emp-correo"
+              type="email"
+              placeholder="correo@empresa.com"
+              value={contactoCorreo}
+              onChange={(e) => setContactoCorreo(e.target.value)}
+            />
+          </Campo>
+          <Campo etiqueta="Teléfono" htmlFor="emp-telefono">
+            <Input
+              id="emp-telefono"
+              placeholder="Teléfono"
+              value={contactoTelefono}
+              onChange={(e) => setContactoTelefono(e.target.value)}
+            />
+          </Campo>
+        </div>
+      </SeccionFormulario>
+    </DialogoFormulario>
+  );
+}
+
+/* Pastilla a la medida para la paleta corta: el popover (y el campo móvil)
+   enseñan los mismos siete cuadritos de siempre. */
+function PastillaColor({ valor, onCambio }: { valor: string; onCambio: (c: string) => void }) {
+  return (
+    <PastillaPropiedad
+      etiqueta="Color"
+      valor={
+        <span className="flex items-center gap-1.5">
+          <span
+            className="size-2.5 rounded-full"
+            style={{ backgroundColor: valor }}
+            aria-hidden="true"
+          />
+          Color
+        </span>
+      }
+      textoValor={valor}
+      color={valor}
+      contenidoMovil={
+        <div className="flex flex-col gap-1.5">
+          <Label>Color</Label>
+          <SwatchesColor valor={valor} onCambio={onCambio} />
+        </div>
+      }
+    >
+      <SwatchesColor valor={valor} onCambio={onCambio} />
+    </PastillaPropiedad>
+  );
+}
+
+/* Fuera del popover useCerrarPastilla devuelve un noop, así que el mismo
+   componente sirve para el campo móvil sin cerrar nada. */
+function SwatchesColor({ valor, onCambio }: { valor: string; onCambio: (c: string) => void }) {
+  const cerrar = useCerrarPastilla();
+  return (
+    <div className="flex gap-2 py-1">
+      {COLORES.map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => {
+            onCambio(c);
+            cerrar();
+          }}
+          aria-label={`Color ${c}`}
+          aria-pressed={valor === c}
+          className={cn(
+            "size-7 rounded-lg transition-transform",
+            valor === c && "ring-2 ring-foreground ring-offset-2 ring-offset-background",
+          )}
+          style={{ backgroundColor: c }}
+        />
+      ))}
+    </div>
   );
 }

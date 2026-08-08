@@ -5,30 +5,27 @@ import Image from "next/image";
 import { ExternalLink, Paperclip, X } from "lucide-react";
 import { toast } from "sonner";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { DescripcionHero } from "@/components/compartido/campo-hero";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { DatePicker } from "@/components/compartido/date-picker";
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
+import {
+  PastillaPropiedad,
+  useCerrarPastilla,
+} from "@/components/compartido/pastilla-propiedad";
 import { CampoSugerido } from "@/components/compartido/campo-sugerido";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import {
   CATEGORIAS_GASTO,
   ESTADOS_COMPROBANTE,
   obtenerCategoriaGasto,
-  obtenerEstadoComprobante,
 } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
 import { SUGERENCIAS_VACIAS, type Sugerencia, type SugerenciasGasto } from "@/lib/finanzas/sugerencias";
@@ -51,6 +48,91 @@ import type {
 function enumerar(partes: string[]): string {
   if (partes.length === 1) return partes[0];
   return `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`;
+}
+
+/* Pastilla con un CampoSugerido dentro del popover: «pagado a» y «método de
+   pago» conservan su memoria de lo ya capturado también en escritorio. En el
+   teléfono se pinta el campo con label de siempre. */
+function PastillaSugerida({
+  etiqueta,
+  valor,
+  onCambio,
+  sugerencias,
+  placeholder,
+  opcional = false,
+  idMovil,
+  siguienteMovil,
+}: {
+  etiqueta: string;
+  valor: string;
+  onCambio: (v: string) => void;
+  sugerencias: Sugerencia[];
+  placeholder?: string;
+  opcional?: boolean;
+  idMovil?: string;
+  /* id del campo móvil al que salta Enter (solo aplica bajo md:). */
+  siguienteMovil?: string;
+}) {
+  return (
+    <PastillaPropiedad
+      etiqueta={etiqueta}
+      vacia={!valor && opcional}
+      etiquetaVacia={etiqueta}
+      valor={valor || <span className="text-muted-foreground">{etiqueta}</span>}
+      textoValor={valor || undefined}
+      anchoPopover="w-72"
+      contenidoMovil={
+        <Campo etiqueta={etiqueta} opcional={opcional} htmlFor={idMovil}>
+          <CampoSugerido
+            id={idMovil}
+            placeholder={placeholder}
+            value={valor}
+            onChange={onCambio}
+            sugerencias={sugerencias}
+            siguiente={siguienteMovil}
+          />
+        </Campo>
+      }
+    >
+      <SugeridoConCierre
+        valor={valor}
+        onCambio={onCambio}
+        sugerencias={sugerencias}
+        placeholder={placeholder}
+      />
+    </PastillaPropiedad>
+  );
+}
+
+/* Separado para usar useCerrarPastilla dentro del popover: Enter confirma lo
+   escrito y cierra la pastilla (CampoSugerido ya consumió la tecla, pero el
+   evento sigue burbujeando hasta aquí). */
+function SugeridoConCierre({
+  valor,
+  onCambio,
+  sugerencias,
+  placeholder,
+}: {
+  valor: string;
+  onCambio: (v: string) => void;
+  sugerencias: Sugerencia[];
+  placeholder?: string;
+}) {
+  const cerrar = useCerrarPastilla();
+  return (
+    <div
+      onKeyDown={(e) => {
+        if (e.key === "Enter") cerrar();
+      }}
+    >
+      <CampoSugerido
+        value={valor}
+        onChange={onCambio}
+        sugerencias={sugerencias}
+        placeholder={placeholder}
+      />
+    </div>
+  );
 }
 
 /* El comprobante a lo ancho de su columna: los tickets y facturas son fotos
@@ -228,236 +310,196 @@ export function GastoDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      {/* Rectangular en escritorio: el formulario a la izquierda y los
-          comprobantes a lo alto del lado derecho, en grande — que la factura se
-          LEA sin abrirla era el punto de enseñarla aquí. */}
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg md:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>{gasto ? "Editar gasto" : "Nuevo gasto"}</DialogTitle>
-        </DialogHeader>
+    <DialogoFormulario
+      titulo={gasto ? "Editar gasto" : "Nuevo gasto"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={gasto ? "Guardar cambios" : "Registrar gasto"}
+      pending={pending}
+      onBorrar={gasto ? borrar : undefined}
+      anchoEscritorio="md:max-w-xl"
+    >
+      <Hero pasoTitulo="¿Qué se pagó?">
+        {/* Los gastos se repiten mes con mes: el campo propone los de siempre
+            ordenados por cuántas veces se han capturado y completa al teclear. */}
+        <Campo
+          etiqueta="Concepto"
+          htmlFor="gasto-concepto"
+          ayuda={
+            copiado
+              ? `Se copió ${copiado} del último gasto igual. Cámbialo si esta vez no aplica.`
+              : undefined
+          }
+        >
+          <CampoSugerido
+            id="gasto-concepto"
+            autoFocus
+            autocompletar
+            placeholder="Publicidad en Meta, caja de envíos…"
+            value={concepto}
+            onChange={(v) => {
+              setConcepto(v);
+              setCopiado(null);
+            }}
+            onElegir={usarConcepto}
+            sugerencias={sugerencias.conceptos}
+            siguiente="gasto-monto"
+            detalle={(s) =>
+              [obtenerCategoriaGasto(s.categoria ?? "")?.nombre, s.proveedor]
+                .filter(Boolean)
+                .join(" · ") || null
+            }
+          />
+        </Campo>
 
-        <div className="flex flex-col gap-4 md:grid md:grid-cols-[minmax(0,1fr)_340px] md:items-start md:gap-6">
-        <div className="flex flex-col gap-3">
-          {/* Los gastos se repiten mes con mes: el campo propone los de siempre
-              ordenados por cuántas veces se han capturado y completa al teclear. */}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gasto-concepto">Concepto</Label>
-            <CampoSugerido
-              id="gasto-concepto"
-              autoFocus
-              autocompletar
-              placeholder="Publicidad en Meta, caja de envíos…"
-              value={concepto}
-              onChange={(v) => {
-                setConcepto(v);
-                setCopiado(null);
-              }}
-              onElegir={usarConcepto}
-              sugerencias={sugerencias.conceptos}
-              siguiente="gasto-monto"
-              detalle={(s) =>
-                [obtenerCategoriaGasto(s.categoria ?? "")?.nombre, s.proveedor]
-                  .filter(Boolean)
-                  .join(" · ") || null
-              }
-            />
-            {copiado && (
-              <p className="text-[11.5px] text-muted-foreground">
-                Se copió {copiado} del último gasto igual. Cámbialo si esta vez no aplica.
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="gasto-monto">Monto ($)</Label>
-              <Input
-                id="gasto-monto"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={monto}
-                onChange={(e) => setMonto(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="gasto-fecha">Fecha</Label>
-              <DatePicker id="gasto-fecha" value={fecha} onChange={setFecha} />
-            </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label>Categoría</Label>
-              <Select
-                value={categoria}
-                onValueChange={(v) => {
-                  if (!v) return;
-                  setCategoria(v as CategoriaGastoId);
-                  setCategoriaTocada(true);
-                }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => obtenerCategoriaGasto(v)?.nombre ?? "Categoría"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {CATEGORIAS_GASTO.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="gasto-proveedor">Pagado a (opcional)</Label>
-              <CampoSugerido
-                id="gasto-proveedor"
-                placeholder="Meta, Estafeta, Nancy…"
-                value={proveedor}
-                onChange={setProveedor}
-                sugerencias={sugerencias.proveedores}
-                siguiente="gasto-metodo"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="gasto-metodo">Método de pago</Label>
-              <CampoSugerido
-                id="gasto-metodo"
-                placeholder="Transferencia, TC Mercado Pago…"
-                value={metodoPago}
-                onChange={setMetodoPago}
-                sugerencias={sugerencias.metodosPago}
-                siguiente="gasto-notas"
-              />
-            </div>
-          </div>
-
-          {/* Lo que la hoja de facturas vigila: qué papel falta por cobrar al
-              proveedor. «Aún no» = se pagó, pero no ha llegado. */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>¿Ya hay factura?</Label>
-              <Select value={factura} onValueChange={(v) => v && setFactura(v as EstadoComprobanteId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => obtenerEstadoComprobante(v)?.nombre ?? "Factura"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {ESTADOS_COMPROBANTE.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>¿Ya hay recibo?</Label>
-              <Select value={recibo} onValueChange={(v) => v && setRecibo(v as EstadoComprobanteId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => obtenerEstadoComprobante(v)?.nombre ?? "Recibo"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {ESTADOS_COMPROBANTE.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gasto-notas">Notas (opcional)</Label>
-            <Textarea
-              id="gasto-notas"
-              rows={2}
-              placeholder="Detalles, referencia de pago…"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-            />
-          </div>
-
+        {/* El monto protagonista, grande y sin caja, como el hero. */}
+        <div className="flex items-baseline gap-1 md:mt-1">
+          <span className="text-lg font-semibold md:text-xl" aria-hidden="true">
+            $
+          </span>
+          <input
+            id="gasto-monto"
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            aria-label="Monto"
+            placeholder="0.00"
+            value={monto}
+            onChange={(e) => setMonto(e.target.value)}
+            className="w-full border-0 bg-transparent px-0 text-lg font-semibold outline-none placeholder:text-muted-foreground/50 md:text-xl"
+          />
         </div>
 
-        {/* Comprobantes: solo con el gasto ya creado (la ruta usa su id). En
-            escritorio es la columna derecha completa; en el teléfono queda
-            debajo del formulario. */}
-        <div className="flex min-w-0 flex-col gap-2 md:h-full md:border-l md:pl-6">
-          <Label>Facturas y comprobantes</Label>
-          {!gasto ? (
-            <p className="text-xs text-muted-foreground">
-              Guarda el gasto y vuelve a abrirlo para adjuntar la factura o el ticket.
-            </p>
-          ) : (
-            <>
-              {comprobantes.length > 0 && (
-                <ul className="flex flex-col gap-2.5">
-                  {comprobantes.map((c) => (
-                    <li key={c.id} className="overflow-hidden rounded-lg border bg-card">
+        <DescripcionHero
+          id="gasto-notas"
+          etiqueta="Notas"
+          placeholder="Detalles, referencia de pago… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo="¿Cuándo y cómo se pagó?">
+        <PastillaFecha etiqueta="Fecha" valor={fecha} onCambio={setFecha} />
+        {/* La categoría conserva la auto-sugerencia del concepto: marcarla como
+            tocada es lo que evita que un concepto posterior la pise. */}
+        <PastillaOpcion
+          etiqueta="Categoría"
+          opciones={CATEGORIAS_GASTO}
+          valor={categoria}
+          onCambio={(v) => {
+            setCategoria(v);
+            setCategoriaTocada(true);
+          }}
+        />
+        <PastillaSugerida
+          etiqueta="Pagado a"
+          valor={proveedor}
+          onCambio={setProveedor}
+          sugerencias={sugerencias.proveedores}
+          placeholder="Meta, Estafeta, Nancy…"
+          opcional
+          idMovil="gasto-proveedor"
+          siguienteMovil="gasto-metodo"
+        />
+        <PastillaSugerida
+          etiqueta="Método de pago"
+          valor={metodoPago}
+          onCambio={setMetodoPago}
+          sugerencias={sugerencias.metodosPago}
+          placeholder="Transferencia, TC Mercado Pago…"
+          idMovil="gasto-metodo"
+        />
+      </Propiedades>
+
+      {/* Lo que la hoja de facturas vigila: qué papel falta por cobrar al
+          proveedor. «Aún no» = se pagó, pero no ha llegado. */}
+      <Propiedades
+        pasoTitulo="Los papeles"
+        pasoAyuda="«Aún no» = se pagó, pero el papel no ha llegado."
+      >
+        <PastillaOpcion
+          etiqueta="¿Ya hay factura?"
+          opciones={ESTADOS_COMPROBANTE}
+          valor={factura}
+          onCambio={setFactura}
+        />
+        <PastillaOpcion
+          etiqueta="¿Ya hay recibo?"
+          opciones={ESTADOS_COMPROBANTE}
+          valor={recibo}
+          onCambio={setRecibo}
+        />
+      </Propiedades>
+
+      {/* Comprobantes: solo con el gasto ya creado (la ruta usa su id). Que la
+          factura se LEA sin abrirla era el punto de enseñarla aquí. */}
+      <SeccionFormulario
+        titulo="Comprobantes"
+        pasoTitulo="Facturas y comprobantes"
+        pasoAyuda={
+          gasto
+            ? "Fotos del ticket, el PDF de la factura… suben varios de un jalón."
+            : "Se adjuntan con el gasto ya guardado."
+        }
+        contador={gasto ? comprobantes.length : null}
+        abiertaPorDefecto
+      >
+        {!gasto ? (
+          <p className="text-xs text-muted-foreground">
+            Guarda el gasto y vuelve a abrirlo para adjuntar la factura o el ticket.
+          </p>
+        ) : (
+          <>
+            {comprobantes.length > 0 && (
+              <ul className="flex flex-col gap-2.5">
+                {comprobantes.map((c) => (
+                  <li key={c.id} className="overflow-hidden rounded-lg border bg-card">
+                    <button
+                      type="button"
+                      onClick={() => abrirComprobante(c.storage_path)}
+                      title="Ver el archivo completo"
+                      className="block w-full transition-opacity hover:opacity-80"
+                    >
+                      <VistaComprobante comprobante={c} />
+                    </button>
+                    <div className="flex items-center gap-1.5 border-t px-2.5 py-1.5 text-xs">
                       <button
                         type="button"
                         onClick={() => abrirComprobante(c.storage_path)}
-                        title="Ver el archivo completo"
-                        className="block w-full transition-opacity hover:opacity-80"
+                        className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:underline"
+                        title={c.nombre}
                       >
-                        <VistaComprobante comprobante={c} />
+                        <span className="truncate">{c.nombre}</span>
+                        <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
                       </button>
-                      <div className="flex items-center gap-1.5 border-t px-2.5 py-1.5 text-xs">
-                        <button
-                          type="button"
-                          onClick={() => abrirComprobante(c.storage_path)}
-                          className="flex min-w-0 flex-1 items-center gap-1 truncate text-left hover:underline"
-                          title={c.nombre}
-                        >
-                          <span className="truncate">{c.nombre}</span>
-                          <ExternalLink className="size-3 shrink-0 text-muted-foreground" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => quitarComprobante(c.id, c.storage_path)}
-                          aria-label={`Borrar ${c.nombre}`}
-                          className="shrink-0 text-muted-foreground hover:text-destructive"
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <input
-                ref={inputArchivo}
-                type="file"
-                accept="image/*,application/pdf"
-                multiple
-                disabled={subiendo}
-                onChange={(e) => adjuntarTodos(e.target.files)}
-                className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:bg-card file:px-2.5 file:py-1 file:text-xs file:font-semibold"
-              />
-              {subiendo && <p className="text-xs text-muted-foreground">Subiendo…</p>}
-            </>
-          )}
-        </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={gasto ? "Guardar cambios" : "Registrar gasto"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={gasto ? borrar : undefined}
-        />
-      </DialogContent>
-    </Dialog>
+                      <button
+                        type="button"
+                        onClick={() => quitarComprobante(c.id, c.storage_path)}
+                        aria-label={`Borrar ${c.nombre}`}
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <input
+              ref={inputArchivo}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              disabled={subiendo}
+              onChange={(e) => adjuntarTodos(e.target.files)}
+              className="text-xs text-muted-foreground file:mr-2 file:rounded-md file:border file:bg-card file:px-2.5 file:py-1 file:text-xs file:font-semibold"
+            />
+            {subiendo && <p className="text-xs text-muted-foreground">Subiendo…</p>}
+          </>
+        )}
+      </SeccionFormulario>
+    </DialogoFormulario>
   );
 }

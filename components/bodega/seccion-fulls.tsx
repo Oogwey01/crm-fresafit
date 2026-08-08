@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Campo } from "@/components/compartido/campo";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
@@ -258,8 +258,9 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
   const set = (parche: Partial<typeof campos>) => setCampos((c) => ({ ...c, ...parche }));
 
   return (
+    /* min-w-0 en cada Campo: sin él la celda del grid no encoge y el mono desborda. */
     <div className="mb-3 grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 lg:grid-cols-3">
-      <Campo etiqueta="ID de envío" htmlFor={`${envio.id}-id`}>
+      <Campo className="min-w-0" etiqueta="ID de envío" htmlFor={`${envio.id}-id`}>
         <Input
           id={`${envio.id}-id`}
           className="font-mono"
@@ -270,7 +271,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         />
       </Campo>
 
-      <Campo etiqueta="Paquetería" htmlFor={`${envio.id}-paqueteria`}>
+      <Campo className="min-w-0" etiqueta="Paquetería" htmlFor={`${envio.id}-paqueteria`}>
         <Input
           id={`${envio.id}-paqueteria`}
           list={idListaPaqueterias}
@@ -286,7 +287,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         </datalist>
       </Campo>
 
-      <Campo etiqueta="Tipo de envío" htmlFor={`${envio.id}-tipo`}>
+      <Campo className="min-w-0" etiqueta="Tipo de envío" htmlFor={`${envio.id}-tipo`}>
         <Input
           id={`${envio.id}-tipo`}
           list={idListaTipos}
@@ -302,7 +303,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         </datalist>
       </Campo>
 
-      <Campo etiqueta="Número de rastreo" htmlFor={`${envio.id}-guia`}>
+      <Campo className="min-w-0" etiqueta="Número de rastreo" htmlFor={`${envio.id}-guia`}>
         <Input
           id={`${envio.id}-guia`}
           className="font-mono"
@@ -324,7 +325,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         )}
       </Campo>
 
-      <Campo etiqueta="F. de envío" htmlFor={`${envio.id}-fecha-envio`}>
+      <Campo className="min-w-0" etiqueta="F. de envío" htmlFor={`${envio.id}-fecha-envio`}>
         <DatePicker
           id={`${envio.id}-fecha-envio`}
           value={campos.fecha_envio}
@@ -336,7 +337,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         />
       </Campo>
 
-      <Campo etiqueta="F. est. llegada" htmlFor={`${envio.id}-fecha-llegada`}>
+      <Campo className="min-w-0" etiqueta="F. est. llegada" htmlFor={`${envio.id}-fecha-llegada`}>
         <DatePicker
           id={`${envio.id}-fecha-llegada`}
           value={campos.fecha_llegada_estimada}
@@ -349,7 +350,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         />
       </Campo>
 
-      <Campo etiqueta="Estado">
+      <Campo className="min-w-0" etiqueta="Estado">
         <Select
           value={campos.estado}
           onValueChange={(v) => {
@@ -371,7 +372,7 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         </Select>
       </Campo>
 
-      <Campo etiqueta="Notas" htmlFor={`${envio.id}-notas`}>
+      <Campo className="min-w-0" etiqueta="Notas" htmlFor={`${envio.id}-notas`}>
         <Input
           id={`${envio.id}-notas`}
           placeholder="Lo que haya que recordar del envío"
@@ -380,28 +381,6 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
           onBlur={() => guardar()}
         />
       </Campo>
-    </div>
-  );
-}
-
-function Campo({
-  etiqueta,
-  htmlFor,
-  children,
-}: {
-  etiqueta: string;
-  htmlFor?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <Label
-        htmlFor={htmlFor}
-        className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-      >
-        {etiqueta}
-      </Label>
-      {children}
     </div>
   );
 }
@@ -636,8 +615,7 @@ function DialogoEnvio({ onClose }: { onClose: () => void }) {
           <DialogTitle>Nuevo envío full</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ef-nombre">Nombre</Label>
+          <Campo etiqueta="Nombre" htmlFor="ef-nombre">
             <Input
               id="ef-nombre"
               autoFocus
@@ -645,10 +623,9 @@ function DialogoEnvio({ onClose }: { onClose: () => void }) {
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
             />
-          </div>
+          </Campo>
           <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Destino</Label>
+            <Campo etiqueta="Destino">
               <Select value={destino} onValueChange={(v) => v && setDestino(v as DestinoFullId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue>
@@ -663,9 +640,8 @@ function DialogoEnvio({ onClose }: { onClose: () => void }) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Estado</Label>
+            </Campo>
+            <Campo etiqueta="Estado">
               <Select value={estado} onValueChange={(v) => v && setEstado(v as EstadoEnvioFullId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue>
@@ -680,12 +656,11 @@ function DialogoEnvio({ onClose }: { onClose: () => void }) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </Campo>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ef-fecha">Fecha de envío</Label>
+          <Campo etiqueta="Fecha de envío" htmlFor="ef-fecha">
             <DatePicker id="ef-fecha" value={fecha} onChange={setFecha} limpiable />
-          </div>
+          </Campo>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={pending}>

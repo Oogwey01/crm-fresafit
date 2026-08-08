@@ -1,19 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
   crearReporte,
@@ -41,6 +39,8 @@ export function ReporteDialog({
   const [resumen, setResumen] = useState(reporte?.resumen ?? "");
   const [url, setUrl] = useState(reporte?.url ?? "");
   const [entregado, setEntregado] = useState(!!reporte?.entregado_at);
+
+  const opcionesEmpresa = empresas.map((e) => ({ id: e.id, nombre: e.nombre, color: e.color }));
 
   function guardar() {
     const input: ReporteInput = {
@@ -76,105 +76,84 @@ export function ReporteDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{reporte ? "Editar reporte" : "Nuevo reporte"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label>Empresa</Label>
-            <Select value={empresaId} onValueChange={(v) => v && setEmpresaId(v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) => empresas.find((e) => e.id === v)?.nombre ?? "Elegir empresa"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {empresas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rep-titulo">Título</Label>
-            <Input
-              id="rep-titulo"
-              autoFocus
-              placeholder="Reporte mensual de julio"
-              value={titulo}
-              onChange={(e) => setTitulo(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="rep-desde">Periodo desde</Label>
-              <DatePicker id="rep-desde" value={desde} onChange={setDesde} limpiable />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="rep-hasta">Hasta</Label>
-              <DatePicker id="rep-hasta" value={hasta} onChange={setHasta} limpiable />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rep-url">Enlace</Label>
-            <Input
-              id="rep-url"
-              type="url"
-              placeholder="Presentación, carpeta de Drive, video…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-            <p className="text-[12px] leading-relaxed text-muted-foreground">
-              Los números se sacan de Meta y Shopify a mano; aquí solo se guarda dónde quedó el
-              reporte para poder volver a él.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="rep-resumen">Qué se le contó</Label>
-            <Textarea
-              id="rep-resumen"
-              rows={3}
-              placeholder="Los puntos que se repasaron con el cliente"
-              value={resumen}
-              onChange={(e) => setResumen(e.target.value)}
-            />
-          </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={entregado}
-              onChange={(e) => setEntregado(e.target.checked)}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              Ya se entregó
-              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
-                {reporte?.entregado_at
-                  ? `Se entregó el ${formatearFecha(reporte.entregado_at.slice(0, 10))}; editar el resumen no cambia esa fecha.`
-                  : "Al marcarlo se guarda la fecha de hoy como fecha de entrega."}
-              </span>
-            </span>
-          </label>
+    <DialogoFormulario
+      titulo={reporte ? "Editar reporte" : "Nuevo reporte"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={reporte ? "Guardar cambios" : "Crear reporte"}
+      pending={pending}
+      onBorrar={reporte ? borrar : undefined}
+    >
+      <Hero pasoTitulo="¿Qué se reportó?">
+        {/* La empresa primero: el reporte es DE alguien, como el cliente en la
+            tarea de agencia. */}
+        <div className="md:mb-1">
+          <PastillaOpcion
+            etiqueta="Empresa"
+            opciones={opcionesEmpresa}
+            valor={empresaId}
+            onCambio={setEmpresaId}
+          />
         </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={reporte ? "Guardar cambios" : "Crear reporte"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={reporte ? borrar : undefined}
+        <CampoHero
+          id="rep-titulo"
+          etiqueta="Título"
+          placeholder="Reporte mensual de julio"
+          valor={titulo}
+          onCambio={setTitulo}
         />
-      </DialogContent>
-    </Dialog>
+        <DescripcionHero
+          id="rep-resumen"
+          etiqueta="Qué se le contó"
+          placeholder="Los puntos que se repasaron con el cliente"
+          valor={resumen}
+          onCambio={setResumen}
+          rows={3}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo="Periodo y entrega">
+        <PastillaFecha
+          etiqueta="Periodo desde"
+          etiquetaVacia="Desde"
+          valor={desde}
+          onCambio={setDesde}
+          limpiable
+        />
+        <PastillaFecha
+          etiqueta="Hasta"
+          etiquetaVacia="Hasta"
+          valor={hasta}
+          onCambio={setHasta}
+          limpiable
+        />
+        <PastillaEntrada
+          etiqueta="Enlace"
+          valor={url}
+          onCambio={setUrl}
+          placeholder="Presentación, carpeta de Drive, video…"
+          ayuda="Los números se sacan de Meta y Shopify a mano; aquí solo se guarda dónde quedó el reporte para poder volver a él."
+          opcional
+          idMovil="rep-url"
+        />
+
+        <label className="flex w-full items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={entregado}
+            onChange={(e) => setEntregado(e.target.checked)}
+            className="mt-0.5 size-4 accent-primary"
+          />
+          <span>
+            Ya se entregó
+            <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
+              {reporte?.entregado_at
+                ? `Se entregó el ${formatearFecha(reporte.entregado_at.slice(0, 10))}; editar el resumen no cambia esa fecha.`
+                : "Al marcarlo se guarda la fecha de hoy como fecha de entrega."}
+            </span>
+          </span>
+        </label>
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

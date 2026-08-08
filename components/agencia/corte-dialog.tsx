@@ -1,18 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import {
+  PastillaDato,
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { calcularCorteContrato } from "@/app/(app)/agencia/actions";
 import {
@@ -84,6 +84,11 @@ export function CorteDialog({
       )
     : null;
 
+  const opcionesContrato = contratos.map((c) => {
+    const e = empresas.find((x) => x.id === c.empresa_id);
+    return { id: c.id, nombre: `${e?.nombre ?? "?"} · ${c.nombre}` };
+  });
+
   /* Aviso temprano si ese periodo ya se cobró. La base lo impide con un índice
      único, pero enterarse antes de teclear el monto es mejor que después. */
   const yaExiste = ingresos.some(
@@ -113,146 +118,168 @@ export function CorteDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Calcular corte</DialogTitle>
-        </DialogHeader>
+    <DialogoFormulario
+      titulo="Calcular corte"
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar="Calcular corte"
+      pending={pending}
+    >
+      <Hero pasoTitulo="¿De qué contrato y cuánto se vendió?">
+        {/* El contrato primero, como pastillita sobre el hero: de él cuelgan el
+            periodo propuesto y la fórmula del corte. */}
+        <div className="md:mb-1">
+          <PastillaOpcion
+            etiqueta="Contrato"
+            opciones={opcionesContrato}
+            valor={contratoId}
+            onCambio={(v) => v && setContratoId(v)}
+            buscable
+          />
+        </div>
 
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label>Contrato</Label>
-            <Select value={contratoId} onValueChange={(v) => v && setContratoId(v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) => {
-                    const c = contratos.find((x) => x.id === v);
-                    const e = empresas.find((x) => x.id === c?.empresa_id);
-                    return c ? `${e?.nombre ?? "?"} · ${c.nombre}` : "Elegir contrato";
-                  }}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {contratos.map((c) => {
-                  const e = empresas.find((x) => x.id === c.empresa_id);
-                  return (
-                    <SelectItem key={c.id} value={c.id}>
-                      {e?.nombre ?? "?"} · {c.nombre}
-                    </SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {contrato && (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="corte-desde">Periodo desde</Label>
-                  <DatePicker
-                    id="corte-desde"
-                    value={periodo.desde}
-                    onChange={(v) => setPeriodo((p) => ({ ...p, desde: v }))}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="corte-hasta">Hasta</Label>
-                  <DatePicker
-                    id="corte-hasta"
-                    value={periodo.hasta}
-                    onChange={(v) => setPeriodo((p) => ({ ...p, hasta: v }))}
-                  />
-                </div>
-              </div>
-              <p className="-mt-1 text-[12px] text-muted-foreground">
-                Propuesto por el contrato, que cierra el día {contrato.dia_corte}. Cámbialo si
-                este mes se cerró en otra fecha.
-              </p>
-
-              {yaExiste && (
-                <p className="rounded-lg bg-amber-100 px-3 py-2 text-[12.5px] text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                  Ya hay un cobro de {empresa?.nombre} para{" "}
-                  {nombrePeriodo(periodo.desde, periodo.hasta)}. Guardarlo otra vez va a fallar:
-                  busca el que existe en la lista.
-                </p>
-              )}
-
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="corte-ventas">
-                  {base?.nombre ?? "Ventas"} del periodo{plataforma ? ` en ${plataforma.nombre}` : ""} ($)
-                </Label>
-                <Input
+        {contrato && (
+          <>
+            <Campo
+              etiqueta={`${base?.nombre ?? "Ventas"} del periodo${plataforma ? ` en ${plataforma.nombre}` : ""} ($)`}
+              htmlFor="corte-ventas"
+              ayuda={base?.desc}
+            >
+              <div className="flex items-baseline gap-1">
+                <span className="text-lg font-semibold md:text-xl" aria-hidden="true">
+                  $
+                </span>
+                <input
                   id="corte-ventas"
                   type="number"
                   min="0"
                   step="0.01"
+                  inputMode="decimal"
                   autoFocus
                   placeholder="0.00"
                   value={ventas}
                   onChange={(e) => setVentas(e.target.value)}
+                  className="w-full border-0 bg-transparent px-0 text-lg font-semibold outline-none placeholder:text-muted-foreground/50 md:text-xl"
                 />
-                <p className="text-[12px] leading-relaxed text-muted-foreground">{base?.desc}</p>
               </div>
+            </Campo>
 
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="corte-nota">De dónde salió el número</Label>
-                <Input
-                  id="corte-nota"
-                  placeholder="Panel de Shopify, reporte del 1 de agosto…"
-                  value={nota}
-                  onChange={(e) => setNota(e.target.value)}
-                />
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
-                  El CRM no lee las ventas del cliente. Dejar escrito de dónde se sacó es lo que
-                  permite reconstruir el cobro si alguien lo cuestiona meses después.
-                </p>
+            <Campo
+              etiqueta="De dónde salió el número"
+              htmlFor="corte-nota"
+              ayuda="El CRM no lee las ventas del cliente. Dejar escrito de dónde se sacó es lo que permite reconstruir el cobro si alguien lo cuestiona meses después."
+            >
+              <Input
+                id="corte-nota"
+                placeholder="Panel de Shopify, reporte del 1 de agosto…"
+                value={nota}
+                onChange={(e) => setNota(e.target.value)}
+              />
+            </Campo>
+          </>
+        )}
+      </Hero>
+
+      {contrato && (
+        <Propiedades
+          pasoTitulo="El periodo"
+          pasoAyuda={`Propuesto por el contrato, que cierra el día ${contrato.dia_corte}. Cámbialo si este mes se cerró en otra fecha.`}
+        >
+          <PastillaFecha
+            etiqueta="Periodo desde"
+            etiquetaVacia="Desde"
+            valor={periodo.desde}
+            onCambio={(v) => setPeriodo((p) => ({ ...p, desde: v }))}
+          />
+          <PastillaFecha
+            etiqueta="Hasta"
+            etiquetaVacia="Hasta"
+            valor={periodo.hasta}
+            onCambio={(v) => setPeriodo((p) => ({ ...p, hasta: v }))}
+          />
+          {/* En el teléfono este renglón ya lo dice pasoAyuda. */}
+          <p className="hidden w-full text-[12px] text-muted-foreground md:block">
+            Propuesto por el contrato, que cierra el día {contrato.dia_corte}. Cámbialo si
+            este mes se cerró en otra fecha.
+          </p>
+
+          {yaExiste && (
+            <p className="w-full rounded-lg bg-amber-100 px-3 py-2 text-[12.5px] text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              Ya hay un cobro de {empresa?.nombre} para{" "}
+              {nombrePeriodo(periodo.desde, periodo.hasta)}. Guardarlo otra vez va a fallar:
+              busca el que existe en la lista.
+            </p>
+          )}
+        </Propiedades>
+      )}
+
+      {/* El resultado, desglosado como se le va a explicar al cliente. En
+          escritorio son datos de solo lectura (pastillas grises); en el
+          teléfono se conserva la cajita del desglose. */}
+      {contrato && desglose && (
+        <Propiedades
+          pasoTitulo="El resultado"
+          pasoAyuda="Desglosado como se le va a explicar al cliente."
+        >
+          <div className="w-full md:hidden">
+            <div className="rounded-xl border bg-muted/40 px-4 py-3 text-[13px]">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Fijo del periodo</span>
+                <span className="tabular-nums">{formatearMXN(desglose.monto_fijo)}</span>
               </div>
-
-              {/* El resultado, desglosado como se le va a explicar al cliente. */}
-              {desglose && (
-                <div className="rounded-xl border bg-muted/40 px-4 py-3 text-[13px]">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-muted-foreground">Fijo del periodo</span>
-                    <span className="tabular-nums">{formatearMXN(desglose.monto_fijo)}</span>
-                  </div>
-                  <div className="flex justify-between gap-3">
-                    <span className="text-muted-foreground">
-                      {contrato.porcentaje}% de {formatearMXN(ventasNum)}
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">
+                  {contrato.porcentaje}% de {formatearMXN(ventasNum)}
+                </span>
+                <span className="tabular-nums">{formatearMXN(desglose.monto_variable)}</span>
+              </div>
+              <div className="mt-1.5 flex justify-between gap-3 border-t pt-1.5 font-semibold">
+                <span>Honorarios</span>
+                <span className="tabular-nums">{formatearMXN(desglose.honorarios)}</span>
+              </div>
+              {desglose.fondo_delegado > 0 && (
+                <>
+                  <div className="mt-1.5 flex justify-between gap-3 text-muted-foreground">
+                    <span>Fondo delegado (no es ingreso)</span>
+                    <span className="tabular-nums">
+                      {formatearMXN(desglose.fondo_delegado)}
                     </span>
-                    <span className="tabular-nums">{formatearMXN(desglose.monto_variable)}</span>
                   </div>
-                  <div className="mt-1.5 flex justify-between gap-3 border-t pt-1.5 font-semibold">
-                    <span>Honorarios</span>
-                    <span className="tabular-nums">{formatearMXN(desglose.honorarios)}</span>
+                  <div className="mt-1.5 flex justify-between gap-3 border-t pt-1.5 text-[15px] font-bold">
+                    <span>Se le cobra</span>
+                    <span className="tabular-nums">{formatearMXN(desglose.total)}</span>
                   </div>
-                  {desglose.fondo_delegado > 0 && (
-                    <>
-                      <div className="mt-1.5 flex justify-between gap-3 text-muted-foreground">
-                        <span>Fondo delegado (no es ingreso)</span>
-                        <span className="tabular-nums">
-                          {formatearMXN(desglose.fondo_delegado)}
-                        </span>
-                      </div>
-                      <div className="mt-1.5 flex justify-between gap-3 border-t pt-1.5 text-[15px] font-bold">
-                        <span>Se le cobra</span>
-                        <span className="tabular-nums">{formatearMXN(desglose.total)}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
+                </>
               )}
+            </div>
+          </div>
+
+          <PastillaDato
+            etiqueta="Fijo del periodo"
+            valor={`Fijo ${formatearMXN(desglose.monto_fijo)}`}
+          />
+          <PastillaDato
+            etiqueta={`${contrato.porcentaje}% de ${formatearMXN(ventasNum)}`}
+            valor={`${contrato.porcentaje}% ${formatearMXN(desglose.monto_variable)}`}
+          />
+          <PastillaDato
+            etiqueta="Honorarios"
+            valor={`Honorarios ${formatearMXN(desglose.honorarios)}`}
+          />
+          {desglose.fondo_delegado > 0 && (
+            <>
+              <PastillaDato
+                etiqueta="Fondo delegado (no es ingreso)"
+                valor={`Fondo ${formatearMXN(desglose.fondo_delegado)}`}
+              />
+              <PastillaDato
+                etiqueta="Se le cobra"
+                valor={`Se le cobra ${formatearMXN(desglose.total)}`}
+              />
             </>
           )}
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar="Calcular corte"
-          onGuardar={guardar}
-          onCancelar={onClose}
-        />
-      </DialogContent>
-    </Dialog>
+        </Propiedades>
+      )}
+    </DialogoFormulario>
   );
 }

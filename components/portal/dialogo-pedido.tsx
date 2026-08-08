@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { DialogoPasos, Paso } from "@/components/compartido/dialogo-pasos";
-import { CampoOpcion } from "@/components/compartido/campo-opcion";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import { PastillaFecha, PastillaOpcion } from "@/components/compartido/pastillas-campo";
 import { CATEGORIAS_TAREA } from "@/lib/catalogos";
 import { crearPedido } from "@/app/(app)/portal/acciones/tareas";
 import type { CategoriaTareaId } from "@/lib/types";
@@ -42,56 +43,62 @@ export function DialogoPedido({ onCerrar }: { onCerrar: () => void }) {
   }
 
   return (
-    <DialogoPasos
+    <DialogoFormulario
       titulo="Pedir algo a Fresafit"
       onCerrar={onCerrar}
       onGuardar={guardar}
       etiquetaGuardar="Enviar pedido"
       pending={pending}
     >
-      <Paso
-        titulo="¿Qué necesitas?"
-        ayuda="Con una línea basta; los detalles van abajo."
+      <Hero
+        pasoTitulo="¿Qué necesitas?"
+        pasoAyuda="Con una línea basta; los detalles van abajo."
         valido={titulo.trim().length > 0}
         motivoInvalido="Escribe qué necesitas."
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="pedido-titulo">Título</Label>
-          <Input
-            id="pedido-titulo"
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-            placeholder="Reporte de ventas de la quincena"
-            autoFocus
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="pedido-desc">Detalles</Label>
-          <Textarea
-            id="pedido-desc"
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            rows={4}
-            placeholder="Qué esperas recibir, en qué formato, para qué lo necesitas…"
-          />
-        </div>
-      </Paso>
+        <CampoHero
+          id="pedido-titulo"
+          etiqueta="Título"
+          placeholder="Reporte de ventas de la quincena"
+          valor={titulo}
+          onCambio={setTitulo}
+        />
+        <DescripcionHero
+          id="pedido-desc"
+          etiqueta="Detalles"
+          placeholder="Qué esperas recibir, en qué formato, para qué lo necesitas…"
+          valor={descripcion}
+          onCambio={setDescripcion}
+          rows={4}
+        />
+      </Hero>
 
-      <Paso titulo="¿De qué se trata?" ayuda="Sirve para agrupar y para saber qué hace falta al cerrarlo.">
-        <CampoOpcion
+      <Propiedades
+        pasoTitulo="¿De qué se trata?"
+        pasoAyuda="Sirve para agrupar y para saber qué hace falta al cerrarlo."
+      >
+        <PastillaOpcion
           etiqueta="Categoría"
           opciones={CATEGORIAS_TAREA}
           valor={categoria}
           onCambio={setCategoria}
         />
-      </Paso>
+      </Propiedades>
 
-      <Paso titulo="¿Para cuándo?" ayuda="Opcional. Lo urgente avisa por correo en el momento.">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="pedido-fecha">Fecha límite</Label>
-          <DatePicker id="pedido-fecha" value={fecha} onChange={setFecha} />
-        </div>
-        <label className="flex items-start gap-2.5 rounded-xl border p-3 text-[14px]">
+      <Propiedades
+        pasoTitulo="¿Para cuándo?"
+        pasoAyuda="Opcional. Lo urgente avisa por correo en el momento."
+      >
+        <PastillaFecha
+          etiqueta="Fecha límite"
+          etiquetaVacia="Fecha límite"
+          valor={fecha}
+          onCambio={setFecha}
+          limpiable
+        />
+        {/* El interruptor de urgencia se queda como tarjeta con su explicación:
+            para quien entra una vez al mes, el contexto vale más que el espacio. */}
+        <label className="flex w-full items-start gap-2.5 rounded-xl border p-3 text-[14px]">
           <input
             type="checkbox"
             checked={urgente}
@@ -105,7 +112,7 @@ export function DialogoPedido({ onCerrar }: { onCerrar: () => void }) {
             </span>
           </span>
         </label>
-      </Paso>
-    </DialogoPasos>
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

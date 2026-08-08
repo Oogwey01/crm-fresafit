@@ -1,18 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaEntrada,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { Pastilla } from "@/components/compartido/pastilla";
 import {
@@ -24,13 +22,14 @@ import {
   TIPOS_INGRESO,
   nombrePeriodo,
   obtenerEstadoIngreso,
-  obtenerTipoIngreso,
   type TipoIngresoId,
 } from "@/lib/agencia";
 import { formatearMXN } from "@/lib/moneda";
 import { formatearFecha } from "@/lib/fecha";
 import { aNumero } from "@/lib/validacion";
 import type { AgenciaEmpresa, AgenciaIngresoConEmpresa } from "@/lib/types";
+
+const SIN_EMPRESA = "";
 
 /* Alta de un cobro que NO sale de un contrato (migración de plataforma,
    comisión por referido) y edición de cualquiera.
@@ -51,7 +50,7 @@ export function IngresoDialog({
   const esCorte = ingreso?.tipo === "contrato";
 
   const [tipo, setTipo] = useState<TipoIngresoId>(ingreso?.tipo ?? "migracion");
-  const [empresaId, setEmpresaId] = useState<string>(ingreso?.empresa_id ?? "");
+  const [empresaId, setEmpresaId] = useState<string>(ingreso?.empresa_id ?? SIN_EMPRESA);
   const [concepto, setConcepto] = useState(ingreso?.concepto ?? "");
   const [total, setTotal] = useState(ingreso ? String(ingreso.total) : "");
   const [socio, setSocio] = useState(ingreso?.socio ?? "");
@@ -59,6 +58,11 @@ export function IngresoDialog({
   const [notas, setNotas] = useState(ingreso?.notas ?? "");
 
   const estado = ingreso ? obtenerEstadoIngreso(ingreso.estado) : null;
+
+  const opcionesEmpresa = [
+    { id: SIN_EMPRESA, nombre: "Sin empresa" },
+    ...empresas.map((e) => ({ id: e.id, nombre: e.nombre, color: e.color })),
+  ];
 
   function guardar() {
     const monto = Math.max(0, aNumero(total) ?? 0);
@@ -102,184 +106,144 @@ export function IngresoDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {ingreso ? (esCorte ? "Corte de contrato" : "Editar cobro") : "Nuevo cobro"}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          {/* Un corte se muestra explicado, no editable: es el resultado de una
-              fórmula con datos de su momento. */}
-          {esCorte && ingreso && (
-            <div className="rounded-xl border bg-muted/40 px-4 py-3 text-[13px]">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                {ingreso.empresa && (
-                  <Pastilla nombre={ingreso.empresa.nombre} color={ingreso.empresa.color} />
-                )}
-                {estado && <Pastilla nombre={estado.nombre} color={estado.color} />}
-                {ingreso.periodo_desde && ingreso.periodo_hasta && (
-                  <span className="text-muted-foreground">
-                    {nombrePeriodo(ingreso.periodo_desde, ingreso.periodo_hasta)}
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Ventas capturadas</span>
-                <span className="tabular-nums">{formatearMXN(ingreso.ventas_base)}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Fijo</span>
-                <span className="tabular-nums">{formatearMXN(ingreso.monto_fijo)}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">{ingreso.porcentaje}% variable</span>
-                <span className="tabular-nums">{formatearMXN(ingreso.monto_variable)}</span>
-              </div>
-              {ingreso.fondo_delegado > 0 && (
-                <div className="flex justify-between gap-3">
-                  <span className="text-muted-foreground">Fondo delegado</span>
-                  <span className="tabular-nums">{formatearMXN(ingreso.fondo_delegado)}</span>
-                </div>
+    <DialogoFormulario
+      titulo={ingreso ? (esCorte ? "Corte de contrato" : "Editar cobro") : "Nuevo cobro"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={ingreso ? "Guardar cambios" : "Registrar cobro"}
+      pending={pending}
+      onBorrar={ingreso ? borrar : undefined}
+    >
+      <Hero pasoTitulo={esCorte ? "El corte, explicado" : "¿Qué se cobró?"}>
+        {/* Un corte se muestra explicado, no editable: es el resultado de una
+            fórmula con datos de su momento. */}
+        {esCorte && ingreso && (
+          <div className="rounded-xl border bg-muted/40 px-4 py-3 text-[13px] md:mb-2">
+            <div className="mb-2 flex flex-wrap items-center gap-2">
+              {ingreso.empresa && (
+                <Pastilla nombre={ingreso.empresa.nombre} color={ingreso.empresa.color} />
               )}
-              <div className="mt-1.5 flex justify-between gap-3 border-t pt-1.5 font-semibold">
-                <span>Total</span>
-                <span className="tabular-nums">{formatearMXN(ingreso.total)}</span>
-              </div>
-              {ingreso.ventas_nota && (
-                <p className="mt-2 text-[12px] italic text-muted-foreground">
-                  Origen del dato: {ingreso.ventas_nota}
-                </p>
-              )}
-              {ingreso.cobrado_at && (
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Facturado el {formatearFecha(ingreso.cobrado_at.slice(0, 10))}
-                  {ingreso.pagado_at
-                    ? ` · pagado el ${formatearFecha(ingreso.pagado_at.slice(0, 10))}`
-                    : ""}
-                </p>
+              {estado && <Pastilla nombre={estado.nombre} color={estado.color} />}
+              {ingreso.periodo_desde && ingreso.periodo_hasta && (
+                <span className="text-muted-foreground">
+                  {nombrePeriodo(ingreso.periodo_desde, ingreso.periodo_hasta)}
+                </span>
               )}
             </div>
-          )}
-
-          {!ingreso && (
-            <>
-              <div className="flex flex-col gap-1.5">
-                <Label>Tipo de cobro</Label>
-                <Select value={tipo} onValueChange={(v) => v && setTipo(v as TipoIngresoId)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {(v: string) => obtenerTipoIngreso(v)?.nombre ?? "Tipo"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIPOS_INGRESO.filter((t) => t.id !== "contrato").map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
-                  Los cortes de contrato se crean con «Calcular corte», para que quede el
-                  desglose de cómo se llegó al monto.
-                </p>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Ventas capturadas</span>
+              <span className="tabular-nums">{formatearMXN(ingreso.ventas_base)}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">Fijo</span>
+              <span className="tabular-nums">{formatearMXN(ingreso.monto_fijo)}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground">{ingreso.porcentaje}% variable</span>
+              <span className="tabular-nums">{formatearMXN(ingreso.monto_variable)}</span>
+            </div>
+            {ingreso.fondo_delegado > 0 && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Fondo delegado</span>
+                <span className="tabular-nums">{formatearMXN(ingreso.fondo_delegado)}</span>
               </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label>Empresa (opcional)</Label>
-                <Select value={empresaId} onValueChange={(v) => setEmpresaId(v ?? "")}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {(v: string) =>
-                        empresas.find((e) => e.id === v)?.nombre ?? "Sin empresa"}
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Sin empresa</SelectItem>
-                    {empresas.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ing-concepto">Concepto</Label>
-            <Input
-              id="ing-concepto"
-              autoFocus={!ingreso}
-              placeholder="Migración de Shopify a Tienda Nube, comisión del contador…"
-              value={concepto}
-              onChange={(e) => setConcepto(e.target.value)}
-            />
+            )}
+            <div className="mt-1.5 flex justify-between gap-3 border-t pt-1.5 font-semibold">
+              <span>Total</span>
+              <span className="tabular-nums">{formatearMXN(ingreso.total)}</span>
+            </div>
+            {ingreso.ventas_nota && (
+              <p className="mt-2 text-[12px] italic text-muted-foreground">
+                Origen del dato: {ingreso.ventas_nota}
+              </p>
+            )}
+            {ingreso.cobrado_at && (
+              <p className="mt-1 text-[12px] text-muted-foreground">
+                Facturado el {formatearFecha(ingreso.cobrado_at.slice(0, 10))}
+                {ingreso.pagado_at
+                  ? ` · pagado el ${formatearFecha(ingreso.pagado_at.slice(0, 10))}`
+                  : ""}
+              </p>
+            )}
           </div>
+        )}
 
-          {!esCorte && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="ing-total">Monto ($)</Label>
-                <Input
-                  id="ing-total"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={total}
-                  onChange={(e) => setTotal(e.target.value)}
-                />
-              </div>
-              {!ingreso && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="ing-socio">Con quién</Label>
-                  <Input
-                    id="ing-socio"
-                    placeholder="Contador, Kubo, Revie…"
-                    value={socio}
-                    onChange={(e) => setSocio(e.target.value)}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {ingreso && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ing-factura">Factura</Label>
-              <Input
-                id="ing-factura"
-                placeholder="Folio o enlace"
-                value={factura}
-                onChange={(e) => setFactura(e.target.value)}
-              />
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ing-notas">Notas</Label>
-            <Textarea
-              id="ing-notas"
-              rows={2}
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={ingreso ? "Guardar cambios" : "Registrar cobro"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={ingreso ? borrar : undefined}
+        <CampoHero
+          id="ing-concepto"
+          etiqueta="Concepto"
+          placeholder="Migración de Shopify a Tienda Nube, comisión del contador…"
+          valor={concepto}
+          onCambio={setConcepto}
         />
-      </DialogContent>
-    </Dialog>
+
+        {/* El monto protagonista, grande y sin caja. Un corte no lo enseña
+            editable: conserva su monto calculado. */}
+        {!esCorte && (
+          <div className="flex items-baseline gap-1">
+            <span className="text-lg font-semibold md:text-xl" aria-hidden="true">
+              $
+            </span>
+            <input
+              id="ing-total"
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              aria-label="Monto"
+              placeholder="0.00"
+              value={total}
+              onChange={(e) => setTotal(e.target.value)}
+              className="w-full border-0 bg-transparent px-0 text-lg font-semibold outline-none placeholder:text-muted-foreground/50 md:text-xl"
+            />
+          </div>
+        )}
+
+        <DescripcionHero
+          id="ing-notas"
+          etiqueta="Notas"
+          placeholder="Detalles, contexto… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo={ingreso ? "La factura" : "¿De qué tipo y con quién?"}>
+        {!ingreso && (
+          <>
+            <PastillaOpcion<TipoIngresoId>
+              etiqueta="Tipo de cobro"
+              opciones={TIPOS_INGRESO.filter((t) => t.id !== "contrato")}
+              valor={tipo}
+              onCambio={setTipo}
+              ayuda="Los cortes de contrato se crean con «Calcular corte», para que quede el desglose de cómo se llegó al monto."
+            />
+            <PastillaOpcion
+              etiqueta="Empresa"
+              opciones={opcionesEmpresa}
+              valor={empresaId}
+              onCambio={setEmpresaId}
+            />
+            <PastillaEntrada
+              etiqueta="Con quién"
+              valor={socio}
+              onCambio={setSocio}
+              placeholder="Contador, Kubo, Revie…"
+              idMovil="ing-socio"
+            />
+          </>
+        )}
+
+        {ingreso && (
+          <PastillaEntrada
+            etiqueta="Factura"
+            valor={factura}
+            onCambio={setFactura}
+            placeholder="Folio o enlace"
+            opcional
+            idMovil="ing-factura"
+          />
+        )}
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

@@ -2,29 +2,24 @@
 
 import { useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { guardarInfluencer, borrarInfluencer } from "@/app/(app)/influencers/actions";
 import {
   ETAPAS_INFLUENCER,
   TIERS_INFLUENCER,
-  obtenerEtapaInfluencer,
   obtenerTierInfluencer,
 } from "@/lib/catalogos";
 import { aNumero } from "@/lib/validacion";
@@ -68,7 +63,23 @@ export function InfluencerDialog({
   const [inicioPrueba, setInicioPrueba] = useState(influencer?.inicio_prueba ?? "");
   const [notas, setNotas] = useState(influencer?.notas ?? "");
 
+  /* Si la ficha ya trae redes o contacto, esas secciones nacen abiertas al
+     editar. Capturado al montar: que abrir/cerrar no baile mientras se teclea. */
+  const [redesAbiertas] = useState(() =>
+    Boolean(influencer?.ig_usuario || influencer?.tiktok_usuario),
+  );
+  const [contactoAbierto] = useState(() => Boolean(influencer?.correo || influencer?.celular));
+
   const tierElegido = obtenerTierInfluencer(tier);
+
+  const opcionesTier: { id: string; nombre: string; color?: string }[] = [
+    { id: SIN_TIER, nombre: "Sin asignar" },
+    ...TIERS_INFLUENCER.map((t) => ({
+      id: t.id,
+      nombre: `${t.nombre} · ${t.seguidores}`,
+      color: t.color,
+    })),
+  ];
 
   function guardar() {
     ejecutar(
@@ -109,220 +120,188 @@ export function InfluencerDialog({
     });
   }
 
+  const redesLlenas = [ig, tiktok].filter((v) => v.trim()).length;
+  const contactosLlenos = [correo, celular].filter((v) => v.trim()).length;
+
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{influencer ? "Editar influencer" : "Nuevo influencer"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label htmlFor="inf-nombre">Nombre</Label>
-              <Input
-                id="inf-nombre"
-                autoFocus
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-                placeholder="Nombre completo"
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-correo">Correo</Label>
-              <Input id="inf-correo" value={correo} onChange={(e) => setCorreo(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-celular">Celular</Label>
-              <Input id="inf-celular" value={celular} onChange={(e) => setCelular(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-ig">Instagram</Label>
-              <Input id="inf-ig" placeholder="@usuario" value={ig} onChange={(e) => setIg(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-ig-seg">Seguidores IG</Label>
-              <Input
-                id="inf-ig-seg"
-                type="number"
-                min="0"
-                value={igSeguidores}
-                onChange={(e) => setIgSeguidores(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-tt">TikTok</Label>
-              <Input
-                id="inf-tt"
-                placeholder="@usuario"
-                value={tiktok}
-                onChange={(e) => setTiktok(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-tt-seg">Seguidores TikTok</Label>
-              <Input
-                id="inf-tt-seg"
-                type="number"
-                min="0"
-                value={tiktokSeguidores}
-                onChange={(e) => setTiktokSeguidores(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Etapa</Label>
-              <Select value={etapa} onValueChange={(v) => v && setEtapa(v as EtapaInfluencerId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => obtenerEtapaInfluencer(v)?.nombre ?? "Etapa"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {ETAPAS_INFLUENCER.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Tier</Label>
-              <Select
-                value={tier ?? SIN_TIER}
-                onValueChange={(v) => setTier(!v || v === SIN_TIER ? null : (v as TierInfluencerId))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      v === SIN_TIER ? "Sin asignar" : (obtenerTierInfluencer(v)?.nombre ?? "Tier")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_TIER}>Sin asignar</SelectItem>
-                  {TIERS_INFLUENCER.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.nombre} · {t.seguidores}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-codigo">Código de descuento</Label>
-              <Input
-                id="inf-codigo"
-                placeholder="MARIOFF10"
-                className="font-mono"
-                value={codigo}
-                onChange={(e) => setCodigo(e.target.value.toUpperCase())}
-              />
-            </div>
-          </div>
-
-          {tierElegido && (
-            <p className="rounded-lg bg-muted/50 px-3 py-2 text-[13px] text-muted-foreground">
-              <b className="text-foreground">{tierElegido.nombre}</b> ofrece{" "}
-              {tierElegido.creditoMensual != null
-                ? `${formatearMXN(tierElegido.creditoMensual)} al mes en producto`
-                : "catálogo completo"}
-              , código al {tierElegido.descuentoPct}% y{" "}
-              {tierElegido.comisionPct > 0
-                ? `${tierElegido.comisionPct}% de comisión`
-                : "sin comisión"}
-              . {tierElegido.entregables}. Deja los campos de abajo vacíos para usar estos valores.
-            </p>
-          )}
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-desc">Descuento %</Label>
-              <Input
-                id="inf-desc"
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                placeholder={tierElegido ? String(tierElegido.descuentoPct) : "—"}
-                value={descuento}
-                onChange={(e) => setDescuento(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-com">Comisión %</Label>
-              <Input
-                id="inf-com"
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                placeholder={tierElegido ? String(tierElegido.comisionPct) : "—"}
-                value={comision}
-                onChange={(e) => setComision(e.target.value)}
-              />
-            </div>
-            {/* El crédito es egreso: al editar, quien no lo ve tampoco lo
-                recibió, y el campo vacío lo dejaría en nulo. Al dar de alta sí se
-                pide. El servidor conserva el anterior de todas formas. */}
-            {(dinero.egresos || !influencer) && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="inf-credito">Crédito al mes</Label>
-                <Input
-                  id="inf-credito"
-                  type="number"
-                  min="0"
-                  step="100"
-                  placeholder={
-                    tierElegido?.creditoMensual != null ? String(tierElegido.creditoMensual) : "—"
-                  }
-                  value={credito}
-                  onChange={(e) => setCredito(e.target.value)}
-                />
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="inf-prueba">Inicio de prueba</Label>
-              <DatePicker id="inf-prueba" value={inicioPrueba} onChange={setInicioPrueba} limpiable />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="inf-contenido">Tipo de contenido</Label>
-            <Input
-              id="inf-contenido"
-              placeholder="Fitness, lifestyle, powerlifting…"
-              value={tipoContenido}
-              onChange={(e) => setTipoContenido(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="inf-notas">Notas</Label>
-            <Textarea
-              id="inf-notas"
-              rows={2}
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-              placeholder="Acuerdos, condiciones, seguimiento…"
-            />
-          </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={influencer ? "Guardar cambios" : "Registrar influencer"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={influencer ? borrar : undefined}
+    <DialogoFormulario
+      titulo={influencer ? "Editar influencer" : "Nuevo influencer"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={influencer ? "Guardar cambios" : "Registrar influencer"}
+      pending={pending}
+      onBorrar={influencer ? borrar : undefined}
+    >
+      <Hero pasoTitulo="¿Quién es?">
+        <CampoHero
+          id="inf-nombre"
+          etiqueta="Nombre"
+          placeholder="Nombre completo"
+          valor={nombre}
+          onCambio={setNombre}
         />
-      </DialogContent>
-    </Dialog>
+        <DescripcionHero
+          id="inf-notas"
+          etiqueta="Notas"
+          placeholder="Acuerdos, condiciones, seguimiento… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades
+        pasoTitulo="El programa"
+        pasoAyuda="Deja porcentajes y crédito vacíos para usar lo del tier."
+      >
+        <PastillaOpcion
+          etiqueta="Etapa"
+          opciones={ETAPAS_INFLUENCER}
+          valor={etapa}
+          onCambio={setEtapa}
+        />
+        <PastillaOpcion<string>
+          etiqueta="Tier"
+          opciones={opcionesTier}
+          valor={tier ?? SIN_TIER}
+          onCambio={(v) => setTier(v === SIN_TIER ? null : (v as TierInfluencerId))}
+        />
+        <PastillaEntrada
+          etiqueta="Código de descuento"
+          placeholder="MARIOFF10"
+          valor={codigo}
+          onCambio={(v) => setCodigo(v.toUpperCase())}
+          opcional
+          idMovil="inf-codigo"
+        />
+        <PastillaEntrada
+          etiqueta="Descuento %"
+          tipo="number"
+          sufijo="%"
+          placeholder={tierElegido ? String(tierElegido.descuentoPct) : "—"}
+          valor={descuento}
+          onCambio={setDescuento}
+          opcional
+          idMovil="inf-desc"
+        />
+        <PastillaEntrada
+          etiqueta="Comisión %"
+          tipo="number"
+          sufijo="%"
+          placeholder={tierElegido ? String(tierElegido.comisionPct) : "—"}
+          valor={comision}
+          onCambio={setComision}
+          opcional
+          idMovil="inf-com"
+        />
+        {/* El crédito es egreso: al editar, quien no lo ve tampoco lo
+            recibió, y el campo vacío lo dejaría en nulo. Al dar de alta sí se
+            pide. El servidor conserva el anterior de todas formas. */}
+        {(dinero.egresos || !influencer) && (
+          <PastillaEntrada
+            etiqueta="Crédito al mes"
+            tipo="number"
+            prefijo="$"
+            placeholder={
+              tierElegido?.creditoMensual != null ? String(tierElegido.creditoMensual) : "—"
+            }
+            valor={credito}
+            onCambio={setCredito}
+            opcional
+            idMovil="inf-credito"
+          />
+        )}
+        <PastillaFecha
+          etiqueta="Inicio de prueba"
+          etiquetaVacia="Inicio de prueba"
+          valor={inicioPrueba}
+          onCambio={setInicioPrueba}
+          limpiable
+        />
+        <PastillaEntrada
+          etiqueta="Tipo de contenido"
+          placeholder="Fitness, lifestyle, powerlifting…"
+          valor={tipoContenido}
+          onCambio={setTipoContenido}
+          opcional
+          idMovil="inf-contenido"
+        />
+
+        {tierElegido && (
+          <p className="w-full rounded-lg bg-muted/50 px-3 py-2 text-[13px] text-muted-foreground">
+            <b className="text-foreground">{tierElegido.nombre}</b> ofrece{" "}
+            {tierElegido.creditoMensual != null
+              ? `${formatearMXN(tierElegido.creditoMensual)} al mes en producto`
+              : "catálogo completo"}
+            , código al {tierElegido.descuentoPct}% y{" "}
+            {tierElegido.comisionPct > 0
+              ? `${tierElegido.comisionPct}% de comisión`
+              : "sin comisión"}
+            . {tierElegido.entregables}. Deja porcentajes y crédito vacíos para usar estos valores.
+          </p>
+        )}
+      </Propiedades>
+
+      <SeccionFormulario
+        titulo="Redes"
+        pasoTitulo="Sus redes"
+        pasoAyuda="Opcional: usuario y seguidores de cada red."
+        contador={redesLlenas || null}
+        abiertaPorDefecto={redesAbiertas}
+      >
+        <div className="grid w-full grid-cols-2 gap-3">
+          <Campo etiqueta="Instagram" htmlFor="inf-ig" opcional>
+            <Input
+              id="inf-ig"
+              placeholder="@usuario"
+              value={ig}
+              onChange={(e) => setIg(e.target.value)}
+            />
+          </Campo>
+          <Campo etiqueta="Seguidores IG" htmlFor="inf-ig-seg" opcional>
+            <Input
+              id="inf-ig-seg"
+              type="number"
+              min="0"
+              value={igSeguidores}
+              onChange={(e) => setIgSeguidores(e.target.value)}
+            />
+          </Campo>
+          <Campo etiqueta="TikTok" htmlFor="inf-tt" opcional>
+            <Input
+              id="inf-tt"
+              placeholder="@usuario"
+              value={tiktok}
+              onChange={(e) => setTiktok(e.target.value)}
+            />
+          </Campo>
+          <Campo etiqueta="Seguidores TikTok" htmlFor="inf-tt-seg" opcional>
+            <Input
+              id="inf-tt-seg"
+              type="number"
+              min="0"
+              value={tiktokSeguidores}
+              onChange={(e) => setTiktokSeguidores(e.target.value)}
+            />
+          </Campo>
+        </div>
+      </SeccionFormulario>
+
+      <SeccionFormulario
+        titulo="Contacto"
+        pasoTitulo="¿Cómo se le contacta?"
+        pasoAyuda="Opcional: correo y celular."
+        contador={contactosLlenos || null}
+        abiertaPorDefecto={contactoAbierto}
+      >
+        <div className="grid w-full grid-cols-2 gap-3">
+          <Campo etiqueta="Correo" htmlFor="inf-correo" opcional>
+            <Input id="inf-correo" value={correo} onChange={(e) => setCorreo(e.target.value)} />
+          </Campo>
+          <Campo etiqueta="Celular" htmlFor="inf-celular" opcional>
+            <Input id="inf-celular" value={celular} onChange={(e) => setCelular(e.target.value)} />
+          </Campo>
+        </div>
+      </SeccionFormulario>
+    </DialogoFormulario>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { DialogoPasos, Paso } from "@/components/compartido/dialogo-pasos";
-import { CampoOpcion } from "@/components/compartido/campo-opcion";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import { PastillaFecha, PastillaOpcion } from "@/components/compartido/pastillas-campo";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { guardarEntradaBitacora } from "@/app/(app)/agencia/clientes/acciones/avance";
 import { VISIBILIDADES } from "@/lib/catalogos";
@@ -47,45 +48,38 @@ export function DialogoBitacora({
   }
 
   return (
-    <DialogoPasos
+    <DialogoFormulario
       titulo="Nueva entrada de bitácora"
       onCerrar={onCerrar}
       onGuardar={guardar}
       etiquetaGuardar="Registrar"
       pending={pending}
     >
-      <Paso
-        titulo="¿Qué se hizo?"
+      <Hero
+        pasoTitulo="¿Qué se hizo?"
         valido={Boolean(titulo.trim())}
         motivoInvalido="Ponle un título a la entrada."
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bit-titulo">Título</Label>
-          <Input
-            id="bit-titulo"
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-            placeholder="Se grabó el contenido de la semana"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bit-desc">Detalle (opcional)</Label>
-          <Textarea
-            id="bit-desc"
-            rows={3}
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-            placeholder="Qué se entregó, números, enlaces…"
-          />
-        </div>
-      </Paso>
+        <CampoHero
+          id="bit-titulo"
+          etiqueta="Título"
+          placeholder="Se grabó el contenido de la semana"
+          valor={titulo}
+          onCambio={setTitulo}
+        />
+        <DescripcionHero
+          id="bit-desc"
+          etiqueta="Detalle"
+          placeholder="Qué se entregó, números, enlaces… (opcional)"
+          valor={descripcion}
+          onCambio={setDescripcion}
+          rows={3}
+        />
+      </Hero>
 
-      <Paso titulo="¿Cuándo y quién lo ve?">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="bit-fecha">Fecha del hecho</Label>
-          <DatePicker id="bit-fecha" value={fecha} onChange={setFecha} />
-        </div>
-        <CampoOpcion
+      <Propiedades pasoTitulo="¿Cuándo y quién lo ve?">
+        <PastillaFecha etiqueta="Fecha del hecho" valor={fecha} onCambio={setFecha} />
+        <PastillaOpcion
           etiqueta="Quién la ve"
           opciones={VISIBILIDADES}
           valor={visibilidad}
@@ -96,7 +90,7 @@ export function DialogoBitacora({
               : "Nace interna: se comparte cuando se decida."
           }
         />
-      </Paso>
-    </DialogoPasos>
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

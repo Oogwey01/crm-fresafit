@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { DialogoPasos, Paso } from "@/components/compartido/dialogo-pasos";
-import { CampoOpcion } from "@/components/compartido/campo-opcion";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import { PastillaOpcion } from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { guardarIncidencia } from "@/app/(app)/agencia/clientes/acciones/avance";
 import { ESTADOS_INCIDENCIA, LADOS_INCIDENCIA, VISIBILIDADES } from "@/lib/catalogos";
@@ -66,66 +70,61 @@ export function DialogoIncidencia({
   );
 
   return (
-    <DialogoPasos
+    <DialogoFormulario
       titulo={editar ? "Editar incidencia" : "Registrar bloqueo"}
       onCerrar={onCerrar}
       onGuardar={guardar}
       etiquetaGuardar={editar ? "Guardar cambios" : "Registrar"}
       pending={pending}
     >
-      <Paso
-        titulo="¿Qué está frenando?"
+      <Hero
+        pasoTitulo="¿Qué está frenando?"
         valido={Boolean(titulo.trim())}
         motivoInvalido="Dile a la incidencia qué está pasando."
       >
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="inc-titulo">Qué pasa</Label>
-          <Input
-            id="inc-titulo"
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-            placeholder="Falta el acceso de administrador a TikTok Shop"
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="inc-desc">Detalle (opcional)</Label>
-          <Textarea
-            id="inc-desc"
-            rows={2}
-            value={descripcion}
-            onChange={(e) => setDescripcion(e.target.value)}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="inc-impacto">Qué se está deteniendo</Label>
+        <CampoHero
+          id="inc-titulo"
+          etiqueta="Qué pasa"
+          placeholder="Falta el acceso de administrador a TikTok Shop"
+          valor={titulo}
+          onCambio={setTitulo}
+        />
+        <DescripcionHero
+          id="inc-desc"
+          etiqueta="Detalle"
+          placeholder="Detalle… (opcional)"
+          valor={descripcion}
+          onCambio={setDescripcion}
+        />
+        <Campo etiqueta="Qué se está deteniendo" htmlFor="inc-impacto" className="md:mt-1">
           <Input
             id="inc-impacto"
             value={impacto}
             onChange={(e) => setImpacto(e.target.value)}
             placeholder="Sin el acceso no podemos publicar los lives"
           />
-        </div>
-      </Paso>
+        </Campo>
+      </Hero>
 
-      <Paso
-        titulo="¿A quién le toca?"
-        ayuda="Es el campo que evita que el bloqueo se quede huérfano."
+      <Propiedades
+        pasoTitulo="¿A quién le toca?"
+        pasoAyuda="Es el campo que evita que el bloqueo se quede huérfano."
       >
-        <CampoOpcion
+        <PastillaOpcion
           etiqueta="Lo desbloquea"
           opciones={lados}
           valor={desbloquea}
           onCambio={setDesbloquea}
         />
         {editar && (
-          <CampoOpcion
+          <PastillaOpcion
             etiqueta="Estado"
             opciones={ESTADOS_INCIDENCIA}
             valor={estado}
             onCambio={setEstado}
           />
         )}
-        <CampoOpcion
+        <PastillaOpcion
           etiqueta="Quién la ve"
           opciones={VISIBILIDADES}
           valor={visibilidad}
@@ -138,7 +137,7 @@ export function DialogoIncidencia({
               : "Nace interna: se comparte cuando se decida."
           }
         />
-      </Paso>
-    </DialogoPasos>
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

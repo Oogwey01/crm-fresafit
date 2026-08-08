@@ -4,21 +4,21 @@ import { useRef, useState } from "react";
 import Image from "next/image";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaOpcion,
+  PastillaPersona,
+} from "@/components/compartido/pastillas-campo";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Pastilla } from "@/components/compartido/pastilla";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
   borrarPersonalizado,
@@ -30,8 +30,6 @@ import {
   ESTADOS_PERSONALIZADO,
   MODELOS_PERSONALIZADO,
   TIPOS_PERSONALIZADO,
-  obtenerCanal,
-  obtenerEstadoPersonalizado,
 } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
 import type {
@@ -84,6 +82,25 @@ export function PersonalizadoDialog({
     personalizado?.responsable_id ?? null,
   );
 
+  /* Los catálogos con "Sin definir" al frente: en el viejo Select era el
+     SelectItem extra; en la pastilla es una opción más. */
+  const opcionesModelo: { id: string; nombre: string }[] = [
+    { id: SIN_VALOR, nombre: "Sin definir" },
+    ...MODELOS_PERSONALIZADO.map((m) => ({ id: m.id, nombre: m.nombre })),
+  ];
+  const opcionesTipo: { id: string; nombre: string }[] = [
+    { id: SIN_VALOR, nombre: "Sin definir" },
+    ...TIPOS_PERSONALIZADO.map((t) => ({ id: t.id, nombre: t.nombre })),
+  ];
+  const opcionesCanal: { id: string; nombre: string; color?: string }[] = [
+    { id: SIN_VALOR, nombre: "Sin definir" },
+    ...CANALES.filter((c) => c.id !== "punto_fisico").map((c) => ({
+      id: c.id,
+      nombre: c.nombre,
+      color: c.color,
+    })),
+  ];
+
   function guardar() {
     ejecutar(
       () =>
@@ -126,263 +143,177 @@ export function PersonalizadoDialog({
     );
   }
 
+  const hayDiseno = Boolean(previewLocal ?? urlDiseno ?? personalizado?.foto_path);
+
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{personalizado ? "Editar personalizado" : "Nuevo personalizado"}</DialogTitle>
-        </DialogHeader>
+    <DialogoFormulario
+      titulo={personalizado ? "Editar personalizado" : "Nuevo personalizado"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={personalizado ? "Guardar cambios" : "Registrar"}
+      pending={pending}
+      onBorrar={
+        personalizado
+          ? () =>
+              ejecutar(() => borrarPersonalizado(personalizado.id, personalizado.foto_path), {
+                confirmar: `¿Borrar el personalizado de ${personalizado.cliente}?`,
+                ok: "Personalizado borrado.",
+                alExito: onClose,
+              })
+          : undefined
+      }
+    >
+      <Hero pasoTitulo="¿De quién es el pedido?">
+        <CampoHero
+          id="pz-cliente"
+          etiqueta="Cliente"
+          placeholder="Nombre del cliente"
+          valor={cliente}
+          onCambio={setCliente}
+        />
+        <DescripcionHero
+          id="pz-notas"
+          etiqueta="Notas"
+          placeholder="Notas del pedido… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
 
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label htmlFor="pz-cliente">Cliente</Label>
-              <Input
-                id="pz-cliente"
-                autoFocus
-                value={cliente}
-                onChange={(e) => setCliente(e.target.value)}
+      <Propiedades pasoTitulo="El cinto y la venta">
+        <PastillaOpcion<string>
+          etiqueta="Tipo de cinto"
+          opciones={opcionesModelo}
+          valor={modelo ?? SIN_VALOR}
+          onCambio={(v) => setModelo(v === SIN_VALOR ? null : (v as ModeloPersonalizadoId))}
+        />
+        <PastillaOpcion<string>
+          etiqueta="Técnica"
+          opciones={opcionesTipo}
+          valor={tipo ?? SIN_VALOR}
+          onCambio={(v) => setTipo(v === SIN_VALOR ? null : (v as TipoPersonalizadoId))}
+        />
+        <PastillaEntrada
+          etiqueta="Talla"
+          placeholder="CHM, G, GEG…"
+          valor={talla}
+          onCambio={setTalla}
+          opcional
+          idMovil="pz-talla"
+        />
+        <PastillaEntrada
+          etiqueta="Nº de venta"
+          valor={noVenta}
+          onCambio={setNoVenta}
+          opcional
+          idMovil="pz-venta"
+        />
+        <PastillaOpcion<string>
+          etiqueta="Canal"
+          opciones={opcionesCanal}
+          valor={canal ?? SIN_VALOR}
+          onCambio={(v) => setCanal(v === SIN_VALOR ? null : v)}
+        />
+        <PastillaFecha
+          etiqueta="Fecha de compra"
+          etiquetaVacia="Fecha de compra"
+          valor={fechaCompra}
+          onCambio={setFechaCompra}
+          limpiable
+        />
+      </Propiedades>
+
+      <Propiedades pasoTitulo="Producción y seguimiento">
+        <PastillaFecha
+          etiqueta="Mandado a producción"
+          etiquetaVacia="A producción"
+          valor={fechaProduccion}
+          onCambio={setFechaProduccion}
+          limpiable
+        />
+        <PastillaFecha
+          etiqueta="Fecha límite"
+          etiquetaVacia="Fecha límite"
+          valor={fechaLimite}
+          onCambio={setFechaLimite}
+          limpiable
+        />
+        <PastillaOpcion
+          etiqueta="Estado"
+          opciones={ESTADOS_PERSONALIZADO}
+          valor={estado}
+          onCambio={setEstado}
+        />
+        <PastillaPersona
+          etiqueta="Quién lo lleva"
+          equipo={disenadores}
+          valor={responsable ?? SIN_VALOR}
+          onCambio={(v) => setResponsable(v === SIN_VALOR ? null : v)}
+          opcionNula={{ id: SIN_VALOR, nombre: "Sin asignar" }}
+        />
+        <PastillaEntrada
+          etiqueta="Link"
+          placeholder="https://…"
+          valor={url}
+          onCambio={setUrl}
+          opcional
+          ayuda="Diseño, conversación, publicación…"
+          idMovil="pz-url"
+        />
+      </Propiedades>
+
+      <SeccionFormulario
+        titulo="Diseño aprobado"
+        pasoTitulo="El diseño aprobado"
+        pasoAyuda="La imagen del diseño que el cliente aprobó (la sube quien diseña)."
+        contador={hayDiseno ? 1 : null}
+        abiertaPorDefecto={hayDiseno}
+      >
+        <div className="flex w-full flex-col gap-2">
+          {/* El diseño se ve aquí mismo: antes solo decía "ya tiene imagen" y
+              para verla había que cerrar y buscar la fila en la tabla. Con un
+              archivo recién elegido se enseña ESE, aún sin guardar. */}
+          {(previewLocal ?? urlDiseno) && (
+            <div className="flex h-20 w-full items-center justify-start rounded-lg border bg-muted/40 px-2">
+              <Image
+                src={previewLocal ?? urlDiseno!}
+                alt={`Diseño de ${cliente || "personalizado"}`}
+                width={760}
+                height={80}
+                unoptimized
+                className="max-h-full w-auto max-w-full rounded object-contain"
               />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Tipo de cinto</Label>
-              <Select
-                value={modelo ?? SIN_VALOR}
-                onValueChange={(v) =>
-                  setModelo(v === SIN_VALOR ? null : (v as ModeloPersonalizadoId))
-                }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      MODELOS_PERSONALIZADO.find((m) => m.id === v)?.nombre ?? "Sin definir"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_VALOR}>Sin definir</SelectItem>
-                  {MODELOS_PERSONALIZADO.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Técnica</Label>
-              <Select
-                value={tipo ?? SIN_VALOR}
-                onValueChange={(v) => setTipo(v === SIN_VALOR ? null : (v as TipoPersonalizadoId))}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      TIPOS_PERSONALIZADO.find((t) => t.id === v)?.nombre ?? "Sin definir"
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_VALOR}>Sin definir</SelectItem>
-                  {TIPOS_PERSONALIZADO.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pz-talla">Talla</Label>
-              <Input
-                id="pz-talla"
-                placeholder="CHM, G, GEG…"
-                value={talla}
-                onChange={(e) => setTalla(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pz-venta">Nº de venta</Label>
-              <Input id="pz-venta" value={noVenta} onChange={(e) => setNoVenta(e.target.value)} />
-            </div>
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label>Canal</Label>
-              <Select
-                value={canal ?? SIN_VALOR}
-                onValueChange={(v) => setCanal(v === SIN_VALOR ? null : v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      v === SIN_VALOR ? "Sin definir" : (obtenerCanal(v)?.nombre ?? "Canal")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_VALOR}>Sin definir</SelectItem>
-                  {CANALES.filter((c) => c.id !== "punto_fisico").map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pz-compra">Fecha de compra</Label>
-              <DatePicker id="pz-compra" value={fechaCompra} onChange={setFechaCompra} limpiable />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pz-prod">Mandado a producción</Label>
-              <DatePicker
-                id="pz-prod"
-                value={fechaProduccion}
-                onChange={setFechaProduccion}
-                limpiable
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pz-limite">Fecha límite</Label>
-              <DatePicker id="pz-limite" value={fechaLimite} onChange={setFechaLimite} limpiable />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Estado</Label>
-              <Select
-                value={estado}
-                onValueChange={(v) => v && setEstado(v as EstadoPersonalizadoId)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => obtenerEstadoPersonalizado(v)?.nombre ?? "Estado"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {ESTADOS_PERSONALIZADO.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Quién lo lleva</Label>
-              <Select
-                value={responsable ?? SIN_VALOR}
-                onValueChange={(v) => setResponsable(v === SIN_VALOR ? null : v)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      v === SIN_VALOR
-                        ? "Sin asignar"
-                        : (equipo.find((p) => p.id === v)?.nombre ?? "Persona")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_VALOR}>Sin asignar</SelectItem>
-                  {disenadores.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5 sm:col-span-2">
-              <Label htmlFor="pz-url">Link (diseño, conversación, publicación…)</Label>
-              <Input
-                id="pz-url"
-                placeholder="https://…"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            {/* El diseño se ve aquí mismo: antes solo decía "ya tiene imagen" y
-                para verla había que cerrar y buscar la fila en la tabla. Con un
-                archivo recién elegido se enseña ESE, aún sin guardar. */}
-            {(previewLocal ?? urlDiseno) && (
-              <div className="flex h-20 w-full items-center justify-start rounded-lg border bg-muted/40 px-2">
-                <Image
-                  src={previewLocal ?? urlDiseno!}
-                  alt={`Diseño de ${cliente || "personalizado"}`}
-                  width={760}
-                  height={80}
-                  unoptimized
-                  className="max-h-full w-auto max-w-full rounded object-contain"
-                />
-              </div>
-            )}
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={fotoRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  setPreviewLocal((prev) => {
-                    if (prev) URL.revokeObjectURL(prev);
-                    return f ? URL.createObjectURL(f) : null;
-                  });
-                }}
-              />
-              <Button variant="outline" size="sm" onClick={() => fotoRef.current?.click()}>
-                <Upload className="size-3.5" />
-                {personalizado?.foto_path ? "Reemplazar diseño" : "Subir diseño aprobado"}
-              </Button>
-              <span className="text-[12.5px] text-muted-foreground">
-                La imagen del diseño que el cliente aprobó (la sube quien diseña).
-              </span>
-              {previewLocal ? (
-                <Pastilla nombre="Se sube al guardar" color="#f59e0b" />
-              ) : (
-                personalizado?.foto_path && <Pastilla nombre="Ya tiene imagen" color="#22c55e" />
-              )}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pz-notas">Notas</Label>
-            <Textarea
-              id="pz-notas"
-              rows={2}
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
+          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fotoRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                setPreviewLocal((prev) => {
+                  if (prev) URL.revokeObjectURL(prev);
+                  return f ? URL.createObjectURL(f) : null;
+                });
+              }}
             />
+            <Button variant="outline" size="sm" onClick={() => fotoRef.current?.click()}>
+              <Upload className="size-3.5" />
+              {personalizado?.foto_path ? "Reemplazar diseño" : "Subir diseño aprobado"}
+            </Button>
+            <span className="text-[12.5px] text-muted-foreground">
+              La imagen del diseño que el cliente aprobó (la sube quien diseña).
+            </span>
+            {previewLocal ? (
+              <Pastilla nombre="Se sube al guardar" color="#f59e0b" />
+            ) : (
+              personalizado?.foto_path && <Pastilla nombre="Ya tiene imagen" color="#22c55e" />
+            )}
           </div>
         </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={personalizado ? "Guardar cambios" : "Registrar"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={
-            personalizado
-              ? () =>
-                  ejecutar(() => borrarPersonalizado(personalizado.id, personalizado.foto_path), {
-                    confirmar: `¿Borrar el personalizado de ${personalizado.cliente}?`,
-                    ok: "Personalizado borrado.",
-                    alExito: onClose,
-                  })
-              : undefined
-          }
-        />
-      </DialogContent>
-    </Dialog>
+      </SeccionFormulario>
+    </DialogoFormulario>
   );
 }

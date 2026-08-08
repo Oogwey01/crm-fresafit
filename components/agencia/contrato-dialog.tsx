@@ -1,19 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero } from "@/components/compartido/campo-hero";
+import {
+  PastillaDato,
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaInterruptor,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
   BASES_CALCULO,
@@ -68,6 +72,8 @@ export function ContratoDialog({
     VENTA_EJEMPLO,
   );
 
+  const hayFondoONotas = num(fondo) > 0 || Boolean(notas.trim());
+
   function guardar() {
     const input: ContratoInput = {
       empresa_id: empresa.id,
@@ -103,216 +109,166 @@ export function ContratoDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>
-            {contrato ? "Editar contrato" : "Nuevo contrato"} · {empresa.nombre}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="con-nombre">Nombre del contrato</Label>
-            <Input
-              id="con-nombre"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-              placeholder="Contrato mensual"
-            />
-          </div>
-
-          {/* La fórmula: fijo + % sobre una base */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="con-fijo">Fijo al mes ($)</Label>
-              <Input
-                id="con-fijo"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="40000"
-                value={montoFijo}
-                onChange={(e) => setMontoFijo(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="con-pct">Porcentaje (%)</Label>
-              <Input
-                id="con-pct"
-                type="number"
-                min="0"
-                max="100"
-                step="0.001"
-                placeholder="4"
-                value={porcentaje}
-                onChange={(e) => setPorcentaje(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>El porcentaje se aplica sobre</Label>
-            <Select value={base} onValueChange={(v) => v && setBase(v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) => BASES_CALCULO.find((b) => b.id === v)?.nombre ?? "Base"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {BASES_CALCULO.map((b) => (
-                  <SelectItem key={b.id} value={b.id}>
-                    {b.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* La definición exacta es lo que evita la discusión al cerrar el mes. */}
-            <p className="text-[12px] leading-relaxed text-muted-foreground">
-              {obtenerBaseCalculo(base)?.desc}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Plataforma</Label>
-              <Select value={plataforma} onValueChange={(v) => v && setPlataforma(v)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      PLATAFORMAS_AGENCIA.find((p) => p.id === v)?.nombre ?? "Plataforma"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {PLATAFORMAS_AGENCIA.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Periodicidad</Label>
-              <Select
-                value={periodicidad}
-                onValueChange={(v) => v && setPeriodicidad(v as "mensual" | "quincenal")}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => PERIODICIDADES.find((p) => p.id === v)?.nombre ?? "—"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {PERIODICIDADES.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="con-dia">Día de corte</Label>
-              <Input
-                id="con-dia"
-                type="number"
-                min="1"
-                max="28"
-                step="1"
-                value={diaCorte}
-                onChange={(e) => setDiaCorte(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="con-fondo">Fondo delegado ($ al mes)</Label>
-            <Input
-              id="con-fondo"
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="0"
-              value={fondo}
-              onChange={(e) => setFondo(e.target.value)}
-            />
-            <p className="text-[12px] leading-relaxed text-muted-foreground">
-              Dinero del cliente que pasa por la agencia para pagar a terceros (el personal de
-              sus lives, por ejemplo). Se le cobra pero <strong>no cuenta como ingreso</strong>.
-            </p>
-          </div>
-
-          {/* Vista previa: la fórmula aplicada a un número redondo. */}
-          <div className="rounded-xl border bg-muted/40 px-4 py-3 text-[13px]">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Con {formatearMXN(VENTA_EJEMPLO)} de venta en el periodo
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-              <span className="tabular-nums">{formatearMXN(vistaPrevia.monto_fijo)} fijo</span>
-              <span className="text-muted-foreground">+</span>
-              <span className="tabular-nums">
-                {formatearMXN(vistaPrevia.monto_variable)} variable
+    <DialogoFormulario
+      titulo={`${contrato ? "Editar contrato" : "Nuevo contrato"} · ${empresa.nombre}`}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={contrato ? "Guardar cambios" : "Crear contrato"}
+      pending={pending}
+      onBorrar={contrato ? borrar : undefined}
+    >
+      <Hero pasoTitulo="¿Qué contrato es?">
+        {/* La empresa ya viene decidida: se enseña como dato, no se elige. */}
+        <div className="md:mb-1">
+          <PastillaDato
+            etiqueta="Empresa"
+            valor={
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: empresa.color }}
+                  aria-hidden="true"
+                />
+                {empresa.nombre}
               </span>
-              <span className="text-muted-foreground">=</span>
-              <span className="text-[16px] font-bold tabular-nums">
-                {formatearMXN(vistaPrevia.honorarios)}
-              </span>
-              <span className="text-muted-foreground">de honorarios</span>
-            </div>
-            {vistaPrevia.fondo_delegado > 0 && (
-              <div className="mt-1 text-muted-foreground">
-                Se le cobran {formatearMXN(vistaPrevia.total)} contando el fondo delegado.
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="con-inicio">Inicio</Label>
-              <DatePicker id="con-inicio" value={inicio} onChange={setInicio} limpiable />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="con-fin">Fin (si lo tiene)</Label>
-              <DatePicker id="con-fin" value={fin} onChange={setFin} limpiable />
-            </div>
-          </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={activo}
-              onChange={(e) => setActivo(e.target.checked)}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              Contrato vigente
-              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
-                Solo los vigentes cuentan en el fijo mensual y aparecen para calcular cortes.
-              </span>
-            </span>
-          </label>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="con-notas">Notas del acuerdo</Label>
-            <Textarea
-              id="con-notas"
-              rows={2}
-              placeholder="Qué se descuenta, qué incluye, cómo se factura…"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-            />
-          </div>
+            }
+          />
         </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={contrato ? "Guardar cambios" : "Crear contrato"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={contrato ? borrar : undefined}
+        <CampoHero
+          id="con-nombre"
+          etiqueta="Nombre del contrato"
+          placeholder="Contrato mensual"
+          valor={nombre}
+          onCambio={setNombre}
         />
-      </DialogContent>
-    </Dialog>
+      </Hero>
+
+      {/* La fórmula: fijo + % sobre una base */}
+      <Propiedades pasoTitulo="La fórmula" pasoAyuda="Fijo + porcentaje sobre una base.">
+        <PastillaEntrada
+          etiqueta="Fijo al mes ($)"
+          tipo="number"
+          prefijo="$"
+          placeholder="40000"
+          valor={montoFijo}
+          onCambio={setMontoFijo}
+          idMovil="con-fijo"
+        />
+        <PastillaEntrada
+          etiqueta="Porcentaje (%)"
+          tipo="number"
+          sufijo="%"
+          placeholder="4"
+          valor={porcentaje}
+          onCambio={setPorcentaje}
+          idMovil="con-pct"
+        />
+        {/* La definición exacta es lo que evita la discusión al cerrar el mes. */}
+        <PastillaOpcion<string>
+          etiqueta="El porcentaje se aplica sobre"
+          opciones={BASES_CALCULO}
+          valor={base}
+          onCambio={setBase}
+          ayuda={obtenerBaseCalculo(base)?.desc}
+        />
+
+        {/* Vista previa: la fórmula aplicada a un número redondo. */}
+        <div className="w-full rounded-xl border bg-muted/40 px-4 py-3 text-[13px]">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Con {formatearMXN(VENTA_EJEMPLO)} de venta en el periodo
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span className="tabular-nums">{formatearMXN(vistaPrevia.monto_fijo)} fijo</span>
+            <span className="text-muted-foreground">+</span>
+            <span className="tabular-nums">
+              {formatearMXN(vistaPrevia.monto_variable)} variable
+            </span>
+            <span className="text-muted-foreground">=</span>
+            <span className="text-[16px] font-bold tabular-nums">
+              {formatearMXN(vistaPrevia.honorarios)}
+            </span>
+            <span className="text-muted-foreground">de honorarios</span>
+          </div>
+          {vistaPrevia.fondo_delegado > 0 && (
+            <div className="mt-1 text-muted-foreground">
+              Se le cobran {formatearMXN(vistaPrevia.total)} contando el fondo delegado.
+            </div>
+          )}
+        </div>
+      </Propiedades>
+
+      <Propiedades pasoTitulo="Cobro y vigencia">
+        <PastillaOpcion<string>
+          etiqueta="Plataforma"
+          opciones={PLATAFORMAS_AGENCIA}
+          valor={plataforma}
+          onCambio={setPlataforma}
+        />
+        <PastillaOpcion
+          etiqueta="Periodicidad"
+          opciones={PERIODICIDADES}
+          valor={periodicidad}
+          onCambio={setPeriodicidad}
+        />
+        <PastillaEntrada
+          etiqueta="Día de corte"
+          tipo="number"
+          valor={diaCorte}
+          onCambio={setDiaCorte}
+          idMovil="con-dia"
+        />
+        <PastillaFecha
+          etiqueta="Inicio"
+          etiquetaVacia="Inicio"
+          valor={inicio}
+          onCambio={setInicio}
+          limpiable
+        />
+        <PastillaFecha
+          etiqueta="Fin (si lo tiene)"
+          etiquetaVacia="Fin"
+          valor={fin}
+          onCambio={setFin}
+          limpiable
+        />
+        <PastillaInterruptor etiqueta="Contrato vigente" valor={activo} onCambio={setActivo} />
+        <span className="w-full text-[12.5px] leading-relaxed text-muted-foreground md:hidden">
+          Solo los vigentes cuentan en el fijo mensual y aparecen para calcular cortes.
+        </span>
+      </Propiedades>
+
+      <SeccionFormulario
+        titulo="Fondo delegado y notas"
+        pasoTitulo="Fondo delegado y notas"
+        pasoAyuda="Opcional: dinero del cliente que solo pasa por la agencia, y lo pactado."
+        abiertaPorDefecto={hayFondoONotas}
+      >
+        <Campo etiqueta="Fondo delegado ($ al mes)" htmlFor="con-fondo" className="w-full">
+          <Input
+            id="con-fondo"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="0"
+            value={fondo}
+            onChange={(e) => setFondo(e.target.value)}
+          />
+          <p className="text-[12px] leading-relaxed text-muted-foreground">
+            Dinero del cliente que pasa por la agencia para pagar a terceros (el personal de
+            sus lives, por ejemplo). Se le cobra pero <strong>no cuenta como ingreso</strong>.
+          </p>
+        </Campo>
+
+        <Campo etiqueta="Notas del acuerdo" htmlFor="con-notas" className="w-full">
+          <Textarea
+            id="con-notas"
+            rows={2}
+            placeholder="Qué se descuenta, qué incluye, cómo se factura…"
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+          />
+        </Campo>
+      </SeccionFormulario>
+    </DialogoFormulario>
   );
 }

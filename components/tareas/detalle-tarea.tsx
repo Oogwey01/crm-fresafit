@@ -27,7 +27,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, ArrowLeft, CalendarDays, ChevronDown, MoreHorizontal, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CalendarDays, MoreHorizontal, Trash2 } from "lucide-react";
+import { SeccionPlegable } from "@/components/compartido/seccion-plegable";
+import {
+  PastillaFecha,
+  PastillaFechaHora,
+  PastillaOpcion,
+  PastillaPersona,
+} from "@/components/compartido/pastillas-campo";
 import {
   ESTADOS,
   PRIORIDADES,
@@ -875,20 +882,37 @@ export function TaskDetail({
                 </h2>
                 {manda ? (
                   /* Quien manda edita la ficha en el sitio; se guarda con el
-                     botón del pie (o la barra fija del teléfono). */
-                  <div className="grid grid-cols-1 divide-y rounded-2xl border bg-card md:divide-y-0 md:rounded-none md:border-0 md:bg-transparent">
+                     botón del pie (o la barra fija del teléfono). En el
+                     teléfono sigue siendo la lista de propiedades de siempre
+                     (cada pastilla trae su fila Meta como contenidoMovil); en
+                     escritorio la columna de selects se compacta en pastillas. */
+                  <div className="grid grid-cols-1 divide-y rounded-2xl border bg-card md:flex md:flex-wrap md:items-center md:gap-1.5 md:divide-y-0 md:rounded-none md:border-0 md:bg-transparent">
                     {/* De quién es el trabajo. Solo en la agencia: en Fresafit el
                         cliente es la propia marca y el campo sobraría. */}
                     {esAgencia && (
-                      <Meta label="Cliente">
-                        <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
-                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_EMPRESA ? "De la agencia" : (empresas.find((e) => e.id === v)?.nombre ?? tarea.empresa?.nombre ?? "Cliente")}</SelectValue></SelectTrigger>
-                          <SelectContent>
-                            {empresas.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
-                            <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </Meta>
+                      <PastillaOpcion
+                        etiqueta="Cliente"
+                        opciones={[
+                          ...empresas.map((e) => ({ id: e.id, nombre: e.nombre, color: e.color })),
+                          ...(tarea.empresa && !empresas.some((e) => e.id === tarea.empresa?.id)
+                            ? [{ id: tarea.empresa.id, nombre: tarea.empresa.nombre }]
+                            : []),
+                          { id: SIN_EMPRESA, nombre: "De la agencia (sin cliente)" },
+                        ]}
+                        valor={empresa}
+                        onCambio={setEmpresa}
+                        contenidoMovil={
+                          <Meta label="Cliente">
+                            <Select value={empresa} onValueChange={(v) => setEmpresa(v ?? SIN_EMPRESA)}>
+                              <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_EMPRESA ? "De la agencia" : (empresas.find((e) => e.id === v)?.nombre ?? tarea.empresa?.nombre ?? "Cliente")}</SelectValue></SelectTrigger>
+                              <SelectContent>
+                                {empresas.map((e) => (<SelectItem key={e.id} value={e.id}>{e.nombre}</SelectItem>))}
+                                <SelectItem value={SIN_EMPRESA}>De la agencia (sin cliente)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Meta>
+                        }
+                      />
                     )}
                     {/* Con quién se comparte y de qué va el acuerdo. Solo en la
                         agencia, y solo aquí — desde el tablero de Fresafit
@@ -896,80 +920,145 @@ export function TaskDetail({
                         tan deliberado como desde el interruptor del workspace:
                         se guarda con el botón de la ficha. */}
                     {esAgencia && (
-                      <Meta label="Quién la ve">
-                        <Select value={visibilidad} onValueChange={(v) => v && setVisibilidad(v as VisibilidadId)}>
-                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => obtenerVisibilidad(v)?.nombre ?? "Interno"}</SelectValue></SelectTrigger>
-                          <SelectContent>
-                            {VISIBILIDADES.map((vi) => (<SelectItem key={vi.id} value={vi.id}>{vi.nombre} — {vi.desc}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
-                      </Meta>
+                      <PastillaOpcion
+                        etiqueta="Quién la ve"
+                        opciones={VISIBILIDADES}
+                        valor={visibilidad}
+                        onCambio={setVisibilidad}
+                        contenidoMovil={
+                          <Meta label="Quién la ve">
+                            <Select value={visibilidad} onValueChange={(v) => v && setVisibilidad(v as VisibilidadId)}>
+                              <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => obtenerVisibilidad(v)?.nombre ?? "Interno"}</SelectValue></SelectTrigger>
+                              <SelectContent>
+                                {VISIBILIDADES.map((vi) => (<SelectItem key={vi.id} value={vi.id}>{vi.nombre} — {vi.desc}</SelectItem>))}
+                              </SelectContent>
+                            </Select>
+                          </Meta>
+                        }
+                      />
                     )}
                     {esAgencia && (
-                      <Meta label="Categoría">
-                        <Select value={categoria || "sin"} onValueChange={(v) => setCategoria(v === "sin" ? "" : (v as CategoriaTareaId))}>
-                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => CATEGORIAS_TAREA.find((c) => c.id === v)?.nombre ?? "Sin categoría"}</SelectValue></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="sin">Sin categoría</SelectItem>
-                            {CATEGORIAS_TAREA.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
-                      </Meta>
+                      <PastillaOpcion
+                        etiqueta="Categoría"
+                        opciones={[
+                          { id: "sin", nombre: "Sin categoría" },
+                          ...CATEGORIAS_TAREA,
+                        ]}
+                        valor={categoria || "sin"}
+                        onCambio={(v) => setCategoria(v === "sin" ? "" : (v as CategoriaTareaId))}
+                        contenidoMovil={
+                          <Meta label="Categoría">
+                            <Select value={categoria || "sin"} onValueChange={(v) => setCategoria(v === "sin" ? "" : (v as CategoriaTareaId))}>
+                              <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => CATEGORIAS_TAREA.find((c) => c.id === v)?.nombre ?? "Sin categoría"}</SelectValue></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="sin">Sin categoría</SelectItem>
+                                {CATEGORIAS_TAREA.map((c) => (<SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>))}
+                              </SelectContent>
+                            </Select>
+                          </Meta>
+                        }
+                      />
                     )}
-                    <Meta label="Responsable">
-                      <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
-                        <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
-                          {asignables.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
-                        </SelectContent>
-                      </Select>
-                    </Meta>
+                    <PastillaPersona
+                      etiqueta="Responsable"
+                      equipo={asignables}
+                      valor={responsable}
+                      onCambio={elegirResponsable}
+                      opcionNula={{ id: SIN_ASIGNAR, nombre: "Sin asignar" }}
+                      contenidoMovil={
+                        <Meta label="Responsable">
+                          <Select value={responsable} onValueChange={(v) => elegirResponsable(v ?? SIN_ASIGNAR)}>
+                            <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
+                              {asignables.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </Meta>
+                      }
+                    />
                     {/* El área la dicta el perfil del responsable, así que en el 99 %
                         de los casos es un campo que se rellena solo y solo estorba
                         ("si le creo una tarea a René no es necesario poner el área,
-                        su área ya es operaciones"). Se muestra como dato, con un
-                        atajo para el caso raro en que haya que cambiarla. */}
-                    <Meta label="Área">
-                      {areaManual ? (
-                        <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
-                          <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
-                          <SelectContent>
-                            {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
-                          </SelectContent>
-                        </Select>
-                      ) : (
-                        <div className="flex items-center gap-2 text-sm md:h-9 md:w-full">
-                          <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
-                          <button
-                            type="button"
-                            onClick={() => setAreaManual(true)}
-                            className="ml-auto shrink-0 text-xs font-medium text-primary hover:underline"
-                          >
-                            cambiar
-                          </button>
-                        </div>
-                      )}
-                    </Meta>
-                    <Meta label="Prioridad">
-                      <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
-                        <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
-                        <SelectContent>
-                          {PRIORIDADES.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
-                        </SelectContent>
-                      </Select>
-                    </Meta>
-                    <Meta label="Fecha límite">
-                      <DatePicker className={CTRL_MOVIL} value={fecha} onChange={setFecha} limpiable />
-                    </Meta>
-                    <Meta label="Recordatorio">
-                      <Input
-                        className={CTRL_MOVIL}
-                        type="datetime-local"
-                        value={recordatorio}
-                        onChange={(e) => setRecordatorio(e.target.value)}
-                      />
-                    </Meta>
+                        su área ya es operaciones"). En escritorio la pastilla ya es
+                        discreta; en el teléfono se muestra como dato con su atajo. */}
+                    <PastillaOpcion
+                      etiqueta="Área"
+                      opciones={AREAS}
+                      valor={area}
+                      onCambio={(v) => {
+                        setArea(v);
+                        setAreaManual(true);
+                      }}
+                      sinTinte
+                      contenidoMovil={
+                        <Meta label="Área">
+                          {areaManual ? (
+                            <Select value={area} onValueChange={(v) => v && setArea(v as AreaId)}>
+                              <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => AREAS.find((a) => a.id === v)?.nombre ?? "Área"}</SelectValue></SelectTrigger>
+                              <SelectContent>
+                                {AREAS.map((a) => (<SelectItem key={a.id} value={a.id}>{a.nombre}</SelectItem>))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <div className="flex items-center gap-2 text-sm md:h-9 md:w-full">
+                              <span className="font-medium">{obtenerArea(area)?.nombre ?? area}</span>
+                              <button
+                                type="button"
+                                onClick={() => setAreaManual(true)}
+                                className="ml-auto shrink-0 text-xs font-medium text-primary hover:underline"
+                              >
+                                cambiar
+                              </button>
+                            </div>
+                          )}
+                        </Meta>
+                      }
+                    />
+                    <PastillaOpcion
+                      etiqueta="Prioridad"
+                      opciones={PRIORIDADES}
+                      valor={prioridad}
+                      onCambio={setPrioridad}
+                      contenidoMovil={
+                        <Meta label="Prioridad">
+                          <Select value={prioridad} onValueChange={(v) => v && setPrioridad(v as PrioridadId)}>
+                            <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => PRIORIDADES.find((p) => p.id === v)?.nombre ?? "Prioridad"}</SelectValue></SelectTrigger>
+                            <SelectContent>
+                              {PRIORIDADES.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
+                            </SelectContent>
+                          </Select>
+                        </Meta>
+                      }
+                    />
+                    <PastillaFecha
+                      etiqueta="Fecha límite"
+                      etiquetaVacia="Fecha límite"
+                      valor={fecha}
+                      onCambio={setFecha}
+                      limpiable
+                      contenidoMovil={
+                        <Meta label="Fecha límite">
+                          <DatePicker className={CTRL_MOVIL} value={fecha} onChange={setFecha} limpiable />
+                        </Meta>
+                      }
+                    />
+                    <PastillaFechaHora
+                      etiqueta="Recordatorio"
+                      etiquetaVacia="Recordatorio"
+                      valor={recordatorio}
+                      onCambio={setRecordatorio}
+                      contenidoMovil={
+                        <Meta label="Recordatorio">
+                          <Input
+                            className={CTRL_MOVIL}
+                            type="datetime-local"
+                            value={recordatorio}
+                            onChange={(e) => setRecordatorio(e.target.value)}
+                          />
+                        </Meta>
+                      }
+                    />
                   </div>
                 ) : (
                   /* Quien solo la trabaja la lee. El estado ya se cambia desde
@@ -1152,63 +1241,6 @@ function Meta({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-/* En el teléfono las secciones se pliegan —con la tarea abierta, subtareas +
-   enlaces + adjuntos + comentarios + historial eran varias pantallas de scroll—
-   y el encabezado muestra cuánto hay dentro. De md en adelante el encabezado
-   deja de responder al clic, el chevron desaparece y el contenido queda siempre
-   abierto: en escritorio se ve igual que antes.
-
-   El plegado usa el mismo grid 0fr→1fr que la vista móvil del tablero. */
-function Seccion({
-  titulo,
-  contador,
-  sufijoEscritorio,
-  abiertaPorDefecto = false,
-  children,
-}: {
-  titulo: string;
-  contador?: string | number | null;
-  /* Lo que en el teléfono va como pastilla, en escritorio se sigue leyendo
-     dentro del propio encabezado (así estaba «Subtareas (2/5)»). */
-  sufijoEscritorio?: string | null;
-  abiertaPorDefecto?: boolean;
-  children: React.ReactNode;
-}) {
-  const [abierta, setAbierta] = useState(abiertaPorDefecto);
-  return (
-    <div className="mt-4 border-t pt-3">
-      <button
-        type="button"
-        onClick={() => setAbierta((v) => !v)}
-        aria-expanded={abierta}
-        className="flex w-full items-center gap-2 py-1 text-left md:pointer-events-none md:mb-2 md:py-0"
-      >
-        <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          {titulo}
-          {sufijoEscritorio && <span className="hidden md:inline"> {sufijoEscritorio}</span>}
-        </h3>
-        {contador != null && (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground md:hidden">
-            {contador}
-          </span>
-        )}
-        <ChevronDown
-          className={cn(
-            "ml-auto size-4 shrink-0 text-muted-foreground transition-transform md:hidden",
-            !abierta && "-rotate-90",
-          )}
-          strokeWidth={2}
-          aria-hidden="true"
-        />
-      </button>
-      <div
-        className={cn(
-          "grid transition-[grid-template-rows] duration-200 md:grid-rows-[1fr]",
-          abierta ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">{children}</div>
-      </div>
-    </div>
-  );
-}
+/* La Seccion plegable que vivía aquí se promovió a
+   components/compartido/seccion-plegable.tsx; este alias conserva los usos. */
+const Seccion = SeccionPlegable;

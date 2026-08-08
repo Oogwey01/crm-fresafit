@@ -1,28 +1,29 @@
 "use client";
 
 import { useState } from "react";
+import { Mail, Phone } from "lucide-react";
 import { toast } from "sonner";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  PastillaDato,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
+import {
+  PastillaPropiedad,
+  useCerrarPastilla,
+} from "@/components/compartido/pastilla-propiedad";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { CANALES } from "@/lib/catalogos";
 import { guardarCliente, borrarCliente, type ClienteInput } from "@/app/(app)/clientes/actions";
 import type { CanalId, Customer } from "@/lib/types";
+import type { LucideIcon } from "lucide-react";
 
 const SIN_CANAL = "none";
 
@@ -45,6 +46,11 @@ export function ClienteDialog({
   const [correo, setCorreo] = useState(cliente?.correo ?? "");
   const [canal, setCanal] = useState<string>(cliente?.canal ?? SIN_CANAL);
   const [notas, setNotas] = useState(cliente?.notas ?? "");
+
+  const opcionesCanal: { id: string; nombre: string; color?: string }[] = [
+    { id: SIN_CANAL, nombre: "Sin canal" },
+    ...CANALES,
+  ];
 
   function guardar() {
     if (!nombre.trim()) {
@@ -76,99 +82,190 @@ export function ClienteDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{cliente ? "Editar cliente" : "Nuevo cliente"}</DialogTitle>
-        </DialogHeader>
+    <DialogoFormulario
+      titulo={cliente ? "Editar cliente" : "Nuevo cliente"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={cliente ? "Guardar cambios" : "Crear cliente"}
+      pending={pending}
+      onBorrar={cliente && gestor ? borrar : undefined}
+      anchoEscritorio="md:max-w-lg"
+    >
+      <Hero
+        pasoTitulo="¿Quién es?"
+        valido={Boolean(nombre.trim())}
+        motivoInvalido="El cliente necesita un nombre."
+      >
+        {deTiendaNube && (
+          <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground md:mb-1">
+            Cliente de Tienda Nube: su nombre y contacto se actualizan con cada importación (se
+            administran en la tienda). Las notas sí son tuyas y no se pisan.
+          </p>
+        )}
 
-        <div className="flex flex-col gap-3">
-          {deTiendaNube && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-              Cliente de Tienda Nube: su nombre y contacto se actualizan con cada importación (se
-              administran en la tienda). Las notas sí son tuyas y no se pisan.
-            </p>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cli-nombre">Nombre</Label>
-            <Input
-              id="cli-nombre"
-              autoFocus={!cliente}
-              disabled={deTiendaNube}
-              placeholder="Nombre y apellido"
-              value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cli-telefono">Teléfono</Label>
-              <Input
-                id="cli-telefono"
-                type="tel"
-                disabled={deTiendaNube}
-                placeholder="+52 …"
-                value={telefono}
-                onChange={(e) => setTelefono(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="cli-correo">Correo</Label>
-              <Input
-                id="cli-correo"
-                type="email"
-                disabled={deTiendaNube}
-                placeholder="cliente@correo.com"
-                value={correo}
-                onChange={(e) => setCorreo(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Canal de origen</Label>
-            <Select value={canal} onValueChange={(v) => setCanal(v ?? SIN_CANAL)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) =>
-                    v === SIN_CANAL
-                      ? "Sin canal"
-                      : (CANALES.find((c) => c.id === v)?.nombre ?? "Canal")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={SIN_CANAL}>Sin canal</SelectItem>
-                {CANALES.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="cli-notas">Notas (mayoreo, atención especial…)</Label>
-            <Textarea
-              id="cli-notas"
-              rows={3}
-              placeholder="Compra al mayoreo; pedir factura; contactar por WhatsApp…"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={cliente ? "Guardar cambios" : "Crear cliente"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={cliente && gestor ? borrar : undefined}
+        {/* El nombre de un cliente de Tienda Nube no se edita aquí: se pinta tal
+            cual, sin caja, en lugar del input del hero. */}
+        {deTiendaNube ? (
+          <p className="font-heading text-lg font-semibold md:text-xl">{nombre}</p>
+        ) : (
+          <CampoHero
+            id="cli-nombre"
+            etiqueta="Nombre"
+            placeholder="Nombre y apellido"
+            valor={nombre}
+            onCambio={setNombre}
+          />
+        )}
+        <DescripcionHero
+          id="cli-notas"
+          etiqueta="Notas (mayoreo, atención especial…)"
+          placeholder="Compra al mayoreo; pedir factura; contactar por WhatsApp… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
         />
-      </DialogContent>
-    </Dialog>
+      </Hero>
+
+      <Propiedades
+        pasoTitulo="Contacto y canal"
+        pasoAyuda={
+          deTiendaNube
+            ? "El teléfono y el correo se administran en la tienda; aquí solo se consultan."
+            : undefined
+        }
+      >
+        {deTiendaNube ? (
+          <>
+            <PastillaDato
+              etiqueta="Teléfono"
+              icono={Phone}
+              valor={telefono || "Sin teléfono"}
+              contenidoMovil={
+                <Campo etiqueta="Teléfono" htmlFor="cli-telefono">
+                  <Input id="cli-telefono" type="tel" disabled value={telefono} />
+                </Campo>
+              }
+            />
+            <PastillaDato
+              etiqueta="Correo"
+              icono={Mail}
+              valor={correo || "Sin correo"}
+              contenidoMovil={
+                <Campo etiqueta="Correo" htmlFor="cli-correo">
+                  <Input id="cli-correo" type="email" disabled value={correo} />
+                </Campo>
+              }
+            />
+          </>
+        ) : (
+          <>
+            <PastillaContacto
+              etiqueta="Teléfono"
+              icono={Phone}
+              tipo="tel"
+              placeholder="+52 …"
+              valor={telefono}
+              onCambio={setTelefono}
+              idMovil="cli-telefono"
+            />
+            <PastillaContacto
+              etiqueta="Correo"
+              icono={Mail}
+              tipo="email"
+              placeholder="cliente@correo.com"
+              valor={correo}
+              onCambio={setCorreo}
+              idMovil="cli-correo"
+            />
+          </>
+        )}
+        <PastillaOpcion<string>
+          etiqueta="Canal de origen"
+          opciones={opcionesCanal}
+          valor={canal}
+          onCambio={setCanal}
+          idMovil="cli-canal"
+        />
+      </Propiedades>
+    </DialogoFormulario>
+  );
+}
+
+/* Como PastillaEntrada, pero con type="tel" / type="email" en los inputs: la
+   compartida solo maneja text/number y aquí importa el teclado que abre el
+   teléfono. Vive en este archivo porque la infra compartida no se toca. */
+function PastillaContacto({
+  etiqueta,
+  icono,
+  tipo,
+  placeholder,
+  valor,
+  onCambio,
+  idMovil,
+}: {
+  etiqueta: string;
+  icono?: LucideIcon;
+  tipo: "tel" | "email";
+  placeholder?: string;
+  valor: string;
+  onCambio: (v: string) => void;
+  idMovil?: string;
+}) {
+  return (
+    <PastillaPropiedad
+      etiqueta={etiqueta}
+      icono={icono}
+      vacia={!valor}
+      etiquetaVacia={etiqueta}
+      valor={valor}
+      textoValor={valor || undefined}
+      contenidoMovil={
+        <Campo etiqueta={etiqueta} opcional htmlFor={idMovil}>
+          <Input
+            id={idMovil}
+            type={tipo}
+            placeholder={placeholder}
+            value={valor}
+            onChange={(e) => onCambio(e.target.value)}
+          />
+        </Campo>
+      }
+    >
+      <EntradaContacto
+        etiqueta={etiqueta}
+        tipo={tipo}
+        placeholder={placeholder}
+        valor={valor}
+        onCambio={onCambio}
+      />
+    </PastillaPropiedad>
+  );
+}
+
+function EntradaContacto({
+  etiqueta,
+  tipo,
+  placeholder,
+  valor,
+  onCambio,
+}: {
+  etiqueta: string;
+  tipo: "tel" | "email";
+  placeholder?: string;
+  valor: string;
+  onCambio: (v: string) => void;
+}) {
+  const cerrar = useCerrarPastilla();
+  return (
+    <Input
+      type={tipo}
+      aria-label={etiqueta}
+      placeholder={placeholder}
+      value={valor}
+      onChange={(e) => onCambio(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") cerrar();
+      }}
+      className="w-56"
+    />
   );
 }

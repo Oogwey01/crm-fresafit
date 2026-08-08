@@ -22,7 +22,7 @@ export function PieDialogoCRUD({
   onCancelar: () => void;
   /** Presente solo cuando se puede borrar (edición + permiso). */
   onBorrar?: () => void;
-  /** Para esconderlo donde el pie lo sustituye otra barra (ver dialogo-pasos). */
+  /** Para esconderlo donde el pie lo sustituye otra barra (ver dialogo-formulario). */
   className?: string;
 }) {
   return (

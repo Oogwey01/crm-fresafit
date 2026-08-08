@@ -3,24 +3,22 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+  SeccionFormulario,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  PastillaDato,
+  PastillaEntrada,
+  PastillaInterruptor,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import type { VistaDinero } from "@/lib/permisos-dinero";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { aNumero } from "@/lib/validacion";
 import { TIPOS_PRODUCTO } from "@/lib/catalogos";
 import {
@@ -95,6 +93,11 @@ export function ProductoDialog({
   const [descontinuado, setDescontinuado] = useState(producto?.descontinuado ?? false);
   const [notas, setNotas] = useState(producto?.notas ?? "");
 
+  const opcionesProveedor: { id: string; nombre: string }[] = [
+    { id: SIN_PROVEEDOR, nombre: "Sin proveedor" },
+    ...proveedores.map((p) => ({ id: p.id, nombre: p.nombre })),
+  ];
+
   function guardar() {
     if (!nombre.trim()) {
       toast.error("El producto necesita un nombre.");
@@ -132,240 +135,218 @@ export function ProductoDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{producto ? "Editar producto" : "Nuevo producto"}</DialogTitle>
-        </DialogHeader>
+    <DialogoFormulario
+      titulo={producto ? "Editar producto" : "Nuevo producto"}
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar={producto ? "Guardar cambios" : "Crear producto"}
+      pending={pending}
+      onBorrar={producto && gestor ? borrar : undefined}
+    >
+      <Hero
+        pasoTitulo="¿Qué producto es?"
+        valido={Boolean(nombre.trim())}
+        motivoInvalido="El producto necesita un nombre."
+      >
+        {avisoCanales && (
+          <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground md:mb-1">
+            {avisoCanales}
+          </p>
+        )}
 
-        <div className="flex flex-col gap-3">
-          {avisoCanales && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-              {avisoCanales}
+        {/* El nombre y la variante de un producto vinculado se administran en el
+            canal: se pintan tal cual, sin caja. */}
+        {vinculado ? (
+          <div className="flex flex-col">
+            <p className="font-heading text-lg font-semibold md:text-xl">{nombre}</p>
+            {variante && <p className="text-sm text-muted-foreground">{variante}</p>}
+          </div>
+        ) : (
+          <>
+            <CampoHero
+              id="prod-nombre"
+              etiqueta="Nombre"
+              placeholder="Cinturón de palanca"
+              valor={nombre}
+              onCambio={setNombre}
+            />
+            <CampoHero
+              id="prod-variante"
+              etiqueta="Variante (opcional)"
+              placeholder="Variante: Rosa / M… (opcional)"
+              valor={variante}
+              onCambio={setVariante}
+              className="font-sans text-[15px] font-normal md:text-[15px]"
+            />
+          </>
+        )}
+        <DescripcionHero
+          id="prod-notas"
+          etiqueta="Notas (opcional)"
+          placeholder="Detalles del producto… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo="Catálogo y precio">
+        <PastillaOpcion
+          etiqueta="Tipo"
+          opciones={TIPOS_PRODUCTO}
+          valor={tipo}
+          onCambio={setTipo}
+        />
+        <PastillaOpcion<string>
+          etiqueta="Proveedor"
+          opciones={opcionesProveedor}
+          valor={proveedorId}
+          onCambio={setProveedorId}
+          buscable
+        />
+
+        {/* Costo y precio desaparecen para quien no puede verlos: al editar
+            llegarían vacíos y guardar los dejaría en nulo sin que nadie lo
+            pidiera. Al dar de alta sí se piden —ahí el número lo pone quien
+            captura—; el servidor conserva los anteriores de todas formas. */}
+        {(dinero.egresos || !producto) && (
+          <PastillaEntrada
+            etiqueta="Costo ($)"
+            tipo="number"
+            prefijo="$"
+            placeholder="0.00"
+            valor={costo}
+            onCambio={setCosto}
+            opcional
+            idMovil="prod-costo"
+          />
+        )}
+        {(dinero.ingresos || !producto) &&
+          (deMeli && !deTiendaNube ? (
+            /* El precio de una publicación de ML se administra en ML. */
+            <PastillaDato
+              etiqueta="Precio"
+              valor={precio ? `$${precio}` : "Precio en ML"}
+              contenidoMovil={
+                <Campo etiqueta="Precio ($)" htmlFor="prod-precio">
+                  <Input id="prod-precio" type="number" disabled value={precio} />
+                </Campo>
+              }
+            />
+          ) : (
+            <PastillaEntrada
+              etiqueta="Precio ($)"
+              tipo="number"
+              prefijo="$"
+              placeholder="0.00"
+              valor={precio}
+              onCambio={setPrecio}
+              opcional
+              idMovil="prod-precio"
+            />
+          ))}
+      </Propiedades>
+
+      <Propiedades pasoTitulo="Stock y estado">
+        {vinculado ? (
+          <PastillaDato
+            etiqueta="Stock"
+            valor={`${stock} en stock`}
+            contenidoMovil={
+              <Campo
+                etiqueta="Stock"
+                htmlFor="prod-stock"
+                ayuda="El stock se ajusta con los botones +/− de la tabla"
+              >
+                <Input id="prod-stock" type="number" disabled value={stock} />
+              </Campo>
+            }
+          />
+        ) : (
+          <PastillaEntrada
+            etiqueta="Stock"
+            tipo="number"
+            sufijo="en stock"
+            valor={stock}
+            onCambio={setStock}
+            idMovil="prod-stock"
+          />
+        )}
+        <PastillaEntrada
+          etiqueta="Aviso si ≤"
+          tipo="number"
+          prefijo="avisa ≤"
+          valor={stockMinimo}
+          onCambio={setStockMinimo}
+          ayuda="Se avisa cuando el stock baja a este número o menos."
+          idMovil="prod-minimo"
+        />
+        <PastillaInterruptor
+          etiqueta="Se hace bajo pedido"
+          valor={bajoPedido}
+          onCambio={setBajoPedido}
+        />
+        <PastillaInterruptor
+          etiqueta="Descontinuado"
+          valor={descontinuado}
+          onCambio={setDescontinuado}
+        />
+        {producto && (
+          <PastillaInterruptor etiqueta="Producto activo" valor={activo} onCambio={setActivo} />
+        )}
+
+        {/* Las explicaciones de los interruptores, que en el teléfono siguen
+            leyéndose completas (la pastilla sola no las carga). */}
+        <div className="flex w-full flex-col gap-1.5 md:hidden">
+          <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+            <b className="text-foreground">Bajo pedido:</b> se fabrica cuando alguien lo compra
+            (personalizados). No lleva inventario: queda fuera de los agotados y de «Qué pedir».
+          </p>
+          <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+            <b className="text-foreground">Descontinuado (ya no se repone):</b> líneas viejas que
+            no se van a volver a maquilar (p. ej. las OG). Conserva su histórico y su stock, pero
+            queda fuera de «Qué pedir» y de los avisos, y se oculta del catálogo vigente.
+          </p>
+          {producto && (
+            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+              <b className="text-foreground">Producto activo:</b> desmárcalo para retirarlo del
+              catálogo sin borrarlo.
             </p>
           )}
-
-          {/* Galería importada de Tienda Nube (solo lectura; click para ampliar).
-              Se pide al abrir el diálogo: traerla en el listado del inventario
-              costaba ~950 KB por carga de página. */}
-          {producto && imagenes.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <Label>Fotos ({imagenes.length})</Label>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {imagenes.map((src, i) => (
-                  <a
-                    key={src}
-                    href={src}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0"
-                    title={`Foto ${i + 1} — abrir en tamaño completo`}
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={src}
-                      alt={`${producto.nombre} — foto ${i + 1}`}
-                      loading="lazy"
-                      className="size-20 rounded-md border object-cover transition hover:opacity-80"
-                    />
-                  </a>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="prod-nombre">Nombre</Label>
-              <Input
-                id="prod-nombre"
-                autoFocus={!vinculado}
-                disabled={vinculado}
-                placeholder="Cinturón de palanca"
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="prod-variante">Variante (opcional)</Label>
-              <Input
-                id="prod-variante"
-                disabled={vinculado}
-                placeholder="Rosa / M"
-                value={variante}
-                onChange={(e) => setVariante(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Tipo</Label>
-              <Select value={tipo} onValueChange={(v) => v && setTipo(v as TipoProductoId)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) => TIPOS_PRODUCTO.find((t) => t.id === v)?.nombre ?? "Tipo"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {TIPOS_PRODUCTO.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Proveedor</Label>
-              <Select value={proveedorId} onValueChange={(v) => setProveedorId(v ?? SIN_PROVEEDOR)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue>
-                    {(v: string) =>
-                      v === SIN_PROVEEDOR
-                        ? "Sin proveedor"
-                        : (proveedores.find((p) => p.id === v)?.nombre ?? "Proveedor")}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_PROVEEDOR}>Sin proveedor</SelectItem>
-                  {proveedores.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Costo y precio desaparecen para quien no puede verlos: al editar
-              llegarían vacíos y guardar los dejaría en nulo sin que nadie lo
-              pidiera. Al dar de alta sí se piden —ahí el número lo pone quien
-              captura—; el servidor conserva los anteriores de todas formas. */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {(dinero.egresos || !producto) && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="prod-costo">Costo ($)</Label>
-                <Input
-                  id="prod-costo"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={costo}
-                  onChange={(e) => setCosto(e.target.value)}
-                />
-              </div>
-            )}
-            {(dinero.ingresos || !producto) && (
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="prod-precio">Precio ($)</Label>
-                <Input
-                  id="prod-precio"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="0.00"
-                  disabled={deMeli && !deTiendaNube}
-                  value={precio}
-                  onChange={(e) => setPrecio(e.target.value)}
-                />
-              </div>
-            )}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="prod-stock">Stock</Label>
-              <Input
-                id="prod-stock"
-                type="number"
-                min="0"
-                step="1"
-                disabled={vinculado}
-                title={vinculado ? "El stock se ajusta con los botones +/− de la tabla" : undefined}
-                value={stock}
-                onChange={(e) => setStock(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="prod-minimo" title="Se avisa cuando el stock baja a este número o menos">
-                Aviso si ≤
-              </Label>
-              <Input
-                id="prod-minimo"
-                type="number"
-                min="0"
-                step="1"
-                value={stockMinimo}
-                onChange={(e) => setStockMinimo(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="prod-notas">Notas (opcional)</Label>
-            <Textarea
-              id="prod-notas"
-              rows={2}
-              placeholder="Detalles del producto…"
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-            />
-          </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={bajoPedido}
-              onChange={(e) => setBajoPedido(e.target.checked)}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              Se hace bajo pedido
-              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
-                Se fabrica cuando alguien lo compra (personalizados). No lleva inventario: queda
-                fuera de los agotados y de «Qué pedir».
-              </span>
-            </span>
-          </label>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={descontinuado}
-              onChange={(e) => setDescontinuado(e.target.checked)}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              Descontinuado (ya no se repone)
-              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
-                Líneas viejas que no se van a volver a maquilar (p. ej. las OG). Conserva su
-                histórico y su stock, pero queda fuera de «Qué pedir» y de los avisos, y se oculta
-                del catálogo vigente.
-              </span>
-            </span>
-          </label>
-
-          {producto && (
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={activo}
-                onChange={(e) => setActivo(e.target.checked)}
-                className="size-4 accent-primary"
-              />
-              Producto activo (desmárcalo para retirarlo del catálogo sin borrarlo)
-            </label>
-          )}
         </div>
+      </Propiedades>
 
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar={producto ? "Guardar cambios" : "Crear producto"}
-          onGuardar={guardar}
-          onCancelar={onClose}
-          onBorrar={producto && gestor ? borrar : undefined}
-        />
-      </DialogContent>
-    </Dialog>
+      {/* Galería importada de Tienda Nube (solo lectura; click para ampliar).
+          Se pide al abrir el diálogo: traerla en el listado del inventario
+          costaba ~950 KB por carga de página. */}
+      {producto && imagenes.length > 0 && (
+        <SeccionFormulario
+          titulo="Fotos"
+          pasoTitulo="Fotos"
+          contador={imagenes.length}
+          abiertaPorDefecto
+        >
+          <div className="flex w-full gap-2 overflow-x-auto pb-1">
+            {imagenes.map((src, i) => (
+              <a
+                key={src}
+                href={src}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0"
+                title={`Foto ${i + 1} — abrir en tamaño completo`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={src}
+                  alt={`${producto.nombre} — foto ${i + 1}`}
+                  loading="lazy"
+                  className="size-20 rounded-md border object-cover transition hover:opacity-80"
+                />
+              </a>
+            ))}
+          </div>
+        </SeccionFormulario>
+      )}
+    </DialogoFormulario>
   );
 }

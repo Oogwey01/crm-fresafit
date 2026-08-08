@@ -19,8 +19,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Campo } from "@/components/compartido/campo";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
@@ -553,8 +553,7 @@ function DialogoCarga({ onClose }: { onClose: () => void }) {
           <DialogTitle>Nueva carga</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="carga-titulo">Nombre</Label>
+          <Campo etiqueta="Nombre" htmlFor="carga-titulo">
             <Input
               id="carga-titulo"
               autoFocus
@@ -562,9 +561,8 @@ function DialogoCarga({ onClose }: { onClose: () => void }) {
               value={titulo}
               onChange={(e) => setTitulo(e.target.value)}
             />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Plantilla</Label>
+          </Campo>
+          <Campo etiqueta="Plantilla">
             <Select value={canal} onValueChange={(v) => v && setCanal(v as typeof canal)}>
               <SelectTrigger className="w-full">
                 <SelectValue>
@@ -576,16 +574,15 @@ function DialogoCarga({ onClose }: { onClose: () => void }) {
                 <SelectItem value="mercado_libre">Mercado Libre</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="carga-notas">Notas</Label>
+          </Campo>
+          <Campo etiqueta="Notas" htmlFor="carga-notas">
             <Textarea
               id="carga-notas"
               rows={2}
               value={notas}
               onChange={(e) => setNotas(e.target.value)}
             />
-          </div>
+          </Campo>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={pending}>

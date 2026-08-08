@@ -1,18 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { DatePicker } from "@/components/compartido/date-picker";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import {
+  PastillaEntrada,
+  PastillaFecha,
+  PastillaOpcion,
+} from "@/components/compartido/pastillas-campo";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { registrarPago } from "@/app/(app)/nomina/actions";
 import { periodoDeCorte } from "@/lib/agencia";
@@ -67,6 +65,11 @@ export function PagoDialog({
     setMonto(String(empleado.monto ?? ""));
   }
 
+  const opcionesEmpleado = activos.map((e) => ({
+    id: e.id,
+    nombre: `${e.nombre}${e.puesto ? ` · ${e.puesto}` : ""}`,
+  }));
+
   function guardar() {
     if (!empleado) return;
     ejecutar(
@@ -91,130 +94,126 @@ export function PagoDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Registrar pago</DialogTitle>
-        </DialogHeader>
-
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label>Persona</Label>
-            <Select value={empleadoId} onValueChange={(v) => v && setEmpleadoId(v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue>
-                  {(v: string) => empleados.find((e) => e.id === v)?.nombre ?? "Elegir"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {activos.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                    {e.puesto ? ` · ${e.puesto}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {empleado && (
-              <p className="text-[12px] text-muted-foreground">
-                Cobra {formatearMXN(empleado.monto)}{" "}
-                {empleado.periodicidad === "por_evento"
-                  ? "por evento"
-                  : `cada ${empleado.periodicidad === "semanal" ? "semana" : empleado.periodicidad === "mensual" ? "mes" : "quincena"}`}
-                {empleado.empresa ? ` · se carga a ${empleado.empresa.nombre}` : " · Fresafit"}
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pago-desde">Periodo desde</Label>
-              <DatePicker
-                id="pago-desde"
-                value={periodo.desde}
-                onChange={(v) => setPeriodo((p) => ({ ...p, desde: v }))}
-                limpiable
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pago-hasta">Hasta</Label>
-              <DatePicker
-                id="pago-hasta"
-                value={periodo.hasta}
-                onChange={(v) => setPeriodo((p) => ({ ...p, hasta: v }))}
-                limpiable
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pago-monto">Monto ($)</Label>
-            <Input
-              id="pago-monto"
-              type="number"
-              min="0"
-              step="0.01"
-              value={monto}
-              onChange={(e) => setMonto(e.target.value)}
-            />
-          </div>
-
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={pagado}
-              onChange={(e) => setPagado(e.target.checked)}
-              className="mt-0.5 size-4 accent-primary"
-            />
-            <span>
-              Ya se pagó
-              <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
-                Apágalo para dejarlo como pendiente y que salga en «Por pagar».
-              </span>
-            </span>
-          </label>
-
-          {pagado && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pago-fecha">Fecha de pago</Label>
-                <DatePicker id="pago-fecha" value={fechaPago} onChange={setFechaPago} />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pago-metodo">Método</Label>
-                <Input
-                  id="pago-metodo"
-                  placeholder="Transferencia, efectivo…"
-                  value={metodo}
-                  onChange={(e) => setMetodo(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pago-comprobante">Comprobante</Label>
-            <Input
-              id="pago-comprobante"
-              placeholder="Folio de la transferencia o enlace"
-              value={comprobante}
-              onChange={(e) => setComprobante(e.target.value)}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="pago-notas">Notas</Label>
-            <Input id="pago-notas" value={notas} onChange={(e) => setNotas(e.target.value)} />
-          </div>
+    <DialogoFormulario
+      titulo="Registrar pago"
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar="Registrar pago"
+      pending={pending}
+    >
+      <Hero pasoTitulo="¿A quién y cuánto?">
+        {/* La persona va primero, como pastillita sobre el monto: de su esquema
+            cuelga todo lo demás (periodo y monto propuestos). */}
+        <div className="md:mb-1">
+          <PastillaOpcion
+            etiqueta="Persona"
+            opciones={opcionesEmpleado}
+            valor={empleadoId}
+            onCambio={(v) => v && setEmpleadoId(v)}
+            buscable
+          />
         </div>
 
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar="Registrar pago"
-          onGuardar={guardar}
-          onCancelar={onClose}
+        {/* El monto protagonista, autoprellenado con el sueldo de la persona. */}
+        <div className="flex items-baseline gap-1">
+          <span className="text-lg font-semibold md:text-xl" aria-hidden="true">
+            $
+          </span>
+          <input
+            id="pago-monto"
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            aria-label="Monto"
+            placeholder="0.00"
+            value={monto}
+            onChange={(e) => setMonto(e.target.value)}
+            className="w-full border-0 bg-transparent px-0 text-lg font-semibold outline-none placeholder:text-muted-foreground/50 md:text-xl"
+          />
+        </div>
+
+        {empleado && (
+          <p className="text-[12px] text-muted-foreground">
+            Cobra {formatearMXN(empleado.monto)}{" "}
+            {empleado.periodicidad === "por_evento"
+              ? "por evento"
+              : `cada ${empleado.periodicidad === "semanal" ? "semana" : empleado.periodicidad === "mensual" ? "mes" : "quincena"}`}
+            {empleado.empresa ? ` · se carga a ${empleado.empresa.nombre}` : " · Fresafit"}
+          </p>
+        )}
+      </Hero>
+
+      <Propiedades
+        pasoTitulo="¿De qué periodo?"
+        pasoAyuda="Propuesto por el esquema de la persona; cámbialo si aplica."
+      >
+        <PastillaFecha
+          etiqueta="Periodo desde"
+          etiquetaVacia="Desde"
+          valor={periodo.desde}
+          onCambio={(v) => setPeriodo((p) => ({ ...p, desde: v }))}
+          limpiable
         />
-      </DialogContent>
-    </Dialog>
+        <PastillaFecha
+          etiqueta="Hasta"
+          etiquetaVacia="Hasta"
+          valor={periodo.hasta}
+          onCambio={(v) => setPeriodo((p) => ({ ...p, hasta: v }))}
+          limpiable
+        />
+      </Propiedades>
+
+      <Propiedades pasoTitulo="El pago">
+        <label className="flex w-full items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={pagado}
+            onChange={(e) => setPagado(e.target.checked)}
+            className="mt-0.5 size-4 accent-primary"
+          />
+          <span>
+            Ya se pagó
+            <span className="block text-[12.5px] leading-relaxed text-muted-foreground">
+              Apágalo para dejarlo como pendiente y que salga en «Por pagar».
+            </span>
+          </span>
+        </label>
+
+        {pagado && (
+          <>
+            <PastillaFecha
+              etiqueta="Fecha de pago"
+              etiquetaVacia="Fecha de pago"
+              valor={fechaPago}
+              onCambio={setFechaPago}
+            />
+            <PastillaEntrada
+              etiqueta="Método"
+              valor={metodo}
+              onCambio={setMetodo}
+              placeholder="Transferencia, efectivo…"
+              idMovil="pago-metodo"
+            />
+          </>
+        )}
+
+        <PastillaEntrada
+          etiqueta="Comprobante"
+          valor={comprobante}
+          onCambio={setComprobante}
+          placeholder="Folio de la transferencia o enlace"
+          opcional
+          idMovil="pago-comprobante"
+        />
+        <PastillaEntrada
+          etiqueta="Notas"
+          valor={notas}
+          onCambio={setNotas}
+          opcional
+          idMovil="pago-notas"
+        />
+      </Propiedades>
+    </DialogoFormulario>
   );
 }

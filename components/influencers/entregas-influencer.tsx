@@ -18,8 +18,8 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Campo } from "@/components/compartido/campo";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
@@ -40,7 +40,16 @@ const PRODUCTO_LIBRE = "libre";
 
 /* Ficha de trabajo de una persona: qué material se le mandó (contra su crédito
    mensual) y la evaluación del mes. Es lo que en la hoja «Embajadores FF» eran
-   dos bloques sueltos por persona. */
+   dos bloques sueltos por persona.
+
+   A propósito NO usa DialogoFormulario: esto no es un alta/edición sino un
+   panel de trabajo — un historial, un alta rápida que NO cierra el modal al
+   guardar (resetea y sigue) y una evaluación por periodo que tampoco cierra.
+   El contrato de DialogoFormulario (un solo onGuardar que cierra, wizard por
+   pasos, pie CRUD) no le queda sin partir esto en dos modales. Tampoco lleva
+   pastillas: los dos formularios son captura en lote —se teclean todos los
+   campos cada vez—, y un popover por campo estorba; se queda con el Campo
+   compartido para que labels y ayuda se escriban igual que en el resto. */
 export function EntregasInfluencer({
   influencer,
   entregas,
@@ -186,8 +195,8 @@ export function EntregasInfluencer({
               )}
             </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-6">
-              <div className="col-span-2 sm:col-span-2">
+            <div className="mt-2 grid grid-cols-2 items-end gap-2 sm:grid-cols-6">
+              <Campo etiqueta="Producto" className="col-span-2 sm:col-span-2">
                 <Select
                   value={productoId ?? PRODUCTO_LIBRE}
                   onValueChange={(v) => setProductoId(!v || v === PRODUCTO_LIBRE ? null : v)}
@@ -211,34 +220,48 @@ export function EntregasInfluencer({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </Campo>
               {productoId === null && (
-                <Input
-                  className="col-span-2"
-                  placeholder="Qué se entregó"
-                  value={descripcion}
-                  onChange={(e) => setDescripcion(e.target.value)}
-                />
+                <Campo etiqueta="Qué se entregó" htmlFor="ent-desc" className="col-span-2">
+                  <Input
+                    id="ent-desc"
+                    placeholder="Qué se entregó"
+                    value={descripcion}
+                    onChange={(e) => setDescripcion(e.target.value)}
+                  />
+                </Campo>
               )}
-              <Input placeholder="Talla" value={talla} onChange={(e) => setTalla(e.target.value)} />
-              <Input
-                type="number"
-                min="1"
-                aria-label="Cantidad"
-                value={cantidad}
-                onChange={(e) => setCantidad(e.target.value)}
-              />
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="$ c/u"
-                value={valor}
-                onChange={(e) => setValor(e.target.value)}
-              />
-              <div className="col-span-2 sm:col-span-1">
+              <Campo etiqueta="Talla" htmlFor="ent-talla">
+                <Input
+                  id="ent-talla"
+                  placeholder="Talla"
+                  value={talla}
+                  onChange={(e) => setTalla(e.target.value)}
+                />
+              </Campo>
+              <Campo etiqueta="Cantidad" htmlFor="ent-cantidad">
+                <Input
+                  id="ent-cantidad"
+                  type="number"
+                  min="1"
+                  value={cantidad}
+                  onChange={(e) => setCantidad(e.target.value)}
+                />
+              </Campo>
+              <Campo etiqueta="Valor ($ c/u)" htmlFor="ent-valor">
+                <Input
+                  id="ent-valor"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="$ c/u"
+                  value={valor}
+                  onChange={(e) => setValor(e.target.value)}
+                />
+              </Campo>
+              <Campo etiqueta="Fecha" className="col-span-2 sm:col-span-1">
                 <DatePicker value={fecha} onChange={setFecha} />
-              </div>
+              </Campo>
               <Button
                 variant="outline"
                 onClick={agregarEntrega}
@@ -258,6 +281,7 @@ export function EntregasInfluencer({
               </h3>
               <Input
                 type="month"
+                aria-label="Mes a evaluar"
                 className="w-[160px]"
                 value={periodo}
                 onChange={(e) => setPeriodo(e.target.value)}
@@ -281,52 +305,64 @@ export function EntregasInfluencer({
                 dinero.ingresos ? "sm:grid-cols-5" : "sm:grid-cols-4",
               )}
             >
-              <div className="flex flex-col gap-1">
-                <Label className="text-[12px]">Usos del código</Label>
-                <Input type="number" min="0" value={usos} onChange={(e) => setUsos(e.target.value)} />
-              </div>
+              <Campo etiqueta="Usos del código" htmlFor="ev-usos">
+                <Input
+                  id="ev-usos"
+                  type="number"
+                  min="0"
+                  value={usos}
+                  onChange={(e) => setUsos(e.target.value)}
+                />
+              </Campo>
               {dinero.ingresos && (
-                <div className="flex flex-col gap-1">
-                  <Label className="text-[12px]">Ventas $</Label>
+                <Campo etiqueta="Ventas $" htmlFor="ev-ventas">
                   <Input
+                    id="ev-ventas"
                     type="number"
                     min="0"
                     step="0.01"
                     value={ventas}
                     onChange={(e) => setVentas(e.target.value)}
                   />
-                </div>
+                </Campo>
               )}
-              <div className="flex flex-col gap-1">
-                <Label className="text-[12px]">Videos</Label>
-                <Input type="number" min="0" value={videos} onChange={(e) => setVideos(e.target.value)} />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[12px]">Stories</Label>
+              <Campo etiqueta="Videos" htmlFor="ev-videos">
                 <Input
+                  id="ev-videos"
+                  type="number"
+                  min="0"
+                  value={videos}
+                  onChange={(e) => setVideos(e.target.value)}
+                />
+              </Campo>
+              <Campo etiqueta="Stories" htmlFor="ev-stories">
+                <Input
+                  id="ev-stories"
                   type="number"
                   min="0"
                   value={stories}
                   onChange={(e) => setStories(e.target.value)}
                 />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-[12px]">Participaciones</Label>
+              </Campo>
+              <Campo etiqueta="Participaciones" htmlFor="ev-participaciones">
                 <Input
+                  id="ev-participaciones"
                   type="number"
                   min="0"
                   value={participaciones}
                   onChange={(e) => setParticipaciones(e.target.value)}
                 />
-              </div>
+              </Campo>
             </div>
-            <Textarea
-              className="mt-2"
-              rows={2}
-              placeholder="Observaciones del mes…"
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-            />
+            <Campo etiqueta="Observaciones" htmlFor="ev-observaciones" opcional className="mt-2">
+              <Textarea
+                id="ev-observaciones"
+                rows={2}
+                placeholder="Observaciones del mes…"
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+              />
+            </Campo>
             <Button
               variant="outline"
               size="sm"
