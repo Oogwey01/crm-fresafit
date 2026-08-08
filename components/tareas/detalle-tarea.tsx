@@ -39,6 +39,7 @@ import {
   obtenerEstado,
   obtenerPrioridad,
   obtenerVisibilidad,
+  veAgencia,
 } from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { ChipsEtiquetas } from "@/components/tareas/filtro-etiquetas";
@@ -269,6 +270,19 @@ export function TaskDetail({
     (tarea.coasignados ?? []).map((p) => p.id),
   );
   const esAgencia = tarea.espacio === "agencia";
+  /* En la agencia solo se asigna a quien entra a ella (`ve_agencia`), igual que
+     en el alta. Quien YA está en la tarea se conserva en la lista aunque haya
+     perdido el permiso: si no, el select no podría ni mostrar al responsable
+     actual, y reasignar se volvería obligatorio para poder guardar. */
+  const asignables = esAgencia
+    ? equipo.filter(
+        (p) =>
+          veAgencia(p) ||
+          p.id === tarea.responsable_id ||
+          (tarea.coasignados ?? []).some((c) => c.id === p.id) ||
+          p.id === currentUserId,
+      )
+    : equipo;
   const [empresa, setEmpresa] = useState(tarea.empresa_id ?? SIN_EMPRESA);
   const [visibilidad, setVisibilidad] = useState<VisibilidadId>(tarea.visibilidad ?? "interno");
   const [categoria, setCategoria] = useState<CategoriaTareaId | "">(tarea.categoria ?? "");
@@ -907,7 +921,7 @@ export function TaskDetail({
                         <SelectTrigger className={CTRL_MOVIL}><SelectValue>{(v: string) => v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}</SelectValue></SelectTrigger>
                         <SelectContent>
                           <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
-                          {equipo.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
+                          {asignables.map((p) => (<SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>))}
                         </SelectContent>
                       </Select>
                     </Meta>
@@ -1001,7 +1015,7 @@ export function TaskDetail({
                 <Tarjeta conMarco={comoPagina}>
                   <Seccion titulo="¿Quién más trabaja esta tarea?" abiertaPorDefecto>
                     <SelectorPersonas
-                      equipo={equipo}
+                      equipo={asignables}
                       seleccionados={coasignados}
                       principalId={responsable === SIN_ASIGNAR ? null : responsable}
                       onToggle={toggleCoasignado}

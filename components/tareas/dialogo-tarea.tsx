@@ -22,6 +22,7 @@ import {
   CATEGORIAS_TAREA,
   VISIBILIDADES,
   obtenerArea,
+  veAgencia,
 } from "@/lib/catalogos";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { SelectorPersonas } from "@/components/tareas/selector-personas";
@@ -77,6 +78,14 @@ export function TaskDialog({
   inicial?: TaskInicial;
 }) {
   const esAgencia = espacio === "agencia";
+  /* En la agencia solo se asigna a quien la trabaja: el permiso por persona
+     `ve_agencia` (el mismo que abre el espacio). Ofrecer a todo el equipo
+     invitaba a colgarle una tarea de Nutravia a alguien que ni puede entrar a
+     verla. Uno mismo se conserva aunque no lo tenga —abrió el diálogo desde ahí,
+     así que lo tiene— para que el default «yo» nunca quede fuera de la lista. */
+  const asignables = esAgencia
+    ? equipo.filter((p) => veAgencia(p) || p.id === currentUserId)
+    : equipo;
   const { pending, ejecutar } = useAccionServidor();
   const [titulo, setTitulo] = useState(inicial?.titulo ?? "");
   const [descripcion, setDescripcion] = useState(inicial?.descripcion ?? "");
@@ -261,12 +270,12 @@ export function TaskDialog({
               <SelectTrigger className="w-full">
                 <SelectValue>
                   {(v: string) =>
-                    v === SIN_ASIGNAR ? "Sin asignar" : (equipo.find((p) => p.id === v)?.nombre ?? "Responsable")}
+                    v === SIN_ASIGNAR ? "Sin asignar" : (asignables.find((p) => p.id === v)?.nombre ?? "Responsable")}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={SIN_ASIGNAR}>Sin asignar</SelectItem>
-                {equipo.map((p) => (
+                {asignables.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     {p.nombre}
                   </SelectItem>
@@ -314,7 +323,7 @@ export function TaskDialog({
         <div className="flex flex-col gap-1.5">
           <Label>¿Alguien más? (opcional)</Label>
           <SelectorPersonas
-            equipo={equipo}
+            equipo={asignables}
             seleccionados={coasignados}
             principalId={responsable === SIN_ASIGNAR ? null : responsable}
             onToggle={toggleCoasignado}

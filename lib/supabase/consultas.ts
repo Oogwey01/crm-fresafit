@@ -30,10 +30,20 @@ async function esDelEquipo(): Promise<boolean> {
   return !!user && esInterno(rol);
 }
 
-const equipoCacheado = consultaCacheada(TAGS.equipo, [TAGS.equipo], async (admin) => {
+/* La LLAVE lleva sufijo de versión porque la forma de la fila cambió (se sumó
+   `ve_agencia` y se excluyó a los externos): el caché de datos de Vercel
+   sobrevive a los deploys, y sin el sufijo el build nuevo serviría hasta una
+   hora de filas con la forma vieja — y el filtro de la agencia, al no
+   encontrar `ve_agencia`, dejaría el selector de personas casi vacío. */
+const equipoCacheado = consultaCacheada(`${TAGS.equipo}-v2`, [TAGS.equipo], async (admin) => {
   const { data, error } = await admin
     .from("profiles")
-    .select("id, nombre, rol, area, color")
+    .select("id, nombre, rol, area, color, ve_agencia")
+    /* «El equipo» es la gente de casa: los contactos de las empresas cliente
+       (rol externo) tienen cuenta pero no son asignables a nada ni deben salir
+       en ningún picker. `ve_agencia` viaja porque los formularios de la agencia
+       recortan sus selectores a quienes entran a ese espacio. */
+    .neq("rol", "externo")
     .order("nombre");
   if (error) throw new Error(error.message);
   return (data ?? []) as Profile[];
