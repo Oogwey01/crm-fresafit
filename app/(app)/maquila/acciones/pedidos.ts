@@ -7,7 +7,7 @@ import { diaMX, horaMX } from "@/lib/fecha";
 import { obtenerModeloMaquila } from "@/lib/catalogos";
 import { clasificarPago } from "@/lib/maquila/reglas";
 import { cargarCalendarioMaquila, costoVigente, listarCostosMaquila } from "@/lib/maquila/consultas";
-import type { TablesInsert } from "@/lib/supabase/tipos-bd";
+import type { TablesInsert, TablesUpdate } from "@/lib/supabase/tipos-bd";
 import type {
   AcabadoMaquilaId,
   ColorPalancaId,
@@ -196,6 +196,11 @@ export async function crearPedidoMaquila(
 }
 
 export type PedidoMaquilaEdicion = {
+  /* El acabado se corrige POR PEDIDO: los productos "Personalizado" de Tienda
+     Nube no lo fijan — el cliente elige sublimado o bordado con gamuza — y la
+     ficha de producto solo pone el default. Dixit Armando: en personalizados
+     el prensado no existe. */
+  acabado: AcabadoMaquilaId;
   palanca_color: ColorPalancaId | null;
   combo: ComboMaquilaId;
   combo_diseno: string;
@@ -206,7 +211,11 @@ export type PedidoMaquilaEdicion = {
 
 /* Corrección de los campos de armado (interno). El color de palanca es el que
    más importa: Tienda Nube no lo trae y alguien tiene que capturarlo antes de
-   que Eduardo imprima la ficha. */
+   que Eduardo imprima la ficha. Si cambia el acabado en un pedido ya pagado,
+   la clasificación se recalcula ENTERA con las mismas reglas de la ingesta
+   (ruta, corte, promesa y tarifa); el trigger de eventos deja constancia de la
+   reclasificación. Entre sublimado y bordado la promesa no se mueve —los dos
+   van por corte a +10—, así que lo normal es que solo cambie la tarifa. */
 export async function editarPedidoMaquila(
   id: string,
   input: PedidoMaquilaEdicion,
@@ -214,17 +223,51 @@ export async function editarPedidoMaquila(
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;
 
-  const { error } = await cx.supabase
+  const cambio: TablesUpdate<"maquila_pedidos"> = {
+    acabado: input.acabado,
+    palanca_color: input.palanca_color,
+    combo: input.combo,
+    combo_diseno: textoONulo(input.combo_diseno),
+    talla: textoONulo(input.talla),
+    color: textoONulo(input.color),
+    notas: textoONulo(input.notas),
+  };
+
+  const { data: actual, error: errActual } = await cx.supabase
     .from("maquila_pedidos")
-    .update({
-      palanca_color: input.palanca_color,
-      combo: input.combo,
-      combo_diseno: textoONulo(input.combo_diseno),
-      talla: textoONulo(input.talla),
-      color: textoONulo(input.color),
-      notas: textoONulo(input.notas),
-    })
-    .eq("id", id);
+    .select("acabado, subestado, pagado_en, modelo")
+    .eq("id", id)
+    .single();
+  if (errActual || !actual) return { error: errActual?.message ?? "Ese pedido ya no existe." };
+
+  if (input.acabado !== actual.acabado) {
+    /* El subestado es de la ruta por lote; si el acabado sale de esa familia,
+       se limpia aquí para no chocar con el CHECK compuesto. */
+    if (input.acabado === "prensado" && actual.subestado) cambio.subestado = null;
+    if (actual.pagado_en) {
+      const [{ cal }, costos] = await Promise.all([
+        cargarCalendarioMaquila(cx.supabase),
+        listarCostosMaquila(cx.supabase),
+      ]);
+      const cls = clasificarPago(
+        diaMX(actual.pagado_en),
+        horaMX(actual.pagado_en),
+        input.acabado,
+        cal,
+      );
+      cambio.ruta = cls.ruta;
+      cambio.corte_fecha = cls.corteFecha;
+      cambio.fecha_prometida = cls.fechaPrometida;
+      cambio.costo_maquila = costoVigente(
+        costos,
+        actual.modelo as ModeloMaquilaId,
+        input.acabado,
+        diaMX(actual.pagado_en),
+      );
+    }
+  }
+
+  const { error } = await cx.supabase.from("maquila_pedidos").update(cambio).eq("id", id);
   if (error) return { error: error.message };
   revalidar();
   return { ok: true };

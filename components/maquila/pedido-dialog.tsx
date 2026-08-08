@@ -24,6 +24,7 @@ import {
   listarEventosMaquila,
 } from "@/app/(app)/maquila/actions";
 import {
+  ACABADOS_MAQUILA,
   COLORES_PALANCA,
   COMBOS_MAQUILA,
   obtenerAcabadoMaquila,
@@ -34,7 +35,13 @@ import {
 } from "@/lib/catalogos";
 import { direccionEnUnaLinea } from "@/lib/canales/direccion";
 import { formatearFecha, formatearFechaHora } from "@/lib/fecha";
-import type { ColorPalancaId, ComboMaquilaId, EventoMaquila, PedidoMaquila } from "@/lib/types";
+import type {
+  AcabadoMaquilaId,
+  ColorPalancaId,
+  ComboMaquilaId,
+  EventoMaquila,
+  PedidoMaquila,
+} from "@/lib/types";
 
 const SIN_VALOR = "sin_valor";
 
@@ -77,6 +84,7 @@ export function PedidoMaquilaDialog({
   const { pending, ejecutar } = useAccionServidor();
   const [eventos, setEventos] = useState<EventoMaquila[] | null>(null);
 
+  const [acabado, setAcabado] = useState<AcabadoMaquilaId>(pedido.acabado);
   const [palanca, setPalanca] = useState<ColorPalancaId | null>(pedido.palanca_color);
   const [combo, setCombo] = useState<ComboMaquilaId>(pedido.combo);
   const [comboDiseno, setComboDiseno] = useState(pedido.combo_diseno ?? "");
@@ -160,6 +168,28 @@ export function PedidoMaquilaDialog({
               Armado (lo que Tienda Nube no trae)
             </div>
             <div className="grid grid-cols-2 gap-3">
+              {/* En los "Personalizado" de Tienda Nube el acabado lo elige el
+                  cliente por pedido (sublimado o bordado con gamuza; prensado
+                  no existe en personalizados): la ficha solo pone el default y
+                  aquí se corrige. Si cambia, la tarifa —y la promesa, si
+                  aplica— se recalculan al guardar. */}
+              <div className="grid gap-1.5">
+                <Label>Acabado</Label>
+                <Select value={acabado} onValueChange={(v) => v && setAcabado(v as AcabadoMaquilaId)}>
+                  <SelectTrigger>
+                    <SelectValue>
+                      {(v: string) => obtenerAcabadoMaquila(v)?.nombre ?? "Acabado"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ACABADOS_MAQUILA.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               {pedido.requiere_palanca && (
                 <div className="grid gap-1.5">
                   <Label>Color de palanca</Label>
@@ -303,6 +333,7 @@ export function PedidoMaquilaDialog({
                 ejecutar(
                   () =>
                     editarPedidoMaquila(pedido.id, {
+                      acabado,
                       palanca_color: palanca,
                       combo,
                       combo_diseno: comboDiseno,
