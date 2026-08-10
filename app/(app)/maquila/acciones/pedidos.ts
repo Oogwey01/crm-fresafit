@@ -6,7 +6,7 @@ import { textoONulo } from "@/lib/validacion";
 import { diaMX, horaMX } from "@/lib/fecha";
 import { obtenerModeloMaquila } from "@/lib/catalogos";
 import { clasificarPago } from "@/lib/maquila/reglas";
-import { cargarCalendarioMaquila, costoVigente, listarCostosMaquila } from "@/lib/maquila/consultas";
+import { cargarCalendarioMaquila } from "@/lib/maquila/consultas";
 import type { TablesInsert, TablesUpdate } from "@/lib/supabase/tipos-bd";
 import type {
   AcabadoMaquilaId,
@@ -17,7 +17,7 @@ import type {
   ModeloMaquilaId,
   SubestadoMaquilaId,
 } from "@/lib/types";
-import { revalidar } from "@/app/(app)/maquila/acciones/comun";
+import { fijarCosto, revalidar } from "@/app/(app)/maquila/acciones/comun";
 
 /* Las acciones del pedido piden nivel "maquila" (equipo interno O Eduardo): el
    recorte fino no vive aquí sino en la BD — la RLS decide qué filas alcanza
@@ -167,10 +167,7 @@ export async function crearPedidoMaquila(
   };
 
   if (input.pagado_en) {
-    const [{ cal }, costos] = await Promise.all([
-      cargarCalendarioMaquila(cx.supabase),
-      listarCostosMaquila(cx.supabase),
-    ]);
+    const { cal } = await cargarCalendarioMaquila(cx.supabase);
     const cls = clasificarPago(
       diaMX(input.pagado_en),
       horaMX(input.pagado_en),
@@ -182,7 +179,6 @@ export async function crearPedidoMaquila(
     fila.ruta = cls.ruta;
     fila.corte_fecha = cls.corteFecha;
     fila.fecha_prometida = cls.fechaPrometida;
-    fila.costo_maquila = costoVigente(costos, input.modelo, input.acabado, diaMX(input.pagado_en));
   }
 
   const { data, error } = await cx.supabase
@@ -191,6 +187,11 @@ export async function crearPedidoMaquila(
     .select("id")
     .single();
   if (error || !data) return { error: error?.message ?? "No se pudo crear el pedido." };
+
+  /* La tarifa la congela la base: quien captura el pedido puede no tener
+     permiso para VER el precio, y aun así el costo tiene que quedar. */
+  if (input.pagado_en) await fijarCosto(cx.supabase, data.id as string);
+
   revalidar();
   return { ok: true, datos: { id: data.id as string } };
 }
@@ -240,15 +241,13 @@ export async function editarPedidoMaquila(
     .single();
   if (errActual || !actual) return { error: errActual?.message ?? "Ese pedido ya no existe." };
 
-  if (input.acabado !== actual.acabado) {
+  const cambioDeAcabado = input.acabado !== actual.acabado;
+  if (cambioDeAcabado) {
     /* El subestado es de la ruta por lote; si el acabado sale de esa familia,
        se limpia aquí para no chocar con el CHECK compuesto. */
     if (input.acabado === "prensado" && actual.subestado) cambio.subestado = null;
     if (actual.pagado_en) {
-      const [{ cal }, costos] = await Promise.all([
-        cargarCalendarioMaquila(cx.supabase),
-        listarCostosMaquila(cx.supabase),
-      ]);
+      const { cal } = await cargarCalendarioMaquila(cx.supabase);
       const cls = clasificarPago(
         diaMX(actual.pagado_en),
         horaMX(actual.pagado_en),
@@ -258,17 +257,17 @@ export async function editarPedidoMaquila(
       cambio.ruta = cls.ruta;
       cambio.corte_fecha = cls.corteFecha;
       cambio.fecha_prometida = cls.fechaPrometida;
-      cambio.costo_maquila = costoVigente(
-        costos,
-        actual.modelo as ModeloMaquilaId,
-        input.acabado,
-        diaMX(actual.pagado_en),
-      );
     }
   }
 
   const { error } = await cx.supabase.from("maquila_pedidos").update(cambio).eq("id", id);
   if (error) return { error: error.message };
+
+  /* La tarifa cambia con el acabado, y quien corrige un pedido no siempre
+     puede leer la tabla de precios: por eso el recálculo lo hace la base
+     (maquila_fijar_costo_pedido), después del update y con el acabado nuevo. */
+  if (cambioDeAcabado && actual.pagado_en) await fijarCosto(cx.supabase, id);
+
   revalidar();
   return { ok: true };
 }

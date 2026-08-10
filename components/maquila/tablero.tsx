@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -22,6 +22,7 @@ import { GuiaMaquilaDialog } from "@/components/maquila/guia-dialog";
 import {
   cambiarEstadoMaquila,
   cambiarSubestadoMaquila,
+  urlGuiaMaquila,
 } from "@/app/(app)/maquila/actions";
 import {
   ESTADOS_MAQUILA,
@@ -35,12 +36,18 @@ import {
 } from "@/lib/catalogos";
 import {
   SEMAFORO_MAQUILA,
+  grupoDePedido,
   indicadoresDePedido,
   semaforoMaquila,
 } from "@/lib/maquila/reglas";
 import { formatearFecha } from "@/lib/fecha";
 import { norm } from "@/lib/importar/tsv";
-import type { EstadoMaquilaId, PedidoMaquila, SubestadoMaquilaId } from "@/lib/types";
+import type {
+  EstadoMaquilaId,
+  GuiaMaquila,
+  PedidoMaquila,
+  SubestadoMaquilaId,
+} from "@/lib/types";
 
 const ACTIVOS: readonly string[] = ESTADOS_MAQUILA_ACTIVOS;
 
@@ -79,11 +86,15 @@ function subestadosDisponibles(p: PedidoMaquila) {
    lista ya llega ordenada por fecha prometida). */
 export function TableroMaquila({
   pedidos,
+  guias,
   hoy,
   esEquipo,
   onAbrir,
 }: {
   pedidos: PedidoMaquila[];
+  /* Las solicitudes de guía vivas, indexadas por paquete: es lo que convierte
+     la columna Guía en «solicitada / lista para imprimir». */
+  guias: GuiaMaquila[];
   hoy: string;
   esEquipo: boolean;
   onAbrir?: (p: PedidoMaquila) => void;
@@ -92,6 +103,13 @@ export function TableroMaquila({
   const [vista, setVista] = useState<Vista>("hoy");
   const [busqueda, setBusqueda] = useState("");
   const [guiaPara, setGuiaPara] = useState<PedidoMaquila | null>(null);
+
+  /* El cruce guía↔pedido es por (canal, grupo): no hay FK porque la guía es
+     del paquete y el pedido del renglón. `grupoDePedido` espeja el coalesce
+     del trigger y de la RLS. */
+  const guiaPorPaquete = new Map(guias.map((g) => [`${g.canal}|${g.grupo}`, g]));
+  const guiaDe = (p: PedidoMaquila) =>
+    guiaPorPaquete.get(`${p.canal}|${grupoDePedido(p)}`) ?? null;
 
   const base = pedidos.filter((p) => p.estado !== "esperando_pago");
   const activos = base.filter((p) => ACTIVOS.includes(p.estado));
@@ -304,15 +322,39 @@ export function TableroMaquila({
       clave: "guia",
       label: "Guía",
       cardAncho: true,
-      celda: (p) => (
+      celda: (p) => {
+        /* La guía la surte logística: Eduardo la descarga e imprime. El botón
+           de captura a mano se queda como respaldo para cuando la etiqueta
+           llegó por fuera y nadie la subió. */
+        const guia = guiaDe(p);
+        return (
         <div className="flex items-center gap-1.5">
-          {p.num_guia ? (
+          {guia?.archivo_path ? (
+            <Button
+              size="sm"
+              variant="default"
+              disabled={pending}
+              onClick={() =>
+                ejecutar(() => urlGuiaMaquila(guia.id), {
+                  alExito: (r) => {
+                    window.open(r.datos.url, "_blank", "noopener");
+                  },
+                })
+              }
+              className="gap-1.5"
+            >
+              <Download className="size-3.5" />
+              Imprimir guía
+            </Button>
+          ) : p.num_guia ? (
             <div className="min-w-0">
               <div className="truncate font-mono text-[12px]">{p.num_guia}</div>
               {p.paqueteria && (
                 <div className="truncate text-[11px] text-muted-foreground">{p.paqueteria}</div>
               )}
             </div>
+          ) : guia ? (
+            <Pastilla nombre="Guía solicitada" color="#f59e0b" />
           ) : ACTIVOS.includes(p.estado) ? (
             <Button
               size="sm"
@@ -336,7 +378,8 @@ export function TableroMaquila({
             <Printer className="size-4" />
           </Link>
         </div>
-      ),
+        );
+      },
     },
   ];
 

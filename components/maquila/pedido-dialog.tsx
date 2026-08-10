@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,10 +18,14 @@ import {
 import { Pastilla } from "@/components/compartido/pastilla";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { IncidenciasPedido } from "@/components/maquila/incidencias-pedido";
+import { LigarDiseno } from "@/components/maquila/ligar-diseno";
 import {
   cancelarPedidoMaquila,
   editarPedidoMaquila,
   listarEventosMaquila,
+  marcarDisenoListo,
+  urlDisenoDePedido,
 } from "@/app/(app)/maquila/actions";
 import {
   ACABADOS_MAQUILA,
@@ -34,11 +38,13 @@ import {
   obtenerSubestadoMaquila,
 } from "@/lib/catalogos";
 import { direccionEnUnaLinea } from "@/lib/canales/direccion";
+import { formatearMXN } from "@/lib/moneda";
 import { formatearFecha, formatearFechaHora } from "@/lib/fecha";
 import type {
   AcabadoMaquilaId,
   ColorPalancaId,
   ComboMaquilaId,
+  DisenoMaquila,
   EventoMaquila,
   PedidoMaquila,
 } from "@/lib/types";
@@ -74,11 +80,25 @@ export function PedidoMaquilaDialog({
   pedido,
   esEquipo,
   esAdmin,
+  veDinero = false,
+  costo = null,
+  insumos = [],
+  disenos = [],
   onClose,
 }: {
   pedido: PedidoMaquila;
   esEquipo: boolean;
   esAdmin: boolean;
+  /* Ver el costo de maquila es de dirección y administración; ser del equipo ya
+     no basta. Llega resuelto del servidor con vistaDinero(). */
+  veDinero?: boolean;
+  /* Costo unitario, de maquila_pedido_costos. Null cuando no hay tarifa o
+     cuando quien mira no lo puede ver (entonces ni siquiera viajó). */
+  costo?: number | null;
+  /* Lo que este pedido gastará de la consignación de Eduardo al salir. */
+  insumos?: { clave: string; cantidad: number }[];
+  /* La biblioteca de artes, para poder ligar uno desde aquí. */
+  disenos?: DisenoMaquila[];
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
@@ -115,8 +135,26 @@ export function PedidoMaquilaDialog({
         ? `${formatearFecha(pedido.fecha_prometida)}${pedido.corte_fecha ? ` (corte del ${formatearFecha(pedido.corte_fecha)})` : " (directa)"}`
         : "—",
     ],
-    ...(esEquipo
-      ? ([["Costo de maquila", pedido.costo_maquila != null ? `$${pedido.costo_maquila.toFixed(2)} + IVA` : "sin tarifa"]] as [string, string][])
+    /* El costo es confidencial: solo dirección y administración. Antes bastaba
+       con ser del equipo, y por ahí se escapaba a coordinación. Ahora ni
+       siquiera viaja en el pedido — llega por prop y solo si `veDinero`. */
+    ...(veDinero
+      ? ([
+          [
+            "Costo de maquila",
+            costo != null
+              ? `${formatearMXN(costo)} × ${pedido.cantidad} + IVA`
+              : "sin tarifa",
+          ],
+        ] as [string, string][])
+      : []),
+    ...(insumos.length
+      ? ([
+          [
+            "Material que gasta",
+            insumos.map((i) => `${i.cantidad} × ${i.clave.replace(/_/g, " ")}`).join(", "),
+          ],
+        ] as [string, string][])
       : []),
     ["Cliente", pedido.envio_nombre ?? "—"],
     ["Teléfono", pedido.envio_telefono ?? "—"],
@@ -152,7 +190,7 @@ export function PedidoMaquilaDialog({
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <Link
             href={`/maquila/ficha/${pedido.id}`}
             target="_blank"
@@ -160,7 +198,52 @@ export function PedidoMaquilaDialog({
           >
             <Printer className="size-4" /> Ficha de producción
           </Link>
+
+          {/* El arte, dentro del CRM: es lo que sustituye al WhatsApp. */}
+          {(pedido.personalizado_id || pedido.diseno_id) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5"
+              disabled={pending}
+              onClick={() =>
+                ejecutar(() => urlDisenoDePedido(pedido.id), {
+                  alExito: (r) => {
+                    window.open(r.datos.url, "_blank", "noopener");
+                  },
+                })
+              }
+            >
+              <Download className="size-3.5" /> Descargar diseño
+            </Button>
+          )}
+
+          {pedido.diseno_listo_en ? (
+            <Pastilla
+              nombre={`Diseño listo · ${formatearFecha(pedido.diseno_listo_en.slice(0, 10))}`}
+              color="#22c55e"
+            />
+          ) : (
+            esEquipo && (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() =>
+                  ejecutar(() => marcarDisenoListo(pedido.id, true), {
+                    ok: "Diseño marcado como entregado.",
+                  })
+                }
+              >
+                Marcar diseño listo
+              </Button>
+            )
+          )}
         </div>
+
+        {esEquipo && <LigarDiseno pedido={pedido} disenos={disenos} />}
+
+        <IncidenciasPedido pedido={pedido} esEquipo={esEquipo} />
 
         {esEquipo && (
           <div className="grid gap-3 rounded-xl border bg-muted/30 p-3.5">

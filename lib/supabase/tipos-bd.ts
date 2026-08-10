@@ -1764,6 +1764,62 @@ export type Database = {
         }
         Relationships: []
       }
+      maquila_anticipos: {
+        Row: {
+          comprobante_nombre: string | null
+          comprobante_path: string | null
+          concepto: string
+          created_at: string
+          created_by: string | null
+          especie_cantidad: number | null
+          especie_unidad: string | null
+          fecha: string
+          id: string
+          monto: number
+          notas: string | null
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          comprobante_nombre?: string | null
+          comprobante_path?: string | null
+          concepto: string
+          created_at?: string
+          created_by?: string | null
+          especie_cantidad?: number | null
+          especie_unidad?: string | null
+          fecha?: string
+          id?: string
+          monto: number
+          notas?: string | null
+          tipo?: string
+          updated_at?: string
+        }
+        Update: {
+          comprobante_nombre?: string | null
+          comprobante_path?: string | null
+          concepto?: string
+          created_at?: string
+          created_by?: string | null
+          especie_cantidad?: number | null
+          especie_unidad?: string | null
+          fecha?: string
+          id?: string
+          monto?: number
+          notas?: string | null
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_anticipos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       maquila_config: {
         Row: {
           hora_limite: string
@@ -1790,6 +1846,306 @@ export type Database = {
           {
             foreignKeyName: "maquila_config_updated_by_fkey"
             columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_consignacion: {
+        Row: {
+          insumo_id: string
+          saldo: number
+          updated_at: string
+        }
+        Insert: {
+          insumo_id: string
+          saldo?: number
+          updated_at?: string
+        }
+        Update: {
+          insumo_id?: string
+          saldo?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_consignacion_insumo_id_fkey"
+            columns: ["insumo_id"]
+            isOneToOne: true
+            referencedRelation: "maquila_insumos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_consignacion_movs: {
+        Row: {
+          cantidad: number
+          created_at: string
+          created_by: string | null
+          id: string
+          insumo_id: string
+          lote: string | null
+          motivo: string | null
+          pedido_id: string | null
+          saldo_resultante: number
+          tipo: string
+        }
+        Insert: {
+          cantidad: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          insumo_id: string
+          lote?: string | null
+          motivo?: string | null
+          pedido_id?: string | null
+          saldo_resultante: number
+          tipo: string
+        }
+        Update: {
+          cantidad?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          insumo_id?: string
+          lote?: string | null
+          motivo?: string | null
+          pedido_id?: string | null
+          saldo_resultante?: number
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_consignacion_movs_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_consignacion_movs_insumo_id_fkey"
+            columns: ["insumo_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_insumos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_consignacion_movs_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_pedidos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_corte_anticipos: {
+        Row: {
+          anticipo_id: string
+          anulado: boolean
+          corte_id: string
+          created_at: string
+          monto: number
+        }
+        Insert: {
+          anticipo_id: string
+          anulado?: boolean
+          corte_id: string
+          created_at?: string
+          monto: number
+        }
+        Update: {
+          anticipo_id?: string
+          anulado?: boolean
+          corte_id?: string
+          created_at?: string
+          monto?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_corte_anticipos_anticipo_id_fkey"
+            columns: ["anticipo_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_anticipos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_corte_anticipos_anticipo_id_fkey"
+            columns: ["anticipo_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_anticipos_saldo"
+            referencedColumns: ["anticipo_id"]
+          },
+          {
+            foreignKeyName: "maquila_corte_anticipos_corte_id_fkey"
+            columns: ["corte_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_cortes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_corte_renglones: {
+        Row: {
+          acabado: string | null
+          anulado: boolean
+          cantidad: number
+          concepto: string | null
+          corte_id: string
+          costo_unitario: number
+          created_at: string
+          enviado_en: string | null
+          id: string
+          importe: number
+          modelo: string | null
+          pedido_id: string | null
+        }
+        Insert: {
+          acabado?: string | null
+          anulado?: boolean
+          cantidad?: number
+          concepto?: string | null
+          corte_id: string
+          costo_unitario?: number
+          created_at?: string
+          enviado_en?: string | null
+          id?: string
+          importe?: number
+          modelo?: string | null
+          pedido_id?: string | null
+        }
+        Update: {
+          acabado?: string | null
+          anulado?: boolean
+          cantidad?: number
+          concepto?: string | null
+          corte_id?: string
+          costo_unitario?: number
+          created_at?: string
+          enviado_en?: string | null
+          id?: string
+          importe?: number
+          modelo?: string | null
+          pedido_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_corte_renglones_corte_id_fkey"
+            columns: ["corte_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_cortes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_corte_renglones_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_pedidos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_cortes: {
+        Row: {
+          anticipos_aplicados: number
+          cerrado_en: string | null
+          cerrado_por: string | null
+          created_at: string
+          created_by: string | null
+          estado: string
+          expense_id: string | null
+          factura_folio: string | null
+          factura_path: string | null
+          factura_uuid: string | null
+          id: string
+          iva: number
+          iva_tasa: number
+          metodo_pago: string | null
+          notas: string | null
+          pagado_en: string | null
+          pagado_por: string | null
+          periodo_desde: string
+          periodo_hasta: string
+          piezas: number
+          subtotal: number
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          anticipos_aplicados?: number
+          cerrado_en?: string | null
+          cerrado_por?: string | null
+          created_at?: string
+          created_by?: string | null
+          estado?: string
+          expense_id?: string | null
+          factura_folio?: string | null
+          factura_path?: string | null
+          factura_uuid?: string | null
+          id?: string
+          iva?: number
+          iva_tasa?: number
+          metodo_pago?: string | null
+          notas?: string | null
+          pagado_en?: string | null
+          pagado_por?: string | null
+          periodo_desde: string
+          periodo_hasta: string
+          piezas?: number
+          subtotal?: number
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          anticipos_aplicados?: number
+          cerrado_en?: string | null
+          cerrado_por?: string | null
+          created_at?: string
+          created_by?: string | null
+          estado?: string
+          expense_id?: string | null
+          factura_folio?: string | null
+          factura_path?: string | null
+          factura_uuid?: string | null
+          id?: string
+          iva?: number
+          iva_tasa?: number
+          metodo_pago?: string | null
+          notas?: string | null
+          pagado_en?: string | null
+          pagado_por?: string | null
+          periodo_desde?: string
+          periodo_hasta?: string
+          piezas?: number
+          subtotal?: number
+          total?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_cortes_cerrado_por_fkey"
+            columns: ["cerrado_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_cortes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_cortes_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_cortes_pagado_por_fkey"
+            columns: ["pagado_por"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1827,6 +2183,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "maquila_costos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_disenos: {
+        Row: {
+          acabado: string | null
+          activo: boolean
+          archivo_mime: string | null
+          archivo_nombre: string | null
+          archivo_path: string | null
+          coleccion: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          nombre: string
+          notas: string | null
+          updated_at: string
+        }
+        Insert: {
+          acabado?: string | null
+          activo?: boolean
+          archivo_mime?: string | null
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          coleccion?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          nombre: string
+          notas?: string | null
+          updated_at?: string
+        }
+        Update: {
+          acabado?: string | null
+          activo?: boolean
+          archivo_mime?: string | null
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          coleccion?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          nombre?: string
+          notas?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_disenos_created_by_fkey"
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -1914,6 +2323,235 @@ export type Database = {
           },
         ]
       }
+      maquila_guias: {
+        Row: {
+          archivo_mime: string | null
+          archivo_nombre: string | null
+          archivo_path: string | null
+          canal: string
+          cargada_en: string | null
+          cargada_por: string | null
+          created_at: string
+          entregada_en: string | null
+          estado: string
+          grupo: string
+          id: string
+          notas: string | null
+          num_guia: string | null
+          paqueteria: string | null
+          solicitada_en: string
+          updated_at: string
+        }
+        Insert: {
+          archivo_mime?: string | null
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          canal: string
+          cargada_en?: string | null
+          cargada_por?: string | null
+          created_at?: string
+          entregada_en?: string | null
+          estado?: string
+          grupo: string
+          id?: string
+          notas?: string | null
+          num_guia?: string | null
+          paqueteria?: string | null
+          solicitada_en?: string
+          updated_at?: string
+        }
+        Update: {
+          archivo_mime?: string | null
+          archivo_nombre?: string | null
+          archivo_path?: string | null
+          canal?: string
+          cargada_en?: string | null
+          cargada_por?: string | null
+          created_at?: string
+          entregada_en?: string | null
+          estado?: string
+          grupo?: string
+          id?: string
+          notas?: string | null
+          num_guia?: string | null
+          paqueteria?: string | null
+          solicitada_en?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_guias_cargada_por_fkey"
+            columns: ["cargada_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_incidencias: {
+        Row: {
+          abierta: boolean
+          created_at: string
+          created_by: string | null
+          dirigida_a: string
+          id: string
+          pedido_id: string
+          respuesta: string | null
+          resuelta_en: string | null
+          resuelta_por: string | null
+          texto: string
+          tipo: string
+        }
+        Insert: {
+          abierta?: boolean
+          created_at?: string
+          created_by?: string | null
+          dirigida_a?: string
+          id?: string
+          pedido_id: string
+          respuesta?: string | null
+          resuelta_en?: string | null
+          resuelta_por?: string | null
+          texto: string
+          tipo?: string
+        }
+        Update: {
+          abierta?: boolean
+          created_at?: string
+          created_by?: string | null
+          dirigida_a?: string
+          id?: string
+          pedido_id?: string
+          respuesta?: string | null
+          resuelta_en?: string | null
+          resuelta_por?: string | null
+          texto?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_incidencias_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_incidencias_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_incidencias_resuelta_por_fkey"
+            columns: ["resuelta_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_insumos: {
+        Row: {
+          activo: boolean
+          clave: string
+          created_at: string
+          created_by: string | null
+          id: string
+          minimo: number
+          nombre: string
+          notas: string | null
+          producto_id: string | null
+          unidad: string
+          updated_at: string
+        }
+        Insert: {
+          activo?: boolean
+          clave: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          minimo?: number
+          nombre: string
+          notas?: string | null
+          producto_id?: string | null
+          unidad?: string
+          updated_at?: string
+        }
+        Update: {
+          activo?: boolean
+          clave?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          minimo?: number
+          nombre?: string
+          notas?: string | null
+          producto_id?: string | null
+          unidad?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_insumos_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_insumos_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "producto_costos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_insumos_producto_id_fkey"
+            columns: ["producto_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maquila_pedido_costos: {
+        Row: {
+          congelado_en: string
+          costo: number | null
+          pedido_id: string
+          tarifa_id: string | null
+        }
+        Insert: {
+          congelado_en?: string
+          costo?: number | null
+          pedido_id: string
+          tarifa_id?: string | null
+        }
+        Update: {
+          congelado_en?: string
+          costo?: number | null
+          pedido_id?: string
+          tarifa_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "maquila_pedido_costos_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: true
+            referencedRelation: "maquila_pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedido_costos_tarifa_id_fkey"
+            columns: ["tarifa_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_costos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       maquila_pedidos: {
         Row: {
           acabado: string
@@ -1927,6 +2565,9 @@ export type Database = {
           created_at: string
           created_by: string | null
           diseno: string | null
+          diseno_id: string | null
+          diseno_listo_en: string | null
+          diseno_listo_por: string | null
           entregado_en: string | null
           enviado_en: string | null
           envio_direccion: Json | null
@@ -1943,6 +2584,7 @@ export type Database = {
           pagado_en: string | null
           palanca_color: string | null
           paqueteria: string | null
+          personalizado_id: string | null
           producto_id: string | null
           referencia_externa: string | null
           referencia_orden: string | null
@@ -1968,6 +2610,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           diseno?: string | null
+          diseno_id?: string | null
+          diseno_listo_en?: string | null
+          diseno_listo_por?: string | null
           entregado_en?: string | null
           enviado_en?: string | null
           envio_direccion?: Json | null
@@ -1984,6 +2629,7 @@ export type Database = {
           pagado_en?: string | null
           palanca_color?: string | null
           paqueteria?: string | null
+          personalizado_id?: string | null
           producto_id?: string | null
           referencia_externa?: string | null
           referencia_orden?: string | null
@@ -2009,6 +2655,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           diseno?: string | null
+          diseno_id?: string | null
+          diseno_listo_en?: string | null
+          diseno_listo_por?: string | null
           entregado_en?: string | null
           enviado_en?: string | null
           envio_direccion?: Json | null
@@ -2025,6 +2674,7 @@ export type Database = {
           pagado_en?: string | null
           palanca_color?: string | null
           paqueteria?: string | null
+          personalizado_id?: string | null
           producto_id?: string | null
           referencia_externa?: string | null
           referencia_orden?: string | null
@@ -2044,6 +2694,27 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_disenos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_diseno_listo_por_fkey"
+            columns: ["diseno_listo_por"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_pedidos_personalizado_id_fkey"
+            columns: ["personalizado_id"]
+            isOneToOne: false
+            referencedRelation: "personalizados"
             referencedColumns: ["id"]
           },
           {
@@ -2985,6 +3656,9 @@ export type Database = {
           origen: string
           paqueteria: string | null
           producto_id: string | null
+          rastreo_detalle: string | null
+          rastreo_en: string | null
+          rastreo_estado: string | null
           referencia_externa: string | null
           updated_at: string | null
           url_orden: string | null
@@ -3010,6 +3684,9 @@ export type Database = {
           origen?: string
           paqueteria?: string | null
           producto_id?: string | null
+          rastreo_detalle?: string | null
+          rastreo_en?: string | null
+          rastreo_estado?: string | null
           referencia_externa?: string | null
           updated_at?: string | null
           url_orden?: string | null
@@ -3035,6 +3712,9 @@ export type Database = {
           origen?: string
           paqueteria?: string | null
           producto_id?: string | null
+          rastreo_detalle?: string | null
+          rastreo_en?: string | null
+          rastreo_estado?: string | null
           referencia_externa?: string | null
           updated_at?: string | null
           url_orden?: string | null
@@ -3946,6 +4626,15 @@ export type Database = {
       }
     }
     Views: {
+      maquila_anticipos_saldo: {
+        Row: {
+          anticipo_id: string | null
+          aplicado: number | null
+          monto: number | null
+          saldo: number | null
+        }
+        Relationships: []
+      }
       producto_costos: {
         Row: {
           costo: number | null
@@ -3984,6 +4673,10 @@ export type Database = {
       }
       armar_conjunto: {
         Args: { cid: string; n: number; p_nota?: string }
+        Returns: string
+      }
+      avanzar_estado_pedido: {
+        Args: { actual: string; entrante: string }
         Returns: string
       }
       conteo_ventas_por_producto: {
@@ -4077,8 +4770,37 @@ export type Database = {
         Args: { p_producto: string }
         Returns: undefined
       }
+      maquila_agregar_ajuste_corte: {
+        Args: { cid: string; p_concepto: string; p_importe: number }
+        Returns: string
+      }
+      maquila_ajustar_consignacion: {
+        Args: { iid: string; p_motivo: string; saldo_nuevo: number }
+        Returns: number
+      }
+      maquila_calcular_corte: {
+        Args: { desde: string; hasta: string }
+        Returns: string
+      }
+      maquila_cancelar_corte: { Args: { cid: string }; Returns: undefined }
+      maquila_cerrar_corte: { Args: { cid: string }; Returns: undefined }
+      maquila_devolver_insumo: {
+        Args: { iid: string; n: number; p_motivo?: string }
+        Returns: number
+      }
+      maquila_enviar_insumo: {
+        Args: { iid: string; n: number; p_motivo?: string }
+        Returns: number
+      }
+      maquila_fijar_costo_pedido: {
+        Args: { p_fecha?: string; pid: string }
+        Returns: undefined
+      }
       maquila_rango_estado: { Args: { e: string }; Returns: number }
       maquila_rango_subestado: { Args: { s: string }; Returns: number }
+      maquila_recalcular_totales: { Args: { cid: string }; Returns: undefined }
+      maquilero_ve_carpeta_maquila: { Args: { ruta: string }; Returns: boolean }
+      maquilero_ve_personalizado: { Args: { pid: string }; Returns: boolean }
       marcar_conjunto_subido: { Args: { cid: string }; Returns: number }
       metricas_resumen: {
         Args: { canal_f?: string; desde: string; hasta: string }
@@ -4115,6 +4837,7 @@ export type Database = {
       puede_ver_documento: { Args: { did: string }; Returns: boolean }
       puede_ver_tarea: { Args: { tid: string }; Returns: boolean }
       purgar_logs: { Args: { solo_contar?: boolean }; Returns: Json }
+      rango_estado_pedido: { Args: { e: string }; Returns: number }
       recibir_pedido_proveedor: {
         Args: { pid: string; sumar_stock: boolean }
         Returns: undefined

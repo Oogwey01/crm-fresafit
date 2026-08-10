@@ -35,6 +35,12 @@ import type {
   ACABADOS_MAQUILA,
   COMBOS_MAQUILA,
   COLORES_PALANCA,
+  ESTADOS_GUIA_MAQUILA,
+  TIPOS_MOV_CONSIGNACION,
+  ESTADOS_CORTE_MAQUILA,
+  TIPOS_ANTICIPO_MAQUILA,
+  TIPOS_INCIDENCIA_MAQUILA,
+  DESTINOS_INCIDENCIA_MAQUILA,
   EspacioId,
 } from "@/lib/catalogos";
 import type { DireccionEnvio } from "@/lib/canales/direccion";
@@ -92,6 +98,12 @@ export type ModeloMaquilaId = (typeof MODELOS_MAQUILA)[number]["id"];
 export type AcabadoMaquilaId = (typeof ACABADOS_MAQUILA)[number]["id"];
 export type ComboMaquilaId = (typeof COMBOS_MAQUILA)[number]["id"];
 export type ColorPalancaId = (typeof COLORES_PALANCA)[number]["id"];
+export type EstadoGuiaMaquilaId = (typeof ESTADOS_GUIA_MAQUILA)[number]["id"];
+export type TipoMovConsignacionId = (typeof TIPOS_MOV_CONSIGNACION)[number]["id"];
+export type EstadoCorteMaquilaId = (typeof ESTADOS_CORTE_MAQUILA)[number]["id"];
+export type TipoAnticipoMaquilaId = (typeof TIPOS_ANTICIPO_MAQUILA)[number]["id"];
+export type TipoIncidenciaMaquilaId = (typeof TIPOS_INCIDENCIA_MAQUILA)[number]["id"];
+export type DestinoIncidenciaMaquilaId = (typeof DESTINOS_INCIDENCIA_MAQUILA)[number]["id"];
 
 /* Perfil de usuario (tabla `profiles`, 1:1 con auth.users). */
 export type Profile = {
@@ -510,6 +522,14 @@ export type Sale = {
   /* Id del shipment en Mercado Libre: con él se pide la etiqueta PDF a su API
      (ruta /api/mercadolibre/etiqueta). Null en los demás canales. */
   envio_id: string | null;
+  /* Lo que contestó la paquetería la última vez que se le preguntó por la guía
+     (lo deja el cron de rastreo; ver lib/pedidos/conciliar-envios.ts).
+     `rastreo_estado` es el texto crudo del proveedor —se guarda sin traducir
+     para poder clasificar después uno nuevo sin volver a preguntar— y
+     `rastreo_detalle`, el último movimiento en palabras. */
+  rastreo_estado: string | null;
+  rastreo_detalle: string | null;
+  rastreo_en: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
@@ -597,6 +617,13 @@ export type PedidoEnvio = Pick<
   | "envio_despachado_en"
   /* Con el id del shipment, el botón de la guía abre la etiqueta PDF de ML. */
   | "envio_id"
+  /* Lo último que dijo la paquetería sobre la guía (lo deja el cron de rastreo,
+     ver lib/pedidos/conciliar-envios.ts). Es el dato por el que había que salir
+     del CRM a abrir el buscador de la paquetería: por qué un paquete no llegó, o
+     desde cuándo viene de regreso. */
+  | "rastreo_estado"
+  | "rastreo_detalle"
+  | "rastreo_en"
 > & {
   producto: Pick<Product, "id" | "nombre" | "variante"> | null;
   cliente: Pick<Customer, "id" | "nombre"> | null;
@@ -1342,7 +1369,7 @@ export type InsumoPermiso = {
 
 /* Un renglón de producción (tabla `maquila_pedidos`). Es UNA fila por pieza
    vendida —no por orden—, con todo en snapshot: el tablero de Eduardo no puede
-   (ni debe) joinear products o customers. El único dinero es costo_maquila. */
+   (ni debe) joinear products o customers. Sin una sola cifra de dinero. */
 export type PedidoMaquila = {
   id: string;
   canal: "tienda_nube" | "mercado_libre" | "manual";
@@ -1365,8 +1392,16 @@ export type PedidoMaquila = {
   palanca_color: ColorPalancaId | null;
   combo: ComboMaquilaId;
   combo_diseno: string | null;
-  /* Lo que Eduardo cobra por la pieza (sin IVA), congelado a la fecha del pago. */
-  costo_maquila: number | null;
+  /* De dónde sale el arte: un personalizado (su imagen se le abre a Eduardo
+     por RLS del bucket) o un diseño de la biblioteca de colecciones. */
+  personalizado_id: string | null;
+  diseno_id: string | null;
+  /* «Producto listo de parte de Fresa Fit»: el arte quedó entregado. De aquí
+     en adelante, el retraso ya no es del diseño. */
+  diseno_listo_en: string | null;
+  /* NO hay dinero aquí. Lo que Eduardo cobra vive en `maquila_pedido_costos`,
+     cerrada a dirección y administración (ver 20260930000000): la RLS es por
+     fila, así que esconderlo exigía sacarlo de esta tabla. */
   /* El instante real de aprobación del pago: de aquí —no de la compra— salen
      ruta, corte y fecha prometida (lib/maquila/reglas.ts). */
   pagado_en: string | null;
@@ -1453,4 +1488,191 @@ export type ConfigMaquila = {
   sabado_habil: boolean;
   updated_by: string | null;
   updated_at: string;
+};
+
+/* El pendiente de guía sobre un PAQUETE terminado (tabla `maquila_guias`).
+   `grupo` agrupa los renglones hermanos de una misma orden: una orden con tres
+   cinturones lleva una sola guía. La abre el trigger al terminarse el pedido,
+   la surte logística subiendo el archivo, y se cierra sola al salir. */
+export type GuiaMaquila = {
+  id: string;
+  canal: "tienda_nube" | "mercado_libre" | "manual";
+  grupo: string;
+  estado: EstadoGuiaMaquilaId;
+  paqueteria: string | null;
+  num_guia: string | null;
+  /* Bucket privado `maquila`, carpeta guias/. El maquilero solo descarga. */
+  archivo_path: string | null;
+  archivo_nombre: string | null;
+  archivo_mime: string | null;
+  solicitada_en: string;
+  cargada_por: string | null;
+  cargada_en: string | null;
+  entregada_en: string | null;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/* La solicitud junto a los renglones que la esperan: lo que la pantalla de
+   logística necesita para saber qué está surtiendo sin joinear en el cliente. */
+export type GuiaMaquilaConPedidos = GuiaMaquila & {
+  pedidos: PedidoMaquila[];
+};
+
+/* --- Consignación con la maquila ------------------------------------------
+   El material que Fresa Fit le manda a Eduardo y él guarda: palancas para los
+   PowerLift y, con los combos, muñequeras y straps. Tablas 20260927000000 y
+   20260927000100. --- */
+
+/* Un insumo del catálogo de consignación. `clave` es contrato con el trigger
+   de consumo y con lib/maquila/consignacion.ts. `producto_id` null = todavía
+   no tiene ficha en el inventario, así que enviarle piezas no baja bodega. */
+export type InsumoMaquila = {
+  id: string;
+  clave: string;
+  nombre: string;
+  unidad: string;
+  producto_id: string | null;
+  minimo: number;
+  activo: boolean;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/* El insumo con su saldo en poder de Eduardo. El saldo puede ser NEGATIVO a
+   propósito: un descuadre de conteo nunca frena un envío (ver la migración). */
+export type InsumoMaquilaConSaldo = InsumoMaquila & {
+  saldo: number;
+  /* Lo que se llevarán los pedidos vivos que aún no salen. Se calcula en la
+     página con comprometidoPorInsumo(); no vive en la base. */
+  comprometido: number;
+};
+
+/* Un arte de la biblioteca de colecciones (tabla `maquila_disenos`): lo que
+   permite sacar una colección sobre venta, sin fabricar stock. */
+export type DisenoMaquila = {
+  id: string;
+  nombre: string;
+  coleccion: string | null;
+  acabado: AcabadoMaquilaId | null;
+  archivo_path: string | null;
+  archivo_nombre: string | null;
+  archivo_mime: string | null;
+  activo: boolean;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/* Un pendiente sobre un pedido (tabla `maquila_incidencias`), en los dos
+   sentidos: el equipo reclama calidad, Eduardo avisa que le falta material. */
+export type IncidenciaMaquila = {
+  id: string;
+  pedido_id: string;
+  tipo: TipoIncidenciaMaquilaId;
+  dirigida_a: DestinoIncidenciaMaquilaId;
+  texto: string;
+  abierta: boolean;
+  resuelta_en: string | null;
+  resuelta_por: string | null;
+  respuesta: string | null;
+  created_by: string | null;
+  created_at: string;
+  autor_nombre?: string | null;
+};
+
+/* --- El dinero de la maquila ----------------------------------------------
+   Anticipos y corte quincenal. Tablas 20260928000000 y 20260929000000, todas
+   con RLS de administración: nada de esto llega a coordinación ni a Eduardo. */
+
+/* Un adelanto a Eduardo. En especie («tiene a favor 20 gamuzas») el `monto` es
+   el valor acordado, que es lo que el corte resta. */
+export type AnticipoMaquila = {
+  id: string;
+  fecha: string;
+  tipo: TipoAnticipoMaquilaId;
+  concepto: string;
+  monto: number;
+  especie_cantidad: number | null;
+  especie_unidad: string | null;
+  comprobante_path: string | null;
+  comprobante_nombre: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /* De la vista `maquila_anticipos_saldo`: cuánto queda sin consumir. */
+  aplicado?: number;
+  saldo?: number;
+};
+
+/* La liquidación de una quincena: lo enviado + IVA − anticipos. */
+export type CorteMaquila = {
+  id: string;
+  periodo_desde: string;
+  periodo_hasta: string;
+  estado: EstadoCorteMaquilaId;
+  piezas: number;
+  subtotal: number;
+  iva_tasa: number;
+  iva: number;
+  anticipos_aplicados: number;
+  total: number;
+  cerrado_en: string | null;
+  cerrado_por: string | null;
+  pagado_en: string | null;
+  pagado_por: string | null;
+  metodo_pago: string | null;
+  factura_folio: string | null;
+  factura_uuid: string | null;
+  factura_path: string | null;
+  expense_id: string | null;
+  notas: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/* Un renglón del corte. `pedido_id` null = ajuste manual (nota de crédito,
+   pieza rehecha), y ahí el importe puede ser negativo. */
+export type RenglonCorteMaquila = {
+  id: string;
+  corte_id: string;
+  pedido_id: string | null;
+  concepto: string | null;
+  modelo: string | null;
+  acabado: string | null;
+  cantidad: number;
+  costo_unitario: number;
+  importe: number;
+  enviado_en: string | null;
+  anulado: boolean;
+  created_at: string;
+};
+
+/* El corte con lo que hace falta para pintarlo entero. */
+export type CorteMaquilaConDetalle = CorteMaquila & {
+  renglones: RenglonCorteMaquila[];
+};
+
+/* Un movimiento de la bitácora (tabla `maquila_consignacion_movs`). La
+   cantidad es siempre positiva: el signo lo pone el `tipo`. */
+export type MovConsignacionMaquila = {
+  id: string;
+  insumo_id: string;
+  tipo: TipoMovConsignacionId;
+  cantidad: number;
+  saldo_resultante: number;
+  pedido_id: string | null;
+  lote: string | null;
+  motivo: string | null;
+  created_by: string | null;
+  created_at: string;
+  /* Resueltos aparte para la tabla; null cuando fue el sistema o se borró. */
+  autor_nombre?: string | null;
+  insumo_nombre?: string | null;
 };

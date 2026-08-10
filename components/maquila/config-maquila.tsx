@@ -45,11 +45,16 @@ export function ConfigMaquilaPanel({
   festivos,
   costos,
   esDireccion,
+  veTarifas,
 }: {
   config: ConfigMaquila;
   festivos: FestivoMaquila[];
   costos: CostoMaquila[];
   esDireccion: boolean;
+  /* Las tarifas son confidenciales (dirección y administración). Sin esto, el
+     bloque no se pinta: `costos` llega vacío por RLS y una rejilla de «sin
+     tarifa» haría creer que no hay precios cargados. */
+  veTarifas: boolean;
 }) {
   const { pending, ejecutar } = useAccionServidor();
   const [horaLimite, setHoraLimite] = useState(config.hora_limite.slice(0, 5));
@@ -198,7 +203,8 @@ export function ConfigMaquilaPanel({
         </ul>
       </div>
 
-      {/* --- Tarifas de Eduardo --- */}
+      {/* --- Tarifas de Eduardo (solo dirección y administración) --- */}
+      {veTarifas && (
       <div className="grid content-start gap-3 rounded-2xl border bg-card p-4 lg:col-span-2">
         <div className="text-[13px] font-semibold">Tarifas de maquila (sin IVA)</div>
         <p className="-mt-1 text-[12.5px] text-muted-foreground">
@@ -298,6 +304,7 @@ export function ConfigMaquilaPanel({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

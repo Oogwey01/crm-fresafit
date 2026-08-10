@@ -223,7 +223,7 @@ export async function aplicarOrdenesMaquila(ordenes: OrdenTN[]): Promise<Resumen
       const pagadoEn = pagoPorRef.get(p.referencia_externa);
       if (!pagadoEn) continue;
       const cls = clasificarPago(diaMX(pagadoEn), horaMX(pagadoEn), p.acabado, cal);
-      const { error } = await admin
+      const { data: promovido, error } = await admin
         .from("maquila_pedidos")
         .update({
           pagado_en: pagadoEn,
@@ -231,12 +231,28 @@ export async function aplicarOrdenesMaquila(ordenes: OrdenTN[]): Promise<Resumen
           ruta: cls.ruta,
           corte_fecha: cls.corteFecha,
           fecha_prometida: cls.fechaPrometida,
-          costo_maquila: costoVigente(costos, p.modelo, p.acabado, diaMX(pagadoEn)),
           sale_id: ventaPorRef.get(p.referencia_externa) ?? null,
         })
         .eq("id", p.id)
-        .is("pagado_en", null); // carrera webhook/cron: gana el primero
+        .is("pagado_en", null) // carrera webhook/cron: gana el primero
+        .select("id");
       if (error) throw new Error(error.message);
+      /* Si el update no tocó nada, otro proceso ya promovió este pedido: su
+         costo también quedó congelado y no hay que volver a escribirlo. */
+      if (!promovido?.length) continue;
+
+      /* El costo vive fuera del pedido (maquila_pedido_costos, cerrada a
+         administración). La ingesta corre con service role, así que escribe
+         directo; `ignoreDuplicates` para que un reintento no pise una tarifa
+         ya congelada. */
+      const { error: errCosto } = await admin.from("maquila_pedido_costos").upsert(
+        {
+          pedido_id: p.id,
+          costo: costoVigente(costos, p.modelo, p.acabado, diaMX(pagadoEn)),
+        },
+        { onConflict: "pedido_id", ignoreDuplicates: true },
+      );
+      if (errCosto) throw new Error(errCosto.message);
       resumen.pagados++;
     }
   }

@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { AlarmClock, Factory, Scissors, Zap } from "lucide-react";
+import { AlarmClock, Factory, Scissors, Truck } from "lucide-react";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TableroMaquila } from "@/components/maquila/tablero";
 import { PedidoMaquilaDialog } from "@/components/maquila/pedido-dialog";
 import { ESTADOS_MAQUILA_ACTIVOS } from "@/lib/catalogos";
+import { insumosDePedido } from "@/lib/maquila/consignacion";
 import { formatearFecha } from "@/lib/fecha";
-import type { PedidoMaquila } from "@/lib/types";
+import type { GuiaMaquila, InsumoMaquilaConSaldo, PedidoMaquila } from "@/lib/types";
 
 const ACTIVOS: readonly string[] = ESTADOS_MAQUILA_ACTIVOS;
 
@@ -16,10 +17,14 @@ const ACTIVOS: readonly string[] = ESTADOS_MAQUILA_ACTIVOS;
    qué urge, qué va en el corte y qué sale manual. */
 export function VistaMaquilero({
   pedidos,
+  guias,
+  insumos,
   hoy,
   nombre,
 }: {
   pedidos: PedidoMaquila[];
+  guias: GuiaMaquila[];
+  insumos: InsumoMaquilaConSaldo[];
   hoy: string;
   nombre: string;
 }) {
@@ -34,6 +39,10 @@ export function VistaMaquilero({
     (min, p) => (p.corte_fecha && (!min || p.corte_fecha < min) ? p.corte_fecha : min),
     null,
   );
+  /* Las guías las surte logística: a él le importa cuántas puede imprimir ya y
+     cuántas siguen esperando del otro lado. */
+  const guiasListas = guias.filter((g) => g.archivo_path).length;
+  const esperandoGuia = guias.length - guiasListas;
 
   return (
     <div>
@@ -65,20 +74,53 @@ export function VistaMaquilero({
           nota={corteActual ? `lote del ${formatearFecha(corteActual)}` : "sin lote pendiente"}
         />
         <StatCard
-          etiqueta="Prensados"
-          valor={String(prensados.length)}
-          icono={Zap}
-          nota="fuera de corte, salen manual"
+          etiqueta="Guías listas"
+          valor={String(guiasListas)}
+          icono={Truck}
+          valorClassName={guiasListas > 0 ? "text-emerald-600" : undefined}
+          nota={
+            esperandoGuia > 0
+              ? `${esperandoGuia} esperan que Fresa Fit la suba`
+              : "para imprimir y pegar"
+          }
         />
       </div>
 
-      <TableroMaquila pedidos={pedidos} hoy={hoy} esEquipo={false} onAbrir={setAbierto} />
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-muted-foreground">
+        <span>
+          {prensados.length > 0
+            ? `${prensados.length} son prensados: salen fuera de corte, en cuanto los tengas.`
+            : "Nada de prensado pendiente ahora mismo."}
+        </span>
+        {/* Su material en resguardo: no es dinero, es saber si le alcanzan las
+            palancas para lo que tiene enfrente. */}
+        {insumos
+          .filter((i) => i.activo)
+          .map((i) => (
+            <span key={i.id} className="whitespace-nowrap">
+              {i.nombre}:{" "}
+              <strong className={i.saldo <= i.minimo ? "text-red-600" : "text-foreground"}>
+                {i.saldo}
+              </strong>
+              {i.comprometido > 0 ? ` (${i.comprometido} comprometidas)` : ""}
+            </span>
+          ))}
+      </div>
+
+      <TableroMaquila
+        pedidos={pedidos}
+        guias={guias}
+        hoy={hoy}
+        esEquipo={false}
+        onAbrir={setAbierto}
+      />
 
       {abierto && (
         <PedidoMaquilaDialog
           pedido={abierto}
           esEquipo={false}
           esAdmin={false}
+          insumos={insumosDePedido(abierto)}
           onClose={() => setAbierto(null)}
         />
       )}

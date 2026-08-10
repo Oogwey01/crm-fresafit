@@ -8,6 +8,7 @@ import {
   obtenerComboMaquila,
   obtenerModeloMaquila,
 } from "@/lib/catalogos";
+import { insumosDePedido } from "@/lib/maquila/consignacion";
 import { formatearFechaLarga } from "@/lib/fecha";
 import type { PedidoMaquila } from "@/lib/types";
 
@@ -116,6 +117,21 @@ export function FichaImprimible({ pedido }: { pedido: PedidoMaquila }) {
             <div className="text-[13.5px] text-[#555]">
               Diseño del accesorio:{" "}
               <strong>{pedido.combo_diseno ?? "el mismo del cinturón"}</strong>
+            </div>
+          </section>
+        )}
+
+        {/* Material que sale de su consignación: se etiqueta aquí para que el
+            armado no dependa de recordarlo. */}
+        {insumosDePedido(pedido).length > 0 && (
+          <section className="mt-3 rounded-xl border px-4 py-3">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-[#555]">
+              📦 De tu material en resguardo
+            </div>
+            <div className="text-[15px] font-bold">
+              {insumosDePedido(pedido)
+                .map((i) => `${i.cantidad} × ${i.clave.replace(/_/g, " ")}`)
+                .join(" · ")}
             </div>
           </section>
         )}

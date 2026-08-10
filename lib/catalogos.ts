@@ -283,6 +283,12 @@ export const ESTADOS_PEDIDO = [
   { id: "preparando", nombre: "Preparando", color: "#f59e0b" },
   { id: "enviado", nombre: "Enviado", color: "#6c5ce7" },
   { id: "entregado", nombre: "Entregado", color: "#22c55e" },
+  /* El paquete se regresó al remitente. Existe porque una devolución se veía
+     igual que un envío en camino —"Enviado" para siempre— y no había forma de
+     contarlas ni de sacarlas de la bandeja. Lo detectan el rastreo de la guía
+     (lib/envia/rastreo.ts) y el `substatus` de Mercado Libre. NO reingresa
+     stock: la mercancía vuelve cuando bodega la recibe y la captura. */
+  { id: "devuelto", nombre: "Devuelto", color: "#e17055" },
   { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
 ] as const;
 
@@ -433,6 +439,66 @@ export const COMBOS_MAQUILA = [
 export const COLORES_PALANCA = [
   { id: "plateada", nombre: "Plateada", color: "#94a3b8" },
   { id: "negra", nombre: "Negra", color: "#2d3436" },
+] as const;
+
+/* El pendiente de logística sobre un paquete terminado: «favor de entregar
+   guía». Es una tabla aparte y NO un estado del pedido porque no depende de
+   Eduardo — él no puede avanzar a algo que se destraba cuando alguien más
+   sube un archivo (ver 20260926000100_maquila_guias.sql). */
+export const ESTADOS_GUIA_MAQUILA = [
+  { id: "solicitada", nombre: "Falta guía", color: "#f59e0b" },
+  { id: "cargada", nombre: "Guía lista", color: "#0984e3" },
+  { id: "entregada", nombre: "Ya salió", color: "#22c55e" },
+  { id: "cancelada", nombre: "Cancelada", color: "#64748b" },
+] as const;
+
+/* Los movimientos del material que Fresa Fit le tiene a Eduardo en
+   consignación (palancas, muñequeras, straps). `consumo` lo escribe un
+   trigger cuando la pieza sale; los otros tres, una persona. */
+export const TIPOS_MOV_CONSIGNACION = [
+  { id: "envio", nombre: "Se le mandó", color: "#22c55e" },
+  { id: "consumo", nombre: "Se gastó", color: "#e17055" },
+  { id: "devolucion", nombre: "Regresó", color: "#0984e3" },
+  { id: "ajuste", nombre: "Ajuste de conteo", color: "#f59e0b" },
+] as const;
+
+/* El corte quincenal de pago a Eduardo. `borrador` se puede recalcular;
+   `cerrado` ya congeló anticipos y total; `pagado` es el final. Cancelar anula
+   los renglones y libera los pedidos para otro corte — nunca borra. */
+export const ESTADOS_CORTE_MAQUILA = [
+  { id: "borrador", nombre: "Borrador", color: "#94a3b8" },
+  { id: "cerrado", nombre: "Cerrado", color: "#f59e0b" },
+  { id: "pagado", nombre: "Pagado", color: "#22c55e" },
+  { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
+] as const;
+
+/* Cómo se le adelantó el dinero. `especie` es «tiene a favor 20 gamuzas»: se
+   guarda el valor acordado, que es lo que el corte resta. */
+export const TIPOS_ANTICIPO_MAQUILA = [
+  { id: "transferencia", nombre: "Transferencia" },
+  { id: "efectivo", nombre: "Efectivo" },
+  { id: "especie", nombre: "En especie (material)" },
+  { id: "otro", nombre: "Otro" },
+] as const;
+
+/* Lo que se reporta de un pedido de maquila, en los dos sentidos: el equipo
+   avisa que una pieza salió mal, Eduardo avisa que le falta material o que su
+   imprenta lo dejó colgado. Eso último es la evidencia con la que después se
+   discute de quién fue el retraso. */
+export const TIPOS_INCIDENCIA_MAQUILA = [
+  { id: "calidad", nombre: "Calidad", color: "#d63031" },
+  { id: "retraso", nombre: "Retraso", color: "#f59e0b" },
+  { id: "faltante", nombre: "Falta material", color: "#e17055" },
+  { id: "diseno", nombre: "Problema con el diseño", color: "#6c5ce7" },
+  { id: "otro", nombre: "Otro", color: "#64748b" },
+] as const;
+
+/* A quién le toca resolver la incidencia. No da permisos: es para saber de
+   quién es el pendiente. */
+export const DESTINOS_INCIDENCIA_MAQUILA = [
+  { id: "equipo", nombre: "Fresa Fit" },
+  { id: "maquilero", nombre: "Eduardo" },
+  { id: "diseno", nombre: "Diseño" },
 ] as const;
 
 /* --- Insumos ---------------------------------------------------------------
@@ -775,6 +841,24 @@ export function obtenerComboMaquila(id: string | null | undefined) {
 }
 export function obtenerColorPalanca(id: string | null | undefined) {
   return COLORES_PALANCA.find((c) => c.id === id) ?? null;
+}
+export function obtenerEstadoGuiaMaquila(id: string | null | undefined) {
+  return ESTADOS_GUIA_MAQUILA.find((e) => e.id === id) ?? null;
+}
+export function obtenerTipoMovConsignacion(id: string | null | undefined) {
+  return TIPOS_MOV_CONSIGNACION.find((t) => t.id === id) ?? null;
+}
+export function obtenerEstadoCorteMaquila(id: string | null | undefined) {
+  return ESTADOS_CORTE_MAQUILA.find((e) => e.id === id) ?? null;
+}
+export function obtenerTipoAnticipoMaquila(id: string | null | undefined) {
+  return TIPOS_ANTICIPO_MAQUILA.find((t) => t.id === id) ?? null;
+}
+export function obtenerTipoIncidenciaMaquila(id: string | null | undefined) {
+  return TIPOS_INCIDENCIA_MAQUILA.find((t) => t.id === id) ?? null;
+}
+export function obtenerDestinoIncidenciaMaquila(id: string | null | undefined) {
+  return DESTINOS_INCIDENCIA_MAQUILA.find((d) => d.id === id) ?? null;
 }
 export function obtenerLadoIncidencia(id: string | null | undefined) {
   return LADOS_INCIDENCIA.find((l) => l.id === id) ?? null;

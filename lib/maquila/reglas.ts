@@ -176,6 +176,15 @@ export const SEMAFORO_MAQUILA: Record<SemaforoMaquila, { nombre: string; color: 
   verde: { nombre: "Con holgura", color: "#22c55e" },
 };
 
+/* ---- El paquete al que pertenece un renglón -------------------------------
+   La guía es del PAQUETE, no de la pieza: una orden con tres cinturones lleva
+   una sola etiqueta. Esta clave espeja el coalesce del trigger
+   solicitar_guia_maquila y de la RLS de maquila_guias (20260926000100); si
+   dejaran de coincidir, el tablero pintaría solicitudes huérfanas. */
+export function grupoDePedido(p: { referencia_orden: string | null; id: string }): string {
+  return p.referencia_orden?.trim() || p.id;
+}
+
 /* ---- Indicadores de un pedido (los emojis del tablero) -------------------- */
 
 export type IndicadorMaquila = { icono: string; titulo: string };

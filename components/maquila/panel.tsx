@@ -10,6 +10,11 @@ import { TableroMaquila } from "@/components/maquila/tablero";
 import { PedidoMaquilaDialog } from "@/components/maquila/pedido-dialog";
 import { NuevoPedidoMaquilaDialog } from "@/components/maquila/nuevo-pedido-dialog";
 import { ProductosMaquila } from "@/components/maquila/productos-maquila";
+import { GuiasMaquila } from "@/components/maquila/guias";
+import { InsumosMaquila } from "@/components/maquila/insumos";
+import { CorteMaquilaPanel } from "@/components/maquila/corte";
+import { EstadisticasMaquila } from "@/components/maquila/estadisticas";
+import { BibliotecaDisenos } from "@/components/maquila/biblioteca-disenos";
 import { ConfigMaquilaPanel } from "@/components/maquila/config-maquila";
 import type { ProductoElegible } from "@/components/compartido/selector-producto";
 import {
@@ -18,43 +23,79 @@ import {
   obtenerCanal,
   obtenerModeloMaquila,
 } from "@/lib/catalogos";
+import { grupoDePedido } from "@/lib/maquila/reglas";
+import { insumosDePedido } from "@/lib/maquila/consignacion";
 import { formatearFecha, formatearFechaHora } from "@/lib/fecha";
 import { direccionEnUnaLinea } from "@/lib/canales/direccion";
 import type {
+  AnticipoMaquila,
   ConfigMaquila,
+  CorteMaquilaConDetalle,
   CostoMaquila,
+  DisenoMaquila,
   FestivoMaquila,
+  GuiaMaquila,
+  GuiaMaquilaConPedidos,
+  InsumoMaquilaConSaldo,
   MaquilaProductoConFicha,
+  MovConsignacionMaquila,
   PedidoMaquila,
 } from "@/lib/types";
 
 const ACTIVOS: readonly string[] = ESTADOS_MAQUILA_ACTIVOS;
 
-type Seccion = "tablero" | "espera" | "productos" | "config";
+type Seccion =
+  | "tablero"
+  | "espera"
+  | "guias"
+  | "insumos"
+  | "corte"
+  | "estadisticas"
+  | "disenos"
+  | "productos"
+  | "config";
 
 /* La vista del equipo: el mismo tablero que ve Eduardo más lo que a él no le
    toca — la bandeja de pedidos sin pagar, las fichas de producto que encienden
    la ingesta y la configuración del calendario y las tarifas. */
 export function PanelMaquila({
   pedidos,
+  guias,
+  insumos,
+  movimientos,
+  disenos,
   fichas,
   productos,
   config,
   festivos,
   costos,
+  costosPorPedido,
+  cortes,
+  anticipos,
   hoy,
   esAdmin,
   esDireccion,
+  veDinero,
 }: {
   pedidos: PedidoMaquila[];
+  guias: GuiaMaquila[];
+  insumos: InsumoMaquilaConSaldo[];
+  movimientos: MovConsignacionMaquila[];
+  disenos: DisenoMaquila[];
   fichas: MaquilaProductoConFicha[];
   productos: ProductoElegible[];
   config: ConfigMaquila;
   festivos: FestivoMaquila[];
+  /* Vacío cuando quien mira no ve egresos: la RLS ya no se los da y la página
+     ni siquiera hace el viaje. */
   costos: CostoMaquila[];
+  costosPorPedido: Record<string, number>;
+  cortes: CorteMaquilaConDetalle[];
+  anticipos: AnticipoMaquila[];
   hoy: string;
   esAdmin: boolean;
   esDireccion: boolean;
+  veDinero: boolean;
 }) {
   const [seccion, setSeccion] = useState<Seccion>("tablero");
   const [abierto, setAbierto] = useState<PedidoMaquila | null>(null);
@@ -69,12 +110,29 @@ export function PanelMaquila({
     null,
   );
 
-  const SECCIONES = [
+  /* Cada solicitud de guía se pinta con los renglones que la esperan: el cruce
+     es por (canal, grupo), la misma clave que usa el trigger. */
+  const guiasConPedidos: GuiaMaquilaConPedidos[] = guias.map((g) => ({
+    ...g,
+    pedidos: pedidos.filter((p) => p.canal === g.canal && grupoDePedido(p) === g.grupo),
+  }));
+  const sinSurtir = guiasConPedidos.filter((g) => g.estado === "solicitada");
+
+  const insumosBajos = insumos.filter((i) => i.activo && i.saldo <= i.minimo).length;
+
+  /* El corte quincenal solo existe para quien ve el dinero: sin permiso, ni se
+     pinta el botón —mismo criterio que el menú, no se ofrece lo que rebota—. */
+  const SECCIONES: readonly (readonly [Seccion, string])[] = [
     ["tablero", "Tablero"],
     ["espera", `Esperando pago${esperando.length ? ` (${esperando.length})` : ""}`],
+    ["guias", `Guías${sinSurtir.length ? ` (${sinSurtir.length})` : ""}`],
+    ["insumos", `Insumos${insumosBajos ? ` (${insumosBajos})` : ""}`],
+    ...(veDinero ? ([["corte", "Corte quincenal"]] as const) : []),
+    ["estadisticas", "Estadísticas"],
+    ["disenos", "Diseños"],
     ["productos", "Productos de maquila"],
     ["config", "Configuración"],
-  ] as const;
+  ];
 
   const columnasEspera: Columna<PedidoMaquila>[] = [
     {
@@ -170,7 +228,7 @@ export function PanelMaquila({
       <TabsSeccion opciones={SECCIONES} valor={seccion} onCambio={setSeccion} className="mb-4" />
 
       {seccion === "tablero" && (
-        <TableroMaquila pedidos={pedidos} hoy={hoy} esEquipo onAbrir={setAbierto} />
+        <TableroMaquila pedidos={pedidos} guias={guias} hoy={hoy} esEquipo onAbrir={setAbierto} />
       )}
 
       {seccion === "espera" && (
@@ -185,6 +243,37 @@ export function PanelMaquila({
         />
       )}
 
+      {seccion === "guias" && <GuiasMaquila guias={guiasConPedidos} puedeSurtir />}
+
+      {seccion === "insumos" && (
+        <InsumosMaquila
+          insumos={insumos}
+          movimientos={movimientos}
+          puedeMover
+          puedeAjustar={esAdmin}
+        />
+      )}
+
+      {seccion === "corte" && veDinero && (
+        <CorteMaquilaPanel
+          cortes={cortes}
+          anticipos={anticipos}
+          hoy={hoy}
+          esDireccion={esDireccion}
+        />
+      )}
+
+      {seccion === "estadisticas" && (
+        <EstadisticasMaquila
+          pedidos={pedidos}
+          costosPorPedido={costosPorPedido}
+          hoy={hoy}
+          veDinero={veDinero}
+        />
+      )}
+
+      {seccion === "disenos" && <BibliotecaDisenos disenos={disenos} />}
+
       {seccion === "productos" && (
         <ProductosMaquila fichas={fichas} productos={productos} esAdmin={esAdmin} />
       )}
@@ -195,6 +284,7 @@ export function PanelMaquila({
           festivos={festivos}
           costos={costos}
           esDireccion={esDireccion}
+          veTarifas={veDinero}
         />
       )}
 
@@ -203,6 +293,10 @@ export function PanelMaquila({
           pedido={abierto}
           esEquipo
           esAdmin={esAdmin}
+          veDinero={veDinero}
+          costo={costosPorPedido[abierto.id] ?? null}
+          insumos={insumosDePedido(abierto)}
+          disenos={disenos}
           onClose={() => setAbierto(null)}
         />
       )}
