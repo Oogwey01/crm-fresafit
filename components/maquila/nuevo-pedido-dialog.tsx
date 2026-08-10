@@ -1,18 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DialogoFormulario,
+  Hero,
+  Propiedades,
+} from "@/components/compartido/dialogo-formulario";
+import { Campo } from "@/components/compartido/campo";
+import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
+import { PastillaEntrada, PastillaOpcion } from "@/components/compartido/pastillas-campo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { crearPedidoMaquila } from "@/app/(app)/maquila/actions";
 import {
@@ -20,8 +19,6 @@ import {
   COLORES_PALANCA,
   COMBOS_MAQUILA,
   MODELOS_MAQUILA,
-  obtenerAcabadoMaquila,
-  obtenerComboMaquila,
   obtenerModeloMaquila,
 } from "@/lib/catalogos";
 import { localInputAIso } from "@/lib/fecha";
@@ -88,183 +85,163 @@ export function NuevoPedidoMaquilaDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-[560px]">
-        <DialogHeader>
-          <DialogTitle>Pedido manual (WhatsApp / DM)</DialogTitle>
-        </DialogHeader>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2 grid gap-1.5">
-            <Label htmlFor="nm-diseno">Diseño *</Label>
-            <Input
-              id="nm-diseno"
-              value={diseno}
-              onChange={(e) => setDiseno(e.target.value)}
-              placeholder="Nombre del diseño del cinturón"
-              autoFocus
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Modelo</Label>
-            <Select value={modelo} onValueChange={(v) => v && setModelo(v as ModeloMaquilaId)}>
-              <SelectTrigger>
-                <SelectValue>{(v: string) => obtenerModeloMaquila(v)?.nombre ?? v}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {MODELOS_MAQUILA.map((m) => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Acabado</Label>
-            <Select value={acabado} onValueChange={(v) => v && setAcabado(v as AcabadoMaquilaId)}>
-              <SelectTrigger>
-                <SelectValue>{(v: string) => obtenerAcabadoMaquila(v)?.nombre ?? v}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {ACABADOS_MAQUILA.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nm-talla">Talla</Label>
-            <Input id="nm-talla" value={talla} onChange={(e) => setTalla(e.target.value)} placeholder="S / M / L / XL" />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nm-color">Color</Label>
-            <Input id="nm-color" value={color} onChange={(e) => setColor(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nm-sku">SKU</Label>
-            <Input id="nm-sku" value={sku} onChange={(e) => setSku(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nm-cantidad">Cantidad</Label>
-            <Input
-              id="nm-cantidad"
-              type="number"
-              min={1}
-              value={cantidad}
-              onChange={(e) => setCantidad(e.target.value)}
-            />
-          </div>
-          {llevaPalanca && (
-            <div className="grid gap-1.5">
-              <Label>Color de palanca ⚠️</Label>
-              <Select
-                value={palanca ?? SIN_VALOR}
-                onValueChange={(v) => setPalanca(v === SIN_VALOR ? null : (v as ColorPalancaId))}
-              >
-                <SelectTrigger>
-                  <SelectValue>
-                    {(v: string) => COLORES_PALANCA.find((c) => c.id === v)?.nombre ?? "Sin definir"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SIN_VALOR}>Sin definir</SelectItem>
-                  {COLORES_PALANCA.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <div className="grid gap-1.5">
-            <Label>Combo</Label>
-            <Select value={combo} onValueChange={(v) => v && setCombo(v as ComboMaquilaId)}>
-              <SelectTrigger>
-                <SelectValue>{(v: string) => obtenerComboMaquila(v)?.nombre ?? v}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {COMBOS_MAQUILA.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {combo !== "ninguno" && (
-            <div className="col-span-2 grid gap-1.5">
-              <Label htmlFor="nm-combo-diseno">Diseño del accesorio</Label>
-              <Input
-                id="nm-combo-diseno"
-                value={comboDiseno}
-                onChange={(e) => setComboDiseno(e.target.value)}
-                placeholder="Debe coordinar con el cinturón"
-              />
-            </div>
-          )}
-          <div className="grid gap-1.5">
-            <Label htmlFor="nm-nombre">Cliente (envío)</Label>
-            <Input id="nm-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="nm-telefono">Teléfono</Label>
-            <Input id="nm-telefono" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-          </div>
-          <div className="col-span-2 grid gap-1.5">
-            <Label htmlFor="nm-direccion">Dirección de envío</Label>
-            <Textarea
-              id="nm-direccion"
-              value={direccion}
-              onChange={(e) => setDireccion(e.target.value)}
-              rows={2}
-              placeholder="Calle, número, colonia, CP, ciudad, estado"
-            />
-          </div>
-          <div className="col-span-2 grid gap-1.5">
-            <Label htmlFor="nm-notas">Notas</Label>
-            <Textarea id="nm-notas" value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} />
-          </div>
-
-          {/* La regla de oro: sin pago aprobado no se produce. El pedido se
-              puede capturar antes, pero queda en la bandeja de espera. */}
-          <div className="col-span-2 flex flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-3">
-            <label className="flex items-center gap-2 text-[13.5px] font-medium">
-              <input
-                type="checkbox"
-                checked={pagado}
-                onChange={(e) => setPagado(e.target.checked)}
-                className="size-4 accent-primary"
-              />
-              El pago ya está aprobado
-            </label>
-            {pagado && (
-              <div className="flex items-center gap-2">
-                <Label htmlFor="nm-pagado-en" className="text-[12.5px] text-muted-foreground">
-                  Cuándo (vacío = ahora)
-                </Label>
-                <Input
-                  id="nm-pagado-en"
-                  type="datetime-local"
-                  value={pagadoEn}
-                  onChange={(e) => setPagadoEn(e.target.value)}
-                  className="h-8 w-[190px]"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-
-        <PieDialogoCRUD
-          pending={pending}
-          etiquetaGuardar="Crear pedido"
-          onCancelar={onClose}
-          onGuardar={guardar}
+    <DialogoFormulario
+      titulo="Pedido manual (WhatsApp / DM)"
+      onCerrar={onClose}
+      onGuardar={guardar}
+      etiquetaGuardar="Crear pedido"
+      pending={pending}
+    >
+      <Hero
+        pasoTitulo="¿Qué cinturón es?"
+        valido={Boolean(diseno.trim())}
+        motivoInvalido="Ponle nombre al diseño."
+      >
+        <CampoHero
+          id="nm-diseno"
+          etiqueta="Diseño"
+          placeholder="Nombre del diseño del cinturón"
+          valor={diseno}
+          onCambio={setDiseno}
         />
-      </DialogContent>
-    </Dialog>
+        <DescripcionHero
+          id="nm-notas"
+          etiqueta="Notas"
+          placeholder="Notas… (opcional)"
+          valor={notas}
+          onCambio={setNotas}
+        />
+      </Hero>
+
+      <Propiedades pasoTitulo="El producto">
+        <PastillaOpcion
+          etiqueta="Modelo"
+          opciones={MODELOS_MAQUILA}
+          valor={modelo}
+          onCambio={setModelo}
+        />
+        <PastillaOpcion
+          etiqueta="Acabado"
+          opciones={ACABADOS_MAQUILA}
+          valor={acabado}
+          onCambio={setAcabado}
+        />
+        <PastillaEntrada
+          etiqueta="Talla"
+          valor={talla}
+          onCambio={setTalla}
+          placeholder="S / M / L / XL"
+          opcional
+          idMovil="nm-talla"
+        />
+        <PastillaEntrada
+          etiqueta="Color"
+          valor={color}
+          onCambio={setColor}
+          opcional
+          idMovil="nm-color"
+        />
+        <PastillaEntrada
+          etiqueta="SKU"
+          valor={sku}
+          onCambio={setSku}
+          opcional
+          idMovil="nm-sku"
+        />
+        <PastillaEntrada
+          etiqueta="Cantidad"
+          tipo="number"
+          valor={cantidad}
+          onCambio={setCantidad}
+          sufijo="pzas"
+          idMovil="nm-cantidad"
+        />
+        {/* El ⚠️ viaja en la etiqueta a propósito: palanca_color llega null de
+            TN y capturarlo es responsabilidad del interno. */}
+        {llevaPalanca && (
+          <PastillaOpcion
+            etiqueta="Color de palanca ⚠️"
+            opciones={[
+              { id: SIN_VALOR, nombre: "Sin definir" },
+              ...COLORES_PALANCA,
+            ]}
+            valor={palanca ?? SIN_VALOR}
+            onCambio={(v) => setPalanca(v === SIN_VALOR ? null : (v as ColorPalancaId))}
+          />
+        )}
+        <PastillaOpcion
+          etiqueta="Combo"
+          opciones={COMBOS_MAQUILA}
+          valor={combo}
+          onCambio={setCombo}
+        />
+        {combo !== "ninguno" && (
+          <Campo etiqueta="Diseño del accesorio" htmlFor="nm-combo-diseno" className="w-full">
+            <Input
+              id="nm-combo-diseno"
+              value={comboDiseno}
+              onChange={(e) => setComboDiseno(e.target.value)}
+              placeholder="Debe coordinar con el cinturón"
+            />
+          </Campo>
+        )}
+      </Propiedades>
+
+      <Propiedades pasoTitulo="El envío">
+        <PastillaEntrada
+          etiqueta="Cliente (envío)"
+          valor={nombre}
+          onCambio={setNombre}
+          opcional
+          idMovil="nm-nombre"
+        />
+        <PastillaEntrada
+          etiqueta="Teléfono"
+          valor={telefono}
+          onCambio={setTelefono}
+          opcional
+          idMovil="nm-telefono"
+        />
+        <Campo etiqueta="Dirección de envío" htmlFor="nm-direccion" className="w-full">
+          <Textarea
+            id="nm-direccion"
+            value={direccion}
+            onChange={(e) => setDireccion(e.target.value)}
+            rows={2}
+            placeholder="Calle, número, colonia, CP, ciudad, estado"
+          />
+        </Campo>
+      </Propiedades>
+
+      <Propiedades pasoTitulo="El pago" pasoAyuda="Sin pago aprobado no se produce.">
+        {/* La regla de oro: sin pago aprobado no se produce. El pedido se
+            puede capturar antes, pero queda en la bandeja de espera. */}
+        <div className="flex w-full flex-wrap items-center gap-3 rounded-xl border bg-muted/30 p-3">
+          <label className="flex items-center gap-2 text-[13.5px] font-medium">
+            <input
+              type="checkbox"
+              checked={pagado}
+              onChange={(e) => setPagado(e.target.checked)}
+              className="size-4 accent-primary"
+            />
+            El pago ya está aprobado
+          </label>
+          {pagado && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="nm-pagado-en" className="text-[12.5px] text-muted-foreground">
+                Cuándo (vacío = ahora)
+              </Label>
+              <Input
+                id="nm-pagado-en"
+                type="datetime-local"
+                value={pagadoEn}
+                onChange={(e) => setPagadoEn(e.target.value)}
+                className="h-8 w-[190px]"
+              />
+            </div>
+          )}
+        </div>
+      </Propiedades>
+    </DialogoFormulario>
   );
 }
