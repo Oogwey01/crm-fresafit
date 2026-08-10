@@ -21,6 +21,7 @@ import {
   aMonto,
   guardarTotalesOrden,
   refrescarRenglones,
+  separarAltas,
   ventanaDesde,
   type OpcionesImportacion,
   type TotalOrden,
@@ -267,6 +268,9 @@ async function sincronizarClientes(ordenes: OrdenTikTok[]): Promise<Map<string, 
 async function aplicarOrdenes(
   ordenes: OrdenTikTok[],
   selloEspejo: number | null,
+  /* Corte de ALTAS: las órdenes anteriores solo se refrescan. Ver `separarAltas`.
+     Sin él (webhook de una orden concreta) se da de alta todo. */
+  altaDesde?: Date,
 ): Promise<ResumenVentasTikTok> {
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
@@ -286,17 +290,29 @@ async function aplicarOrdenes(
   ]);
 
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes));
+  const { altas, soloRefresco } = separarAltas(filas, altaDesde);
+  if (soloRefresco > 0) {
+    console.info(`[tiktok] ${soloRefresco} renglones viejos: solo refresco, sin alta.`);
+  }
   let insertadas = 0;
   let actualizadas = 0;
   let descontadas = 0;
   let devueltas = 0;
   let sinDato = 0;
   if (filas.length > 0) {
-    const { data, error } = await admin
-      .from("sales")
-      .upsert(filas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
-      .select("id, producto_id, cantidad, referencia_externa");
-    if (error) throw new Error(error.message);
+    /* Solo las altas permitidas entran al upsert; el refresco de más abajo sí ve
+       todos los renglones. Con `altas` vacío no hay nada que insertar. */
+    let data:
+      | { id: string; producto_id: string | null; cantidad: number; referencia_externa: string | null }[]
+      | null = null;
+    if (altas.length > 0) {
+      const r = await admin
+        .from("sales")
+        .upsert(altas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
+        .select("id, producto_id, cantidad, referencia_externa");
+      if (r.error) throw new Error(r.error.message);
+      data = r.data;
+    }
     insertadas = data?.length ?? 0;
 
     /* Con `ignoreDuplicates`, `data` son SOLO las ventas nuevas: un reintento de
@@ -508,14 +524,15 @@ export async function importarVentasTikTok(
   const ultimaSync =
     !opts?.completo && typeof datos.ventas_ultima_sync === "string" ? datos.ventas_ultima_sync : null;
 
-  const desdeUnix = Math.floor(
-    ventanaDesde(ultimaSync, opts).getTime() / 1000,
-  );
+  /* `desde` cumple dos papeles: desde cuándo se piden órdenes ACTUALIZADAS, y
+     hasta dónde se permite dar de alta ventas nuevas. */
+  const desde = ventanaDesde(ultimaSync, opts);
+  const desdeUnix = Math.floor(desde.getTime() / 1000);
 
   const ordenes = await listarOrdenesTikTok(cx, desdeUnix);
   /* `ultima_sync` es la pasada de CATÁLOGO, no la de ventas: es el momento en
      que el CRM copió por última vez los números de TikTok. Ver `descontarVentas`. */
-  const resumen = await aplicarOrdenes(ordenes, selloEspejoDe(datos));
+  const resumen = await aplicarOrdenes(ordenes, selloEspejoDe(datos), desde);
 
   await mezclarDatosIntegracion("tiktok", { ventas_ultima_sync: new Date().toISOString() }, datos);
 

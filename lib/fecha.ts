@@ -102,13 +102,28 @@ export function localInputAIso(valor: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-/* Un pedido pendiente lleva demasiados días sin moverse a "entregado". */
+/* Un pedido que aún no sale lleva demasiados días sin despacharse. */
 export const DIAS_ATRASO_PEDIDO = 3;
 
-/* ¿El pedido está atrasado? (pendiente y su fecha es de hace más de N días). */
+/* Los estados en los que el pedido TODAVÍA NO SALIÓ: los únicos que pueden
+   atrasarse. Antes esto era "todo lo que no está entregado ni cancelado", y
+   entraba también `enviado`: un paquete despachado a tiempo se pintaba rojo al
+   cuarto día y ahí se quedaba para siempre, porque el "entregado" casi nunca
+   volvía del canal. "Atrasado" pasó a querer decir lo único sobre lo que se
+   puede actuar hoy —empacarlo y sacarlo—; lo que ya salió y tardó se mide con
+   el plazo de despacho (lib/canales/despacho.ts), no con esto. */
+const ESTADOS_POR_DESPACHAR = ["nuevo", "preparando"];
+
+/* ¿El pedido está atrasado? (sin despachar y su fecha es de hace más de N días). */
 export function esPedidoAtrasado(fecha: string, estado: string | null): boolean {
-  if (estado === "entregado" || estado === "cancelado" || !estado) return false;
+  if (!estado || !ESTADOS_POR_DESPACHAR.includes(estado)) return false;
   return fecha < diasDesdeHoy(-DIAS_ATRASO_PEDIDO);
+}
+
+/* Días transcurridos desde la fecha de la venta (0 = hoy). Para decir cuánto
+   lleva un paquete en la calle sin sonar a alarma. */
+export function diasDesdeFecha(fecha: string): number {
+  return diasEntre(fecha, hoyISO());
 }
 
 /* ---- Helpers de PERIODOS (módulo Métricas; todo en fecha LOCAL) ---- */

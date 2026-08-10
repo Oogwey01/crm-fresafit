@@ -12,9 +12,13 @@ export const COLUMNAS_PEDIDO =
   "id, fecha, canal, cantidad, estado, num_guia, paqueteria, descripcion," +
   " referencia_externa, envio_direccion, url_rastreo, url_orden," +
   " envio_limite_despacho, envio_despachado_en, envio_id," +
+  " rastreo_estado, rastreo_detalle, rastreo_en," +
   " producto:products!producto_id(id, nombre, variante)," +
   " cliente:customers!cliente_id(id, nombre)";
 
 /* Estados terminales: lo que ya no da trabajo. Es el complemento de
-   ESTADOS_PEDIDO_PENDIENTES (lib/catalogos.ts). */
-export const ESTADOS_PEDIDO_TERMINALES = ["entregado", "cancelado"] as const;
+   ESTADOS_PEDIDO_PENDIENTES (lib/catalogos.ts). `devuelto` entra aquí porque el
+   viaje del paquete terminó —mal, pero terminó—: lo que sigue es un reembolso o
+   un reenvío, no despacharlo otra vez. Se ve en el histórico y filtrando por su
+   estado. */
+export const ESTADOS_PEDIDO_TERMINALES = ["entregado", "devuelto", "cancelado"] as const;

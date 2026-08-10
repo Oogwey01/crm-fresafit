@@ -28,6 +28,10 @@ const RUTAS_PUBLICAS = [
      Mismo trato que los de arriba — lo dispara cron-job.org y valida
      CRON_SECRET adentro. */
   "/api/cron/portal",
+  /* El rastreo diario de las guías: cierra los pedidos que ya llegaron y saca a
+     la luz los devueltos. Mismo trato — lo dispara cron-job.org después de las
+     syncs y valida CRON_SECRET adentro. */
+  "/api/cron/rastreo",
   /* El service worker y el manifest los pide el navegador SIN cookies de sesión
      (y a veces antes de que exista sesión). Si se redirigen al login, el
      registro del worker falla y no llega ni un aviso push. */

@@ -21,6 +21,7 @@ import {
   aMonto,
   guardarTotalesOrden,
   refrescarRenglones,
+  separarAltas,
   ventanaDesde,
   type OpcionesImportacion,
   type TotalOrden,
@@ -111,14 +112,27 @@ const SIN_ENVIO: InfoEnvio = {
   costo_envio: null,
 };
 
+/* Los `substatus` de `not_delivered` en los que el paquete YA NO va a llegar y
+   viene de regreso (o se perdió por el camino). El resto de `not_delivered` son
+   incidencias de las que un envío todavía se recupera —el comprador no estaba,
+   la dirección se corrige— y siguen contando como "enviado".
+
+   Mercado Libre los documenta como `returning_to_sender`; `to_review` es su
+   "envío cerrado" y `destroyed`, el que ya no existe. */
+const SUBESTADOS_DEVUELTO = new Set(["returning_to_sender", "to_review", "destroyed"]);
+
 /* status de un envío de Mercado Libre → estado de pedido del CRM (mismo espíritu
-   que el shipping_status de Tienda Nube). */
+   que el shipping_status de Tienda Nube).
+
+   El `substatus` ya llegaba en la respuesta y se tiraba: por eso una devolución
+   se veía como "Enviado" indefinidamente, contada entre los pendientes. */
 function estadoDeEnvio(env: EnvioML | null): EstadoPedido {
   switch (env?.status) {
     case "delivered":
       return "entregado";
-    case "shipped":
-    case "not_delivered": // en tránsito / con incidencia de entrega
+    case "not_delivered":
+      return env?.substatus && SUBESTADOS_DEVUELTO.has(env.substatus) ? "devuelto" : "enviado";
+    case "shipped": // en tránsito
       return "enviado";
     case "ready_to_ship": // empacado, esperando recolección
       return "preparando";
@@ -373,7 +387,13 @@ async function sincronizarClientes(ordenes: OrdenML[]): Promise<Map<number, stri
 
 /* Inserta los renglones nuevos (ignora los ya importados) y retira los de
    órdenes canceladas. Núcleo compartido por el cron y el webhook. */
-async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<ResumenVentasML> {
+async function aplicarOrdenes(
+  cx: ConexionML,
+  ordenes: OrdenML[],
+  /* Corte de ALTAS: las órdenes anteriores solo se refrescan. Ver `separarAltas`.
+     Sin él (webhook de una orden concreta) se da de alta todo. */
+  altaDesde?: Date,
+): Promise<ResumenVentasML> {
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
 
@@ -390,14 +410,24 @@ async function aplicarOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<Resum
     infoEnvioDeOrdenes(cx, vendibles),
   ]);
   const filas = vendibles.flatMap((o) => filasDeOrden(o, unidades, clientes, infoEnvio));
+  const { altas, soloRefresco } = separarAltas(filas, altaDesde);
+  if (soloRefresco > 0) {
+    console.info(`[mercadolibre] ${soloRefresco} renglones viejos: solo refresco, sin alta.`);
+  }
   let insertadas = 0;
   let actualizadas = 0;
   if (filas.length > 0) {
-    const { data, error } = await admin
-      .from("sales")
-      .upsert(filas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
-      .select("id, producto_id, cantidad");
-    if (error) throw new Error(error.message);
+    /* Solo las altas permitidas entran al upsert; el refresco de más abajo sí ve
+       todos los renglones. Con `altas` vacío no hay nada que insertar. */
+    let data: { id: string; producto_id: string | null; cantidad: number }[] | null = null;
+    if (altas.length > 0) {
+      const r = await admin
+        .from("sales")
+        .upsert(altas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
+        .select("id, producto_id, cantidad");
+      if (r.error) throw new Error(r.error.message);
+      data = r.data;
+    }
     insertadas = data?.length ?? 0;
 
     // Hub padre-hijo (solo con el flag activo): la venta de ML descuenta el stock
@@ -575,8 +605,10 @@ export async function importarVentasML(
 
   const desde = ventanaDesde(ultimaSync, opts);
 
+  /* `desde` cumple dos papeles: desde cuándo se piden órdenes ACTUALIZADAS, y
+     hasta dónde se permite dar de alta ventas nuevas. */
   const ordenes = await listarOrdenesML(cx, desde.toISOString());
-  const resumen = await aplicarOrdenes(cx, ordenes);
+  const resumen = await aplicarOrdenes(cx, ordenes, desde);
 
   await mezclarDatosIntegracion("mercadolibre", { ventas_ultima_sync: new Date().toISOString() }, datos);
 

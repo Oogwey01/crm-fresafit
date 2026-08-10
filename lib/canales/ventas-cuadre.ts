@@ -20,6 +20,7 @@
    ============================================================================ */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { diaMX } from "@/lib/fecha";
 import type { Json } from "@/lib/supabase/tipos-bd";
 import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
@@ -105,6 +106,30 @@ export function ventanaDesde(
   const d = new Date(ultimaSync ?? Date.now());
   d.setDate(d.getDate() - (ultimaSync ? diasTraslape : diasPrimeraVez));
   return d;
+}
+
+/* Guardarraíl de las ALTAS, imprescindible desde que los importadores piden las
+   órdenes por fecha de ACTUALIZACIÓN y no de creación.
+
+   Ese cambio es lo que permite enterarse de que una orden de hace un mes ya se
+   entregó, pero tiene un efecto que hay que atajar: la respuesta del canal
+   incluye ahora órdenes creadas hace meses. Si alguna de ellas no está en
+   `sales` —nunca se importó, o se retiró por una cancelación que después se
+   revirtió—, el upsert la daría de alta HOY y el hub descontaría stock por una
+   venta vieja que en la bodega ya pasó hace rato.
+
+   Así que la ventana de creación sigue mandando sobre lo que NACE: las órdenes
+   anteriores al corte solo se refrescan (estado, guía, rastreo), que es todo lo
+   que se buscaba. `fecha` es el día de la venta en hora de México, el mismo con
+   el que se calcula la ventana. */
+export function separarAltas<T extends { fecha: string }>(
+  filas: T[],
+  altaDesde: Date | undefined,
+): { altas: T[]; soloRefresco: number } {
+  if (!altaDesde) return { altas: filas, soloRefresco: 0 };
+  const corte = diaMX(altaDesde);
+  const altas = filas.filter((f) => f.fecha >= corte);
+  return { altas, soloRefresco: filas.length - altas.length };
 }
 
 /* Número que llega como string ("1234.50"), null o undefined → number. */

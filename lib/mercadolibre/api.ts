@@ -497,7 +497,12 @@ export async function listarOrdenesML(cx: ConexionML, desdeISO: string): Promise
       sort: "date_desc",
       offset: String(offset),
       limit: String(LIMIT),
-      "order.date_created.from": desde,
+      /* Por última ACTUALIZACIÓN, no por creación: con `date_created` una orden
+         de hace veinte días que se entrega (o se devuelve) hoy no volvía a
+         leerse nunca, y el pedido se quedaba en "enviado" para siempre. Lo que
+         se da de ALTA lo sigue acotando la fecha de creación; ver `separarAltas`
+         en lib/canales/ventas-cuadre.ts. */
+      "order.last_updated.from": desde,
     });
     const res = await mlFetch(cx, `/orders/search?${params}`);
     if (!res.ok) throw new Error(`Mercado Libre respondió ${res.status} al listar órdenes.`);

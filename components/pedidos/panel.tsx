@@ -10,7 +10,7 @@ import {
   obtenerCanal,
   obtenerEstadoPedido,
 } from "@/lib/catalogos";
-import { esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
+import { diasDesdeFecha, esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
 import { SITUACION, situacionDespacho } from "@/lib/canales/despacho";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
@@ -95,6 +95,18 @@ function plazoUrgente(p: PedidoEnvio, ahora: number): "vencido" | "por_vencer" |
   if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
   const s = situacionDespacho(p.envio_limite_despacho, p.envio_despachado_en, ahora);
   return s === "vencido" || s === "por_vencer" ? s : null;
+}
+
+/* Cuánto lleva en la calle un paquete que ya salió. Es la contraparte tranquila
+   de `esPedidoAtrasado`: los enviados salieron de "atrasados" —despachar ya no
+   está pendiente— pero saber que uno lleva 18 días sin confirmarse sigue siendo
+   útil para llamar a la paquetería. Gris a propósito: informa, no alarma. */
+const DIAS_TRANSITO_VISIBLE = 5;
+
+function diasEnTransito(p: PedidoEnvio): number | null {
+  if (p.estado !== "enviado") return null;
+  const d = diasDesdeFecha(p.fecha);
+  return d >= DIAS_TRANSITO_VISIBLE ? d : null;
 }
 
 /* Lo que la tabla pinta de rojo, y por tanto lo que el contador debe contar.
@@ -235,6 +247,7 @@ export function PanelPedidos({
       celda: (p) => {
         const atrasado = esPedidoAtrasado(p.fecha, p.estado);
         const plazo = plazoUrgente(p, ahora);
+        const transito = diasEnTransito(p);
         const canal = obtenerCanal(p.canal)?.nombre ?? "la plataforma";
         return (
           <div className="min-w-0">
@@ -256,6 +269,15 @@ export function PanelPedidos({
                   color={SITUACION[plazo].color}
                   className="mt-1 whitespace-nowrap px-1.5 py-0.5 text-[10.5px]"
                 />
+              </span>
+            )}
+            {/* Ya salió: cuántos días lleva viajando. No es una alerta. */}
+            {transito !== null && (
+              <span
+                className="mt-1 block whitespace-nowrap text-[10.5px] text-muted-foreground"
+                title={`Despachado hace ${transito} días; la plataforma aún no confirma la entrega.`}
+              >
+                En tránsito {transito} d
               </span>
             )}
           </div>
@@ -369,6 +391,18 @@ export function PanelPedidos({
                     <span className="block truncate font-mono hover:underline">
                       <Resaltado texto={p.num_guia} busca={busqueda} />
                     </span>
+                    {/* Lo último que dijo la paquetería. Es el dato por el que
+                        había que salir del CRM: "Exception: empresa cerrada, sin
+                        intento de entrega" explica en una línea por qué un
+                        paquete se regresó. */}
+                    {p.rastreo_detalle && (
+                      <span
+                        className="block truncate text-[11px] text-muted-foreground"
+                        title={`${p.rastreo_estado ?? ""}${p.rastreo_en ? ` · consultado el ${formatearFechaHora(p.rastreo_en)}` : ""}`}
+                      >
+                        {p.rastreo_detalle}
+                      </span>
+                    )}
                   </span>
                 </span>
               ) : (

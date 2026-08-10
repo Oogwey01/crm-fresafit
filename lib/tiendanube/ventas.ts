@@ -15,6 +15,7 @@ import {
   aMonto,
   guardarTotalesOrden,
   refrescarRenglones,
+  separarAltas,
   ventanaDesde,
   type OpcionesImportacion,
   type TotalOrden,
@@ -276,7 +277,12 @@ async function mapaVariantes(variantIds: number[]): Promise<Map<number, string>>
 
 /* Inserta los renglones nuevos (ignora los ya importados) y retira los de
    órdenes canceladas. Núcleo compartido por el botón, el cron y el webhook. */
-async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
+async function aplicarOrdenes(
+  ordenes: OrdenTN[],
+  /* Corte de ALTAS: las órdenes anteriores solo se refrescan. Ver `separarAltas`.
+     Sin él (webhook de una orden concreta) se da de alta todo. */
+  altaDesde?: Date,
+): Promise<ResumenVentasTN> {
   const admin = createAdminClient();
   const vendibles = ordenes.filter(esVendible);
   const [variantes, clientes] = await Promise.all([
@@ -285,14 +291,25 @@ async function aplicarOrdenes(ordenes: OrdenTN[]): Promise<ResumenVentasTN> {
   ]);
 
   const filas = vendibles.flatMap((o) => filasDeOrden(o, variantes, clientes));
+  const { altas, soloRefresco } = separarAltas(filas, altaDesde);
+  if (soloRefresco > 0) {
+    console.info(`[tiendanube] ${soloRefresco} renglones viejos: solo refresco, sin alta.`);
+  }
   let insertadas = 0;
   let actualizadas = 0;
   if (filas.length > 0) {
-    const { data, error } = await admin
-      .from("sales")
-      .upsert(filas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
-      .select("id, producto_id, cantidad");
-    if (error) throw new Error(error.message);
+    /* Solo las altas permitidas entran al upsert; el refresco de más abajo sí ve
+       todos los renglones. Con `altas` vacío no hay nada que insertar (una pasada
+       que solo trajo órdenes viejas actualizadas) y se salta la escritura. */
+    let data: { id: string; producto_id: string | null; cantidad: number }[] | null = null;
+    if (altas.length > 0) {
+      const r = await admin
+        .from("sales")
+        .upsert(altas, { onConflict: "canal,referencia_externa", ignoreDuplicates: true })
+        .select("id, producto_id, cantidad");
+      if (r.error) throw new Error(r.error.message);
+      data = r.data;
+    }
     insertadas = data?.length ?? 0;
 
     /* Hub padre-hijo (solo con el flag activo): la venta de Tienda Nube descuenta
@@ -488,8 +505,11 @@ export async function importarVentasTN(
 
   const desde = ventanaDesde(ultimaSync, opts);
 
+  /* `desde` cumple dos papeles: desde cuándo se piden órdenes ACTUALIZADAS, y
+     hasta dónde se permite dar de alta ventas nuevas. Lo segundo mantiene el
+     alcance de altas exactamente como era antes de mirar por actualización. */
   const ordenes = await listarOrdenesTN(cx, desde.toISOString());
-  const resumen = await aplicarOrdenes(ordenes);
+  const resumen = await aplicarOrdenes(ordenes, desde);
 
   /* De paso, el dominio del panel: lo necesita el enlace "ver la orden en Tienda
      Nube" de Pedidos, y cambia tan poco que basta refrescarlo con cada sync. */

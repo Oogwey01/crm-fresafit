@@ -467,15 +467,22 @@ export type OrdenTikTok = {
   } | null;
 };
 
-/* Órdenes del vendedor desde una fecha (unix seg), paginadas por page_token.
-   Incluye canceladas: el importador las usa para retirar ventas canceladas. */
+/* Órdenes del vendedor ACTUALIZADAS desde una fecha (unix seg), paginadas por
+   page_token. Incluye canceladas: el importador las usa para retirar ventas
+   canceladas.
+
+   Va por `update_time` y no por `create_time`, que es lo que usaba antes: con la
+   fecha de creación, una orden de hace veinte días que se entrega hoy no volvía
+   a leerse nunca y el pedido se quedaba en "enviado" para siempre. Lo que se da
+   de ALTA lo sigue acotando la creación; ver `separarAltas` en
+   lib/canales/ventas-cuadre.ts. */
 export async function listarOrdenesTikTok(cx: ConexionTikTok, desdeUnix: number): Promise<OrdenTikTok[]> {
   const todas: OrdenTikTok[] = [];
   let pageToken = "";
   for (;;) {
     const query: Record<string, string> = {
       page_size: "50",
-      sort_field: "create_time",
+      sort_field: "update_time",
       sort_order: "DESC",
     };
     if (pageToken) query.page_token = pageToken;
@@ -483,7 +490,7 @@ export async function listarOrdenesTikTok(cx: ConexionTikTok, desdeUnix: number)
       cx,
       "POST",
       "/order/202309/orders/search",
-      { query, body: { create_time_ge: desdeUnix } },
+      { query, body: { update_time_ge: desdeUnix } },
     );
     todas.push(...(data.orders ?? []));
     if (!data.next_page_token) break;

@@ -157,6 +157,46 @@ export async function urlEtiquetaTN(cx: ConexionTN, ordenId: number): Promise<st
   }
 }
 
+/* Historial de rastreo de una orden, tal como lo publica Tienda Nube.
+
+   Es el PLAN B del rastreo: la fuente principal es el buscador de envia.com
+   (lib/envia/rastreo.ts), que cubre más y en un solo viaje por cada diez guías,
+   mientras que esto es una petición por orden. Pero aquélla usa un endpoint no
+   documentado que puede cerrarse cualquier día, y ésta es la API oficial con el
+   permiso que la app ya tiene. Cuando la principal falla, ésta contesta.
+
+   OJO con el `status` del fulfillment (UNPACKED/PACKED/DISPATCHED/DELIVERED): en
+   esta tienda se queda en DISPATCHED PARA SIEMPRE —comprobado sobre 76 órdenes,
+   incluidas 24 que sus propios eventos dan por entregadas—, que es justamente por
+   qué el panel de Tienda Nube sigue ofreciendo "Marcar como entregado". El dato
+   bueno son los `tracking_events`, y de ellos el último. */
+export type EventoEnvioTN = { status: string; descripcion: string | null; cuando: string | null };
+
+export async function ultimoEventoEnvioTN(
+  cx: ConexionTN,
+  ordenId: number,
+): Promise<EventoEnvioTN | null> {
+  const res = await tnFetch(cx, `/orders/${ordenId}/fulfillment-orders`);
+  if (!res.ok) throw new Error(`Tienda Nube respondió ${res.status} al pedir el rastreo.`);
+  type Evento = { status?: string | null; description?: string | null; happened_at?: string | null };
+  const lista = (await res.json()) as { tracking_events?: Evento[] | null }[] | null;
+
+  /* Una orden puede partirse en varios paquetes: se juntan los eventos de todos
+     y manda el más reciente por fecha, no por orden de aparición. */
+  const eventos = (Array.isArray(lista) ? lista : [])
+    .flatMap((fo) => (Array.isArray(fo?.tracking_events) ? fo.tracking_events : []))
+    .filter((e): e is Evento & { status: string } => !!e?.status);
+  if (eventos.length === 0) return null;
+
+  eventos.sort((a, b) => (a.happened_at ?? "").localeCompare(b.happened_at ?? ""));
+  const ultimo = eventos[eventos.length - 1];
+  return {
+    status: ultimo.status,
+    descripcion: ultimo.description?.trim() || null,
+    cuando: ultimo.happened_at ?? null,
+  };
+}
+
 /* Dominio del panel de la tienda ("fresafit2.mitiendanube.com"). El admin de
    Tienda Nube vive en el subdominio de cada tienda, así que sin este dato no se
    puede armar el enlace "ver la orden en Tienda Nube". Se consulta una vez por
@@ -331,15 +371,25 @@ export async function obtenerOrdenTN(cx: ConexionTN, id: number): Promise<OrdenT
   return (await res.json()) as OrdenTN;
 }
 
-/* Órdenes desde una fecha (ISO), paginadas. Incluye canceladas: el importador
-   las usa para retirar ventas que se cancelaron después de importarse. */
+/* Órdenes ACTUALIZADAS desde una fecha (ISO), paginadas. Incluye canceladas: el
+   importador las usa para retirar ventas que se cancelaron después de importarse.
+
+   Va por `updated_at_min` y no por `created_at_min`, que es lo que usaba antes.
+   Con la fecha de creación, una orden hecha hace veinte días y entregada hoy no
+   volvía a leerse NUNCA: la ventana incremental son siete días. De ahí que los
+   pedidos se quedaran en "enviado" para siempre y acabaran contados como
+   atrasados. Filtrando por actualización, cualquier cambio de la tienda —se
+   empacó, salió, llegó, se devolvió— entra en la siguiente pasada.
+
+   Lo que NACE sigue gobernado por la fecha de creación; ver `separarAltas` en
+   lib/canales/ventas-cuadre.ts. */
 export async function listarOrdenesTN(cx: ConexionTN, desdeISO: string): Promise<OrdenTN[]> {
   const POR_PAGINA = 200;
   const todas: OrdenTN[] = [];
   for (let page = 1; ; page++) {
     const res = await tnFetch(
       cx,
-      `/orders?per_page=${POR_PAGINA}&page=${page}&created_at_min=${encodeURIComponent(desdeISO)}`,
+      `/orders?per_page=${POR_PAGINA}&page=${page}&updated_at_min=${encodeURIComponent(desdeISO)}`,
     );
     if (res.status === 404) break; // más allá de la última página
     if (!res.ok) throw new Error(`Tienda Nube respondió ${res.status} al listar órdenes.`);
@@ -352,17 +402,32 @@ export async function listarOrdenesTN(cx: ConexionTN, desdeISO: string): Promise
 
 /* ------------------------------ Webhooks --------------------------------- */
 
+/* Eventos de ORDEN que el CRM escucha. Todos acaban en `procesarOrdenTN`, que
+   relee la orden completa, así que añadir uno no cuesta lógica nueva.
+
+   `order/created` existe por la maquila: las órdenes SIN pagar tienen que
+   aparecer en la bandeja "Esperando pago" en cuanto nacen. A `sales` siguen sin
+   entrar (el importador filtra por pago).
+
+   Los cuatro del ENVÍO son los que faltaban, y son la razón de que un pedido
+   despachado se quedara en "enviado" para siempre: nada avisaba de que se empacó,
+   salió o llegó. `fulfillment_order/status_updated` es el que trae el DELIVERED
+   de Envío Nube. Se re-registran solos en el cron de las 6:00. */
+export const EVENTOS_ORDEN_TN = [
+  "order/created",
+  "order/paid",
+  "order/cancelled",
+  "order/packed",
+  "order/fulfilled",
+  "order/updated",
+  "fulfillment_order/status_updated",
+] as const;
+
 const EVENTOS_WEBHOOK = [
   "product/created",
   "product/updated",
   "product/deleted",
-  /* `order/created` existe por la maquila: las órdenes SIN pagar tienen que
-     aparecer en la bandeja "Esperando pago" en cuanto nacen. A `sales` siguen
-     sin entrar (el importador filtra por pago); el alta es idempotente y el
-     cron de las 6:00 lo re-registra solo en las tiendas ya conectadas. */
-  "order/created",
-  "order/paid",
-  "order/cancelled",
+  ...EVENTOS_ORDEN_TN,
 ] as const;
 
 /* Alta idempotente: crea (o corrige la URL de) los webhooks de productos.
