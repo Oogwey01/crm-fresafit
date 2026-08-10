@@ -1,11 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { Bell, Calendar as CalendarIcon, Tag, UserRound, X } from "lucide-react";
+import {
+  Bell,
+  Calendar as CalendarIcon,
+  Check,
+  Tag,
+  TriangleAlert,
+  UserRound,
+  X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { Campo } from "@/components/compartido/campo";
 import { CampoOpcion, type OpcionCatalogo } from "@/components/compartido/campo-opcion";
+import {
+  SelectorProducto,
+  etiquetaProducto,
+  fichaLigada,
+  type ProductoElegible,
+} from "@/components/compartido/selector-producto";
 import { Calendario, DatePicker } from "@/components/compartido/date-picker";
 import {
   ListaOpciones,
@@ -606,6 +620,112 @@ function EntradaConCierre({
         if (e.key === "Enter") cerrar();
       }}
       className="w-48"
+    />
+  );
+}
+
+/* ── Ficha del inventario (SKU con sugerencias) ──────────────────────────── */
+
+/* El SKU se sigue pudiendo teclear libre (hay piezas sin ficha), pero mientras
+   se escribe salen las coincidencias del catálogo y la pastilla dice de un
+   vistazo si lo capturado quedó ligado a una ficha o no. */
+export function PastillaProducto({
+  etiqueta = "SKU",
+  valor,
+  productoId,
+  productos,
+  onCambio,
+  ayuda,
+  opcional = true,
+  idMovil,
+}: {
+  etiqueta?: string;
+  /** El SKU tecleado. */
+  valor: string;
+  /** Ficha elegida de la lista, si la hay. */
+  productoId: string | null;
+  productos: ProductoElegible[];
+  /** Al teclear llega (texto, null); al elegir de la lista, (sku, id). */
+  onCambio: (sku: string, productoId: string | null) => void;
+  ayuda?: string;
+  opcional?: boolean;
+  idMovil?: string;
+}) {
+  const ligado = fichaLigada(valor, productoId, productos);
+  return (
+    <PastillaPropiedad
+      etiqueta={etiqueta}
+      vacia={!valor && opcional}
+      etiquetaVacia={etiqueta}
+      valor={
+        <span className="flex items-center gap-1.5">
+          {ligado ? (
+            <Check className="size-3.5 shrink-0 text-emerald-600" strokeWidth={2.5} aria-hidden="true" />
+          ) : (
+            <TriangleAlert
+              className="size-3.5 shrink-0 text-amber-600 dark:text-amber-500"
+              strokeWidth={2.2}
+              aria-hidden="true"
+            />
+          )}
+          <span className="truncate font-mono">{valor}</span>
+        </span>
+      }
+      textoValor={
+        valor
+          ? ligado
+            ? `${valor} — ${etiquetaProducto(ligado)}`
+            : `${valor} — sin ficha en inventario`
+          : undefined
+      }
+      ayuda={ayuda}
+      anchoPopover="w-72"
+      contenidoMovil={
+        <Campo etiqueta={etiqueta} opcional={opcional} ayuda={ayuda} htmlFor={idMovil}>
+          <SelectorProducto
+            id={idMovil}
+            valor={valor}
+            productoId={productoId}
+            productos={productos}
+            onCambio={onCambio}
+          />
+        </Campo>
+      }
+    >
+      <ProductoConCierre
+        valor={valor}
+        productoId={productoId}
+        productos={productos}
+        onCambio={onCambio}
+      />
+    </PastillaPropiedad>
+  );
+}
+
+function ProductoConCierre({
+  valor,
+  productoId,
+  productos,
+  onCambio,
+}: {
+  valor: string;
+  productoId: string | null;
+  productos: ProductoElegible[];
+  onCambio: (sku: string, productoId: string | null) => void;
+}) {
+  const cerrar = useCerrarPastilla();
+  return (
+    <SelectorProducto
+      valor={valor}
+      productoId={productoId}
+      productos={productos}
+      onCambio={(sku, id) => {
+        onCambio(sku, id);
+        /* Con id se eligió de la lista: ya está, se cierra como el resto de las
+           pastillas. Al teclear llega null y el popover sigue abierto. */
+        if (id) cerrar();
+      }}
+      className="w-full"
     />
   );
 }

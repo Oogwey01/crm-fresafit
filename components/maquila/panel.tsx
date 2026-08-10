@@ -206,7 +206,9 @@ export function PanelMaquila({
           onClose={() => setAbierto(null)}
         />
       )}
-      {nuevo && <NuevoPedidoMaquilaDialog onClose={() => setNuevo(false)} />}
+      {nuevo && (
+        <NuevoPedidoMaquilaDialog productos={productos} onClose={() => setNuevo(false)} />
+      )}
     </div>
   );
 }

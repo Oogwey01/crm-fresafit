@@ -38,6 +38,19 @@ export function etiquetaProducto(p: ProductoElegible): string {
   return p.variante ? `${p.nombre} · ${p.variante}` : p.nombre;
 }
 
+/* La ficha que quedaría ligada con lo que hay en el campo: lo elegido a mano
+   manda; si no, se casa el SKU tecleado, que es lo mismo que hace el servidor
+   al guardar. Fuera del componente porque quien lo usa (una pastilla, un
+   renglón de tabla) también necesita saberlo con el selector cerrado. */
+export function fichaLigada(
+  valor: string,
+  productoId: string | null,
+  productos: ProductoElegible[],
+): ProductoElegible | null {
+  if (productoId) return productos.find((p) => p.id === productoId) ?? null;
+  return matchProductoPorSku(valor, productos).producto;
+}
+
 export function SelectorProducto({
   id,
   valor,
@@ -63,13 +76,11 @@ export function SelectorProducto({
   const [abierto, setAbierto] = useState(false);
   const [activo, setActivo] = useState(-1); // -1 = ninguna resaltada
 
-  /* Lo que ya está ligado manda; si no, se intenta casar el SKU tecleado, que
-     es lo mismo que hace el servidor al guardar. Así lo que se ve en el campo es
-     lo que se va a guardar. */
-  const ligado = useMemo(() => {
-    if (productoId) return productos.find((p) => p.id === productoId) ?? null;
-    return matchProductoPorSku(valor, productos).producto;
-  }, [productoId, valor, productos]);
+  /* Así lo que se ve bajo el campo es lo que se va a guardar. */
+  const ligado = useMemo(
+    () => fichaLigada(valor, productoId, productos),
+    [productoId, valor, productos],
+  );
 
   const opciones = useMemo(() => {
     const terminos = terminosBusqueda(valor);

@@ -8,7 +8,13 @@ import {
 } from "@/components/compartido/dialogo-formulario";
 import { Campo } from "@/components/compartido/campo";
 import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
-import { PastillaEntrada, PastillaOpcion } from "@/components/compartido/pastillas-campo";
+import {
+  PastillaEntrada,
+  PastillaOpcion,
+  PastillaProducto,
+} from "@/components/compartido/pastillas-campo";
+import type { ProductoElegible } from "@/components/compartido/selector-producto";
+import { DatePicker } from "@/components/compartido/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,12 +35,20 @@ const SIN_VALOR = "sin_valor";
 /* Captura manual: la venta que llegó por WhatsApp o DM y no pasa por ningún
    canal. Si ya está pagada se marca aquí mismo con su fecha y hora, y el
    action calcula ruta, corte y promesa con las mismas reglas que la ingesta. */
-export function NuevoPedidoMaquilaDialog({ onClose }: { onClose: () => void }) {
+export function NuevoPedidoMaquilaDialog({
+  productos,
+  onClose,
+}: {
+  /** Catálogo ligero para sugerir el SKU mientras se escribe. */
+  productos: ProductoElegible[];
+  onClose: () => void;
+}) {
   const { pending, ejecutar } = useAccionServidor();
   const [diseno, setDiseno] = useState("");
   const [modelo, setModelo] = useState<ModeloMaquilaId>("powerlift");
   const [acabado, setAcabado] = useState<AcabadoMaquilaId>("prensado");
   const [sku, setSku] = useState("");
+  const [productoId, setProductoId] = useState<string | null>(null);
   const [talla, setTalla] = useState("");
   const [color, setColor] = useState("");
   const [cantidad, setCantidad] = useState("1");
@@ -46,14 +60,18 @@ export function NuevoPedidoMaquilaDialog({ onClose }: { onClose: () => void }) {
   const [direccion, setDireccion] = useState("");
   const [notas, setNotas] = useState("");
   const [pagado, setPagado] = useState(true);
-  const [pagadoEn, setPagadoEn] = useState(""); // datetime-local; vacío = ahora
+  /* Cuándo se aprobó el pago, partido en fecha (calendario propio, en español)
+     y hora. Vacío = ahorita, que es el caso normal de capturar en caliente. La
+     hora importa porque decide en qué corte entra el pedido. */
+  const [pagadoFecha, setPagadoFecha] = useState(""); // ISO "AAAA-MM-DD" o ""
+  const [pagadoHora, setPagadoHora] = useState(""); // "HH:mm" o ""
 
   const llevaPalanca = obtenerModeloMaquila(modelo)?.llevaPalanca ?? false;
 
   function guardar() {
     const iso = pagado
-      ? pagadoEn
-        ? localInputAIso(pagadoEn)
+      ? pagadoFecha
+        ? localInputAIso(`${pagadoFecha}T${pagadoHora || "12:00"}`)
         : new Date().toISOString()
       : null;
     ejecutar(
@@ -141,11 +159,15 @@ export function NuevoPedidoMaquilaDialog({ onClose }: { onClose: () => void }) {
           opcional
           idMovil="nm-color"
         />
-        <PastillaEntrada
-          etiqueta="SKU"
+        <PastillaProducto
           valor={sku}
-          onCambio={setSku}
-          opcional
+          productoId={productoId}
+          productos={productos}
+          onCambio={(v, id) => {
+            setSku(v);
+            setProductoId(id);
+          }}
+          ayuda="Escribe el SKU o el nombre y elige la ficha del inventario."
           idMovil="nm-sku"
         />
         <PastillaEntrada
@@ -227,18 +249,34 @@ export function NuevoPedidoMaquilaDialog({ onClose }: { onClose: () => void }) {
             El pago ya está aprobado
           </label>
           {pagado && (
-            <div className="flex items-center gap-2">
-              <Label htmlFor="nm-pagado-en" className="text-[12.5px] text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2">
+              <Label htmlFor="nm-pagado-fecha" className="text-[12.5px] text-muted-foreground">
                 Cuándo (vacío = ahora)
               </Label>
-              <Input
-                id="nm-pagado-en"
-                type="datetime-local"
-                value={pagadoEn}
-                onChange={(e) => setPagadoEn(e.target.value)}
-                className="h-8 w-[190px]"
+              <DatePicker
+                id="nm-pagado-fecha"
+                value={pagadoFecha}
+                onChange={setPagadoFecha}
+                placeholder="Hoy, ahorita"
+                limpiable
+                className="h-8 w-[150px]"
               />
+              {pagadoFecha && (
+                <Input
+                  aria-label="Hora del pago"
+                  type="time"
+                  value={pagadoHora}
+                  onChange={(e) => setPagadoHora(e.target.value)}
+                  className="h-8 w-[105px]"
+                />
+              )}
             </div>
+          )}
+          {pagado && pagadoFecha && !pagadoHora && (
+            <span className="w-full text-[12px] text-muted-foreground">
+              Sin hora se toma mediodía; ponla exacta si el pago cayó cerca de la hora límite del
+              corte.
+            </span>
           )}
         </div>
       </Propiedades>
