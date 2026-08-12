@@ -86,7 +86,7 @@ import { trabajaLaTarea, mandaEnLaTarea, esImagenAdjunto } from "@/lib/tareas/re
 import { cn, iniciales } from "@/lib/utils";
 import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
-import { DatePicker } from "@/components/compartido/date-picker";
+import { DatePicker, DateTimePicker } from "@/components/compartido/date-picker";
 
 const SIN_ASIGNAR = "none";
 /* "Sin cliente" en el Select de la agencia: es trabajo de la casa, no un hueco. */
@@ -1050,11 +1050,11 @@ export function TaskDetail({
                       onCambio={setRecordatorio}
                       contenidoMovil={
                         <Meta label="Recordatorio">
-                          <Input
+                          <DateTimePicker
                             className={CTRL_MOVIL}
-                            type="datetime-local"
                             value={recordatorio}
-                            onChange={(e) => setRecordatorio(e.target.value)}
+                            onChange={setRecordatorio}
+                            limpiable
                           />
                         </Meta>
                       }

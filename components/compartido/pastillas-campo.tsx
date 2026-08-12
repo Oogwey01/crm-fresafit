@@ -20,7 +20,7 @@ import {
   fichaLigada,
   type ProductoElegible,
 } from "@/components/compartido/selector-producto";
-import { Calendario, DatePicker } from "@/components/compartido/date-picker";
+import { Calendario, DatePicker, SelectorFechaHora } from "@/components/compartido/date-picker";
 import {
   ListaOpciones,
   PastillaPropiedad,
@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { SelectorEtiquetas } from "@/components/tareas/selector-etiquetas";
 import { SelectorPersonas } from "@/components/tareas/selector-personas";
 import { ETIQUETAS } from "@/lib/catalogos";
-import { formatearFecha, hoyISO, sumarDias } from "@/lib/fecha";
+import { textoFecha, textoFechaHora } from "@/lib/fecha";
 import { cn, iniciales } from "@/lib/utils";
 import type { Profile } from "@/lib/types";
 
@@ -401,15 +401,6 @@ function CalendarioConCierre({
   );
 }
 
-/** "Hoy" y "Mañana" se leen más rápido que "07/08"; el resto va formateado. */
-function textoFecha(iso: string): string {
-  if (!iso) return "";
-  const hoy = hoyISO();
-  if (iso === hoy) return "Hoy";
-  if (iso === sumarDias(hoy, 1)) return "Mañana";
-  return formatearFecha(iso);
-}
-
 /* ── Fecha y hora (recordatorios) ────────────────────────────────────────── */
 
 export function PastillaFechaHora({
@@ -420,19 +411,17 @@ export function PastillaFechaHora({
   ayuda,
   opcional = true,
   contenidoMovil,
-  idMovil,
 }: {
   etiqueta: string;
   /** "Aviso" — lo que dice el "+" cuando no hay valor. */
   etiquetaVacia: string;
-  valor: string; // formato de <input type="datetime-local"> o ""
+  valor: string; // "AAAA-MM-DDTHH:mm" (el formato del datetime-local de antes) o ""
   onCambio: (v: string) => void;
   ayuda?: string;
   /** false ⇒ el label móvil no dice "(opcional)" (casi todos estos campos lo son). */
   opcional?: boolean;
   /** Sustituye el campo móvil por defecto por uno a la medida. */
   contenidoMovil?: React.ReactNode;
-  idMovil?: string;
 }) {
   return (
     <PastillaPropiedad
@@ -445,45 +434,26 @@ export function PastillaFechaHora({
       ayuda={ayuda}
       contenidoMovil={
         contenidoMovil ?? (
-          <Campo etiqueta={etiqueta} opcional={opcional} ayuda={ayuda} htmlFor={idMovil}>
-            <Input
-              id={idMovil}
-              type="datetime-local"
-              value={valor}
-              onChange={(e) => onCambio(e.target.value)}
-            />
+          <Campo etiqueta={etiqueta} opcional={opcional} ayuda={ayuda}>
+            <SelectorFechaHora valor={valor} onCambio={onCambio} limpiable grande />
           </Campo>
         )
       }
     >
-      <div className="flex flex-col gap-1.5">
-        <Input
-          type="datetime-local"
-          aria-label={etiqueta}
-          value={valor}
-          onChange={(e) => onCambio(e.target.value)}
-        />
-        {valor && (
-          <button
-            type="button"
-            onClick={() => onCambio("")}
-            className="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <X className="size-3.5" aria-hidden="true" />
-            Quitar aviso
-          </button>
-        )}
-      </div>
+      <FechaHoraConCierre valor={valor} onCambio={onCambio} />
     </PastillaPropiedad>
   );
 }
 
-/** "07/08, 14:30" a partir del valor del input datetime-local. */
-function textoFechaHora(v: string): string {
-  if (!v) return "";
-  const [fecha, hora] = v.split("T");
-  if (!fecha || !hora) return v;
-  return `${textoFecha(fecha)}, ${hora}`;
+function FechaHoraConCierre({
+  valor,
+  onCambio,
+}: {
+  valor: string;
+  onCambio: (v: string) => void;
+}) {
+  const cerrar = useCerrarPastilla();
+  return <SelectorFechaHora valor={valor} onCambio={onCambio} limpiable onListo={cerrar} />;
 }
 
 /* ── Etiquetas de tarea ──────────────────────────────────────────────────── */

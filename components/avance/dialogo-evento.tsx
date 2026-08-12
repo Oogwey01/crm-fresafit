@@ -89,7 +89,6 @@ export function DialogoEvento({
             valor={cuando}
             onCambio={setCuando}
             opcional={false}
-            idMovil="ev-cuando"
           />
         </div>
       </Hero>

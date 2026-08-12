@@ -102,6 +102,24 @@ export function localInputAIso(valor: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
+/* "Hoy" y "Mañana" se leen más rápido que "7 ago"; el resto va formateado.
+   (Vivía en pastillas-campo; el picker de fecha y hora también lo necesita.) */
+export function textoFecha(iso: string): string {
+  if (!iso) return "";
+  const hoy = hoyISO();
+  if (iso === hoy) return "Hoy";
+  if (iso === sumarDias(hoy, 1)) return "Mañana";
+  return formatearFecha(iso);
+}
+
+/* "Hoy, 14:30" a partir de un valor "AAAA-MM-DDTHH:mm" (formato datetime-local). */
+export function textoFechaHora(v: string): string {
+  if (!v) return "";
+  const [fecha, hora] = v.split("T");
+  if (!fecha || !hora) return v;
+  return `${textoFecha(fecha)}, ${hora}`;
+}
+
 /* Un pedido que aún no sale lleva demasiados días sin despacharse. */
 export const DIAS_ATRASO_PEDIDO = 3;
 

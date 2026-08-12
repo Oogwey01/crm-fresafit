@@ -372,7 +372,6 @@ export function TaskDialog({
           valor={recordatorio}
           onCambio={setRecordatorio}
           ayuda="Les llegará un aviso al responsable y a ti (quien delega) en ese momento."
-          idMovil="recordatorio"
         />
         <PastillaEtiquetas area={area} seleccionadas={etiquetas} onToggle={toggleEtiqueta} />
       </Propiedades>
