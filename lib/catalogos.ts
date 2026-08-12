@@ -634,6 +634,35 @@ export const CATEGORIAS_GASTO = [
   { id: "otro", nombre: "Otro", color: "#94a3b8" },
 ] as const;
 
+/* --- Finanzas personales: lo que paga cada quien de su bolsa, dentro del mismo
+   módulo pero en otra tabla y con otro candado (ver la migración
+   20261009000000). Las categorías son las de una CASA y por eso no reusan
+   CATEGORIAS_GASTO, que habla de marketing y de logística. --- */
+export const CATEGORIAS_PERSONALES = [
+  { id: "hogar", nombre: "Casa", color: "#e17055" },
+  { id: "servicios", nombre: "Servicios", color: "#0984e3" },
+  { id: "conectividad", nombre: "Internet y celular", color: "#6c5ce7" },
+  { id: "suscripciones", nombre: "Suscripciones", color: "#e84393" },
+  { id: "transporte", nombre: "Transporte", color: "#00b894" },
+  { id: "salud", nombre: "Salud", color: "#00cec9" },
+  { id: "creditos", nombre: "Créditos y seguros", color: "#d63031" },
+  { id: "otro", nombre: "Otro", color: "#94a3b8" },
+] as const;
+
+/* Cada cuánto llega el cobro. `mesesQueCubre` es EL dato del catálogo: con él
+   se contestan las dos preguntas de la pantalla —cuánto cuesta el mes (monto ÷
+   meses) y cuándo vuelve a tocar (+meses)— sin que puedan desincronizarse. Se
+   guarda como entero y no como un factor 0.5 / 0.333… a propósito: dividir una
+   vez al final redondea mejor que multiplicar por un decimal recortado. */
+export const PERIODICIDADES_PERSONALES = [
+  { id: "mensual", nombre: "Mensual", color: "#0984e3", mesesQueCubre: 1 },
+  /* La luz en México llega cada dos meses: es el caso que obliga a normalizar. */
+  { id: "bimestral", nombre: "Bimestral", color: "#6c5ce7", mesesQueCubre: 2 },
+  { id: "trimestral", nombre: "Trimestral", color: "#00b894", mesesQueCubre: 3 },
+  { id: "semestral", nombre: "Semestral", color: "#fdcb6e", mesesQueCubre: 6 },
+  { id: "anual", nombre: "Anual", color: "#e17055", mesesQueCubre: 12 },
+] as const;
+
 /* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.
    "activo: true" = construido. "soloAdmin" = solo para quien lleva la
    administración (dirección y administración); oculto para los demás roles. --- */
@@ -784,6 +813,12 @@ export function obtenerCanal(id: string) {
 }
 export function obtenerCategoriaGasto(id: string) {
   return CATEGORIAS_GASTO.find((c) => c.id === id) ?? null;
+}
+export function obtenerCategoriaPersonal(id: string | null | undefined) {
+  return CATEGORIAS_PERSONALES.find((c) => c.id === id) ?? null;
+}
+export function obtenerPeriodicidadPersonal(id: string | null | undefined) {
+  return PERIODICIDADES_PERSONALES.find((p) => p.id === id) ?? null;
 }
 export function obtenerEstadoPedido(id: string) {
   return ESTADOS_PEDIDO.find((e) => e.id === id) ?? null;

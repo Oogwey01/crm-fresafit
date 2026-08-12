@@ -13,6 +13,8 @@ import type {
   ESTADOS_PEDIDO,
   CANALES,
   CATEGORIAS_GASTO,
+  CATEGORIAS_PERSONALES,
+  PERIODICIDADES_PERSONALES,
   TIERS_INFLUENCER,
   ETAPAS_INFLUENCER,
   ESTADOS_RECEPCION,
@@ -80,6 +82,8 @@ export type TipoProductoId = (typeof TIPOS_PRODUCTO)[number]["id"];
 export type EstadoPedidoProvId = (typeof ESTADOS_PEDIDO_PROVEEDOR)[number]["id"];
 export type CanalId = (typeof CANALES)[number]["id"];
 export type CategoriaGastoId = (typeof CATEGORIAS_GASTO)[number]["id"];
+export type CategoriaPersonalId = (typeof CATEGORIAS_PERSONALES)[number]["id"];
+export type PeriodicidadPersonalId = (typeof PERIODICIDADES_PERSONALES)[number]["id"];
 export type EstadoPedidoId = (typeof ESTADOS_PEDIDO)[number]["id"];
 export type TierInfluencerId = (typeof TIERS_INFLUENCER)[number]["id"];
 export type EtapaInfluencerId = (typeof ETAPAS_INFLUENCER)[number]["id"];
@@ -790,6 +794,26 @@ export type ExpenseConComprobantes = Expense & {
   comprobantes: ExpenseReceipt[];
 };
 
+/* Compromiso fijo personal (tabla `finanzas_personales`). NO es un gasto de
+   Fresafit: vive en otra tabla, con otra RLS —por dueño, no por rol— y no entra
+   en ningún total del negocio. `monto` es lo de CADA cobro; lo que cuesta al
+   mes lo calcula lib/finanzas/personales.ts. */
+export type CompromisoPersonal = {
+  id: string;
+  owner_id: string;
+  concepto: string;
+  monto: number;
+  periodicidad: PeriodicidadPersonalId;
+  /* Día del mes (1-31). Null = todavía no se sabe. */
+  dia_pago: number | null;
+  categoria: CategoriaPersonalId;
+  /* false = dado de baja: se conserva, pero deja de contar en el total. */
+  activo: boolean;
+  notas: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 /* ============================ Agencia Fresafit ============================= */
 /* Fase B: el otro negocio. Fresafit vende cinturones; la Agencia le lleva la
    operación a otras marcas y les cobra un fijo más un porcentaje de lo que esas
@@ -1387,6 +1411,10 @@ export type PedidoMaquila = {
   origen: "api" | "manual";
   sku: string | null;
   diseno: string | null;
+  /* Portada del producto congelada al momento del pedido. En los personalizados
+     es la genérica del catálogo, no el arte del cliente (ése cuelga de
+     personalizado_id / diseno_id). */
+  imagen_url: string | null;
   modelo: ModeloMaquilaId;
   acabado: AcabadoMaquilaId;
   talla: string | null;

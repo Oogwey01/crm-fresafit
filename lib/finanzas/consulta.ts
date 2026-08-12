@@ -11,3 +11,10 @@ export const COLUMNAS_GASTO =
   "id, fecha, concepto, monto, categoria, proveedor, notas, metodo_pago," +
   " factura, recibo, clave, created_by, created_at, updated_at," +
   " comprobantes:expense_receipts(id, expense_id, nombre, storage_path, tipo, created_at)";
+
+/* Columnas del compromiso personal. `owner_id` viaja porque es la única que
+   explica —a quien depure— por qué esta lista está vacía; el resto es lo que
+   pinta la tabla. */
+export const COLUMNAS_PERSONAL =
+  "id, owner_id, concepto, monto, periodicidad, dia_pago, categoria," +
+  " activo, notas, created_at, updated_at";

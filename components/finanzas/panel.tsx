@@ -27,12 +27,17 @@ import {
 import { Pastilla } from "@/components/compartido/pastilla";
 import { StatCard } from "@/components/compartido/stat-card";
 import { ListaBarras } from "@/components/compartido/lista-barras";
+import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { GastoDialog } from "@/components/finanzas/gasto-dialog";
 import { ImportarGastos } from "@/components/finanzas/importar-gastos";
+import { PanelPersonales } from "@/components/finanzas/panel-personales";
+import type { CompromisoPersonal } from "@/lib/types";
 
 /* "" = rango elegido a mano en el calendario (sin atajo activo). */
 type PeriodoId = PresetRangoId | "";
+
+type Pestana = "gastos" | "personales";
 
 const ETIQUETA_PERIODO: Record<PeriodoId, string> = {
   ...ETIQUETA_DELTA,
@@ -52,6 +57,7 @@ export function PanelFinanzas({
   gastos,
   ventas,
   sugerencias,
+  personales,
 }: {
   gastos: ExpenseConComprobantes[];
   /* Lo que entró, ya sumado por día en la base (RPC `ingresos_por_dia`).
@@ -62,7 +68,12 @@ export function PanelFinanzas({
   /* Conceptos, proveedores y métodos ya usados, con su número de usos: es lo
      que el diálogo propone al capturar (ver lib/finanzas/sugerencias.ts). */
   sugerencias: SugerenciasGasto;
+  /* Los pagos fijos de QUIEN MIRA, en su propia tabla y con RLS por dueño.
+     `null` = no es dirección y la pestaña ni existe; `[]` = es suya y todavía no
+     ha capturado nada, que son cosas distintas y se pintan distinto. */
+  personales: CompromisoPersonal[] | null;
 }) {
+  const [pestana, setPestana] = useState<Pestana>("gastos");
   const [periodo, setPeriodo] = useState<PeriodoId>("mes");
   /* Rango a mano (cuando no hay atajo activo). */
   const [desde, setDesde] = useState(() => hoyISO().slice(0, 8) + "01");
@@ -207,150 +218,178 @@ export function PanelFinanzas({
     },
   ];
 
+  /* La pestaña personal solo existe para quien trae sus renglones —mismo
+     criterio que el corte quincenal de Maquila: no se ofrece lo que rebota—, y
+     esa sección es de UNA persona (ver lib/finanzas/dueno-personales.ts). Con
+     una sola pestaña la barra no se pinta: un tab solitario no informa de nada
+     y le cambiaría la pantalla al resto sin darle nada a cambio. */
+  const PESTANAS: readonly (readonly [Pestana, string])[] = [
+    ["gastos", "Gastos del negocio"],
+    ...(personales ? ([["personales", "Mis gastos fijos"]] as const) : []),
+  ];
+  const enPersonales = pestana === "personales" && personales;
+
   return (
     <div>
-      {/* Encabezado */}
+      {/* Encabezado: se queda arriba del tab porque el módulo es el mismo. */}
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight">Finanzas y gastos</h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
-            Cuánto entra, cuánto sale y cuánto queda. Solo Dirección ve este módulo.
+            {enPersonales
+              ? "Tus pagos fijos, aparte de los del negocio. Nadie más los ve."
+              : "Cuánto entra, cuánto sale y cuánto queda. Solo Dirección ve este módulo."}
           </p>
         </div>
-        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
-          {/* Mismo selector que Métricas: atajos y rango a mano en un solo sitio. */}
-          <RangoFechas
-            desde={desde}
-            hasta={hasta}
-            preset={periodo}
-            onPreset={setPeriodo}
-            onChange={(d, h) => {
-              setDesde(d);
-              setHasta(h);
-              setPeriodo("");
-            }}
-            className="w-full md:w-[220px]"
-          />
-          <ImportarGastos />
-          <Button
-            onClick={() => setDialog("nuevo")}
-            className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
-          >
-            <Plus className="size-4" strokeWidth={2.1} />
-            Nuevo gasto
-          </Button>
-        </div>
-      </div>
-
-      {/* Entradas / Salidas / Saldo. Sin ingresos queda solo la del medio, a
-          ancho completo: media tarjeta y dos huecos se leería como que algo
-          falló, y no es que falte el dato, es que no toca. */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3">
-        {entradas !== null && (
-          <StatCard
-            etiqueta="Entradas (ventas)"
-            valor={formatearMXN(entradas)}
-            icono={ArrowUpCircle}
-            valorClassName="text-green-600"
-            delta={deltaPct(entradas, entradasAnterior ?? 0)}
-            deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
-          />
-        )}
-        <StatCard
-          etiqueta="Salidas (gastos)"
-          valor={formatearMXN(salidas)}
-          icono={ArrowDownCircle}
-          valorClassName="text-red-600"
-          delta={deltaPct(salidas, salidasAnterior)}
-          deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
-          className={saldo === null ? "col-span-2 md:col-span-3" : undefined}
-        />
-        {saldo !== null && (
-          <StatCard
-            etiqueta="Saldo"
-            valor={formatearMXN(saldo)}
-            icono={Wallet}
-            valorClassName={saldo >= 0 ? "text-green-600" : "text-red-600"}
-            className="col-span-2 md:col-span-1"
-          />
-        )}
-      </div>
-
-      {/* Gastos por categoría */}
-      <div className="mb-4 rounded-2xl border bg-card p-4 shadow-sm">
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Gastos por categoría
-        </h2>
-        <ListaBarras items={porCategoria} formatear={formatearMXN} vacio="Sin gastos en este periodo." />
-      </div>
-
-      {/* Lista de gastos */}
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Gastos del periodo
-        </h2>
-        <div className="flex-1" />
-        {/* La cola de papeles por recoger, a un clic: era el filtro que se hacía
-            a ojo recorriendo la columna «Factura · recibo». */}
-        <Button
-          variant={soloPendientesPapeles ? "default" : "outline"}
-          onClick={() => setSoloPendientesPapeles((v) => !v)}
-          className="h-auto rounded-[10px] px-3.5 py-2 text-[13px] font-semibold"
-        >
-          Faltan papeles{pendientesPapeles > 0 ? ` (${pendientesPapeles})` : ""}
-        </Button>
-        <Select value={filtroCategoria} onValueChange={(v) => setFiltroCategoria(v ?? "todas")}>
-          <SelectTrigger className="w-[180px] bg-card">
-            <SelectValue>
-              {(v: string) =>
-                v === "todas" ? "Todas las categorías" : (obtenerCategoriaGasto(v)?.nombre ?? "Categoría")}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todas">Todas las categorías</SelectItem>
-            {CATEGORIAS_GASTO.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.nombre}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {visibles.length === 0 ? (
-        gastosPeriodo.length > 0 ? (
-          <p className="text-sm italic text-muted-foreground">
-            {soloPendientesPapeles
-              ? "Nada pendiente de factura o recibo con esos filtros. 🎉"
-              : "Ningún gasto en esa categoría."}
-          </p>
-        ) : ultimoGasto ? (
-          /* Hay gastos capturados, pero no en la ventana elegida. Decir solo
-             «no hay gastos» hacía pensar que la importación no había entrado:
-             mejor apuntar a dónde sí están y llevar de un clic. */
-          <div className="flex flex-col items-start gap-2 rounded-2xl border bg-card px-5 py-6 shadow-sm">
-            <p className="text-sm text-muted-foreground">
-              No hay gastos en este periodo. El último capturado es del{" "}
-              <b className="text-foreground">{formatearFecha(ultimoGasto.fecha)}</b>.
-            </p>
-            <Button variant="outline" size="sm" onClick={verMesDelUltimoGasto}>
-              Ver {nombreMes(Number(ultimoGasto.fecha.slice(0, 4)), Number(ultimoGasto.fecha.slice(5, 7)) - 1)}
+        {/* El rango, importar y «Nuevo gasto» son de los gastos del negocio: en
+            la pestaña personal no significan nada —un compromiso fijo no tiene
+            fecha, tiene ritmo—. Esa sección trae su propio botón. */}
+        {!enPersonales && (
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+            {/* Mismo selector que Métricas: atajos y rango a mano en un solo sitio. */}
+            <RangoFechas
+              desde={desde}
+              hasta={hasta}
+              preset={periodo}
+              onPreset={setPeriodo}
+              onChange={(d, h) => {
+                setDesde(d);
+                setHasta(h);
+                setPeriodo("");
+              }}
+              className="w-full md:w-[220px]"
+            />
+            <ImportarGastos />
+            <Button
+              onClick={() => setDialog("nuevo")}
+              className="h-auto w-full gap-1.5 rounded-[11px] px-[17px] py-2.5 text-[13.5px] font-semibold shadow-[0_6px_16px_-8px_rgba(232,67,147,0.7)] md:w-auto"
+            >
+              <Plus className="size-4" strokeWidth={2.1} />
+              Nuevo gasto
             </Button>
           </div>
-        ) : (
-          <p className="text-sm italic text-muted-foreground">
-            Aún no hay gastos capturados. Registra el primero con «Nuevo gasto».
-          </p>
-        )
+        )}
+      </div>
+
+      {PESTANAS.length > 1 && (
+        <TabsSeccion opciones={PESTANAS} valor={pestana} onCambio={setPestana} className="mb-4" />
+      )}
+
+      {enPersonales ? (
+        <PanelPersonales compromisos={personales} />
       ) : (
-        <TablaSimple
-          cols={COLS}
-          columnas={columnasGasto}
-          datos={visibles}
-          filaKey={(g) => g.id}
-          minW="min-w-[780px]"
-          onRowClick={(g) => setDialog(g)}
-        />
+        <>
+        {/* Entradas / Salidas / Saldo. Sin ingresos queda solo la del medio, a
+            ancho completo: media tarjeta y dos huecos se leería como que algo
+            falló, y no es que falte el dato, es que no toca. */}
+        <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3">
+          {entradas !== null && (
+            <StatCard
+              etiqueta="Entradas (ventas)"
+              valor={formatearMXN(entradas)}
+              icono={ArrowUpCircle}
+              valorClassName="text-green-600"
+              delta={deltaPct(entradas, entradasAnterior ?? 0)}
+              deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
+            />
+          )}
+          <StatCard
+            etiqueta="Salidas (gastos)"
+            valor={formatearMXN(salidas)}
+            icono={ArrowDownCircle}
+            valorClassName="text-red-600"
+            delta={deltaPct(salidas, salidasAnterior)}
+            deltaEtiqueta={ETIQUETA_PERIODO[periodo]}
+            className={saldo === null ? "col-span-2 md:col-span-3" : undefined}
+          />
+          {saldo !== null && (
+            <StatCard
+              etiqueta="Saldo"
+              valor={formatearMXN(saldo)}
+              icono={Wallet}
+              valorClassName={saldo >= 0 ? "text-green-600" : "text-red-600"}
+              className="col-span-2 md:col-span-1"
+            />
+          )}
+        </div>
+
+        {/* Gastos por categoría */}
+        <div className="mb-4 rounded-2xl border bg-card p-4 shadow-sm">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Gastos por categoría
+          </h2>
+          <ListaBarras items={porCategoria} formatear={formatearMXN} vacio="Sin gastos en este periodo." />
+        </div>
+
+        {/* Lista de gastos */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Gastos del periodo
+          </h2>
+          <div className="flex-1" />
+          {/* La cola de papeles por recoger, a un clic: era el filtro que se hacía
+              a ojo recorriendo la columna «Factura · recibo». */}
+          <Button
+            variant={soloPendientesPapeles ? "default" : "outline"}
+            onClick={() => setSoloPendientesPapeles((v) => !v)}
+            className="h-auto rounded-[10px] px-3.5 py-2 text-[13px] font-semibold"
+          >
+            Faltan papeles{pendientesPapeles > 0 ? ` (${pendientesPapeles})` : ""}
+          </Button>
+          <Select value={filtroCategoria} onValueChange={(v) => setFiltroCategoria(v ?? "todas")}>
+            <SelectTrigger className="w-[180px] bg-card">
+              <SelectValue>
+                {(v: string) =>
+                  v === "todas" ? "Todas las categorías" : (obtenerCategoriaGasto(v)?.nombre ?? "Categoría")}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todas">Todas las categorías</SelectItem>
+              {CATEGORIAS_GASTO.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {visibles.length === 0 ? (
+          gastosPeriodo.length > 0 ? (
+            <p className="text-sm italic text-muted-foreground">
+              {soloPendientesPapeles
+                ? "Nada pendiente de factura o recibo con esos filtros. 🎉"
+                : "Ningún gasto en esa categoría."}
+            </p>
+          ) : ultimoGasto ? (
+            /* Hay gastos capturados, pero no en la ventana elegida. Decir solo
+               «no hay gastos» hacía pensar que la importación no había entrado:
+               mejor apuntar a dónde sí están y llevar de un clic. */
+            <div className="flex flex-col items-start gap-2 rounded-2xl border bg-card px-5 py-6 shadow-sm">
+              <p className="text-sm text-muted-foreground">
+                No hay gastos en este periodo. El último capturado es del{" "}
+                <b className="text-foreground">{formatearFecha(ultimoGasto.fecha)}</b>.
+              </p>
+              <Button variant="outline" size="sm" onClick={verMesDelUltimoGasto}>
+                Ver {nombreMes(Number(ultimoGasto.fecha.slice(0, 4)), Number(ultimoGasto.fecha.slice(5, 7)) - 1)}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-sm italic text-muted-foreground">
+              Aún no hay gastos capturados. Registra el primero con «Nuevo gasto».
+            </p>
+          )
+        ) : (
+          <TablaSimple
+            cols={COLS}
+            columnas={columnasGasto}
+            datos={visibles}
+            filaKey={(g) => g.id}
+            minW="min-w-[780px]"
+            onRowClick={(g) => setDialog(g)}
+          />
+        )}
+        </>
       )}
 
       {dialog && (

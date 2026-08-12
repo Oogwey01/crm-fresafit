@@ -4,8 +4,9 @@ import { traerTodo } from "@/lib/canales/paginacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import { PanelFinanzas } from "@/components/finanzas/panel";
 import { construirSugerencias, type GastoPrevio } from "@/lib/finanzas/sugerencias";
-import { COLUMNAS_GASTO } from "@/lib/finanzas/consulta";
-import type { ExpenseConComprobantes } from "@/lib/types";
+import { COLUMNAS_GASTO, COLUMNAS_PERSONAL } from "@/lib/finanzas/consulta";
+import { puedeVerFinanzasPersonales } from "@/lib/finanzas/dueno-personales";
+import type { CompromisoPersonal, ExpenseConComprobantes } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
 export const metadata = { title: "Finanzas · Fresafit" };
@@ -18,11 +19,17 @@ export default async function FinanzasPage() {
      la administración; la RLS lo impide de fondo. usuarioActual() está cacheado:
      no repite el getUser() ni el perfil que ya pidió el layout. */
   await exigirModulo("finanzas");
-  const { supabase } = await usuarioActual();
+  const { supabase, user } = await usuarioActual();
 
   const desde = diasDesdeHoy(-DIAS_VENTANA);
 
-  const [gastos, ventasRes, previosRes] = await Promise.all([
+  /* La sección personal es de una sola persona (ver lib/finanzas/dueno-personales.ts).
+     Se resuelve ANTES del Promise.all para que la consulta ni salga para los
+     demás: esconder la pestaña y traer igual los renglones sería pagar el
+     payload por nada. */
+  const veSuyas = puedeVerFinanzasPersonales(user?.email);
+
+  const [gastos, ventasRes, previosRes, personales] = await Promise.all([
     /* Paginado con traerTodo aunque la ventana esté acotada a 120 días. Con un
        `select` a secas PostgREST cortaba en 1000 filas sin avisar y el panel
        habría sumado un total incompleto presentándolo como el del periodo —el
@@ -66,6 +73,26 @@ export default async function FinanzasPage() {
       .select("fecha, concepto, categoria, proveedor, metodo_pago")
       .order("fecha", { ascending: false })
       .limit(1000),
+    /* Los pagos fijos personales de QUIEN PREGUNTA. Esto NO es el candado —la
+       RLS de `finanzas_personales` solo devuelve lo del dueño, venga quien
+       venga—; es no pedir lo que no se va a usar, igual que la de ingresos.
+
+       Sin `.eq("owner_id", …)` a propósito: ponerlo aquí haría creer que quien
+       cierra es la app. Cierra la base.
+
+       El orden lleva `id` de desempate porque paginar por rangos necesita un
+       criterio único y dos pagos se pueden llamar igual. */
+    veSuyas
+      ? traerTodo<CompromisoPersonal>((desdeFila, hastaFila) =>
+          supabase
+            .from("finanzas_personales")
+            .select(COLUMNAS_PERSONAL)
+            .order("activo", { ascending: false })
+            .order("concepto")
+            .order("id")
+            .range(desdeFila, hastaFila),
+        )
+      : Promise.resolve(null),
   ]);
 
   /* `null` —y no un array vacío— para que el panel distinga «no puedes verlas»
@@ -85,5 +112,12 @@ export default async function FinanzasPage() {
   }
   const sugerencias = construirSugerencias((previosRes.data ?? []) as GastoPrevio[]);
 
-  return <PanelFinanzas gastos={gastos} ventas={ventas} sugerencias={sugerencias} />;
+  return (
+    <PanelFinanzas
+      gastos={gastos}
+      ventas={ventas}
+      sugerencias={sugerencias}
+      personales={personales}
+    />
+  );
 }

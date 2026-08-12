@@ -1168,6 +1168,56 @@ export type Database = {
           },
         ]
       }
+      finanzas_personales: {
+        Row: {
+          activo: boolean
+          categoria: string
+          concepto: string
+          created_at: string
+          dia_pago: number | null
+          id: string
+          monto: number
+          notas: string | null
+          owner_id: string
+          periodicidad: string
+          updated_at: string
+        }
+        Insert: {
+          activo?: boolean
+          categoria?: string
+          concepto: string
+          created_at?: string
+          dia_pago?: number | null
+          id?: string
+          monto?: number
+          notas?: string | null
+          owner_id?: string
+          periodicidad?: string
+          updated_at?: string
+        }
+        Update: {
+          activo?: boolean
+          categoria?: string
+          concepto?: string
+          created_at?: string
+          dia_pago?: number | null
+          id?: string
+          monto?: number
+          notas?: string | null
+          owner_id?: string
+          periodicidad?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finanzas_personales_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       envios_full: {
         Row: {
           created_at: string
@@ -2576,6 +2626,7 @@ export type Database = {
           estado: string
           fecha_prometida: string | null
           id: string
+          imagen_url: string | null
           modelo: string
           notas: string | null
           num_guia: string | null
@@ -2621,6 +2672,7 @@ export type Database = {
           estado?: string
           fecha_prometida?: string | null
           id?: string
+          imagen_url?: string | null
           modelo: string
           notas?: string | null
           num_guia?: string | null
@@ -2666,6 +2718,7 @@ export type Database = {
           estado?: string
           fecha_prometida?: string | null
           id?: string
+          imagen_url?: string | null
           modelo?: string
           notas?: string | null
           num_guia?: string | null
