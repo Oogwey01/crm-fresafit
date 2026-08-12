@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlarmClock, Clock, Factory, Plus, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/compartido/stat-card";
+import { EncabezadoSeccion } from "@/components/compartido/encabezado-seccion";
 import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { TableroMaquila } from "@/components/maquila/tablero";
@@ -228,22 +229,49 @@ export function PanelMaquila({
       <TabsSeccion opciones={SECCIONES} valor={seccion} onCambio={setSeccion} className="mb-4" />
 
       {seccion === "tablero" && (
-        <TableroMaquila pedidos={pedidos} guias={guias} hoy={hoy} esEquipo onAbrir={setAbierto} />
+        <>
+          <EncabezadoSeccion titulo="La producción viva">
+            Lo que está en manos de Eduardo: qué se fabrica, para cuándo se prometió y en qué paso
+            va. Las vistas de arriba lo parten por urgencia, y el semáforo mide contra la fecha
+            prometida — <b className="font-semibold text-foreground">pago + 7 días hábiles</b> si
+            es prensado, <b className="font-semibold text-foreground">+ 10</b> si va por el corte
+            de lunes y jueves. Él ve este mismo tablero y mueve los estados desde su lado.
+          </EncabezadoSeccion>
+          <TableroMaquila pedidos={pedidos} guias={guias} hoy={hoy} esEquipo onAbrir={setAbierto} />
+        </>
       )}
 
       {seccion === "espera" && (
-        <TablaSimple
-          cols="grid-cols-[minmax(220px,1.4fr)_140px_minmax(200px,1fr)_150px]"
-          columnas={columnasEspera}
-          datos={esperando}
-          filaKey={(p) => p.id}
-          minW="min-w-[820px]"
-          vacio="Nada esperando pago. Cuando una orden llegue sin pagar, cae aquí y NO al tablero de Eduardo."
-          onRowClick={setAbierto}
-        />
+        <>
+          <EncabezadoSeccion titulo="Órdenes sin pagar">
+            Ya llegó la orden pero el pago no se ha aprobado, así que{" "}
+            <b className="font-semibold text-foreground">no se produce ni se le muestra a
+            Eduardo</b>. Cuando el pago entra, se calcula la fecha prometida y el pedido salta
+            solo al tablero. Si la orden se cancela antes, se marca y se queda como constancia.
+          </EncabezadoSeccion>
+          <TablaSimple
+            cols="grid-cols-[minmax(220px,1.4fr)_140px_minmax(200px,1fr)_150px]"
+            columnas={columnasEspera}
+            datos={esperando}
+            filaKey={(p) => p.id}
+            minW="min-w-[820px]"
+            vacio="Nada esperando pago. Cuando una orden llegue sin pagar, cae aquí y NO al tablero de Eduardo."
+            onRowClick={setAbierto}
+          />
+        </>
       )}
 
-      {seccion === "guias" && <GuiasMaquila guias={guiasConPedidos} puedeSurtir />}
+      {seccion === "guias" && (
+        <>
+          <EncabezadoSeccion titulo="Etiquetas por surtir">
+            Una solicitud por <b className="font-semibold text-foreground">paquete</b>, no por
+            pieza: si una orden lleva tres cinturones, sale una sola etiqueta. Se abre sola en
+            cuanto Eduardo termina el primer renglón; logística sube aquí el archivo de la guía y
+            la solicitud se cierra cuando el paquete sale con su número.
+          </EncabezadoSeccion>
+          <GuiasMaquila guias={guiasConPedidos} puedeSurtir />
+        </>
+      )}
 
       {seccion === "insumos" && (
         <InsumosMaquila
@@ -255,12 +283,21 @@ export function PanelMaquila({
       )}
 
       {seccion === "corte" && veDinero && (
-        <CorteMaquilaPanel
-          cortes={cortes}
-          anticipos={anticipos}
-          hoy={hoy}
-          esDireccion={esDireccion}
-        />
+        <>
+          <EncabezadoSeccion titulo="Lo que se le paga a Eduardo">
+            Cada quincena junta las piezas que salieron en el periodo, a la tarifa que se congeló
+            cuando se pagó el pedido, suma el IVA aparte y resta los anticipos que ya se le
+            dieron (los más viejos primero). Un corte{" "}
+            <b className="font-semibold text-foreground">cerrado ya no se recalcula</b> y sus
+            piezas no vuelven a entrar a otro; cancelarlo es cosa de dirección.
+          </EncabezadoSeccion>
+          <CorteMaquilaPanel
+            cortes={cortes}
+            anticipos={anticipos}
+            hoy={hoy}
+            esDireccion={esDireccion}
+          />
+        </>
       )}
 
       {seccion === "estadisticas" && (

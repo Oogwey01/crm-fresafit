@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PackagePlus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Pastilla } from "@/components/compartido/pastilla";
+import { EncabezadoSeccion } from "@/components/compartido/encabezado-seccion";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { MovimientoInsumoDialog } from "@/components/maquila/movimiento-insumo-dialog";
 import { obtenerTipoMovConsignacion } from "@/lib/catalogos";
@@ -89,11 +90,12 @@ export function InsumosMaquila({
   return (
     <div className="grid gap-5">
       <div>
-        <h2 className="mb-1 text-[15px] font-semibold">Material en su bodega</h2>
-        <p className="mb-3 text-[13.5px] text-muted-foreground">
-          Lo que le mandamos y él guarda. Se descuenta solo cuando sale un pedido que lo lleva:
-          las palancas de los Powerlift y, en los combos, muñequeras y straps.
-        </p>
+        <EncabezadoSeccion titulo="Material en su bodega">
+          Material nuestro guardado en casa de Eduardo. Se descuenta solo cuando sale un pedido
+          que lo lleva: las palancas de los Powerlift y, en los combos, muñequeras y straps. El{" "}
+          <b className="font-semibold text-foreground">comprometido</b> es lo que ya tiene
+          apartado la producción en curso — lo que queda libre es saldo menos comprometido.
+        </EncabezadoSeccion>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {insumos.map((i) => {
             const bajo = i.saldo <= i.minimo;

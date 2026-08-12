@@ -30,6 +30,7 @@ import { diaMX } from "@/lib/fecha";
 import type { EstadoPedidoId } from "@/lib/types";
 import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccion";
 import { urlOrdenML } from "@/lib/pedidos/rastreo";
+import { aplicarOrdenesMaquilaML } from "@/lib/maquila/ingesta";
 import {
   conexionMercadolibre,
   costoEnvioVendedorML,
@@ -577,6 +578,21 @@ async function aplicarOrdenes(
         }
       }
     }
+  }
+
+  /* Maquila México: los renglones cuyo producto tiene ficha de maquila van
+     ADEMÁS al tablero de Eduardo. Va al final porque la promoción a producción
+     liga la venta hermana recién upserteada, y en try/catch porque un tropiezo
+     de maquila no puede tirar la importación de ventas, que es la que cuadra el
+     dinero. Las direcciones se le pasan ya resueltas: `infoEnvio` costó viajes
+     a la API de envíos y volver a pedirlas sería duplicarlos. */
+  try {
+    await aplicarOrdenesMaquilaML(
+      ordenes,
+      new Map([...infoEnvio].map(([id, e]) => [id, e.direccion])),
+    );
+  } catch (e) {
+    console.error("[maquila] ingesta desde Mercado Libre:", e);
   }
 
   return {

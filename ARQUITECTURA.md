@@ -122,6 +122,20 @@ antes `node_modules/next/dist/docs/01-app/02-guides/migrating-to-cache-component
 
 Todo esto es la primera capa; la RLS es el candado de verdad.
 
+**`sales` y `products` tienen el SELECT otorgado columna por columna** (para
+esconder `monto` y `costo`; ver
+[20260902000000_dinero_cierre_base.sql](supabase/migrations/20260902000000_dinero_cierre_base.sql)).
+Una columna nueva en esas dos tablas nace ilegible para el navegador, así que la
+migración que la crea la otorga en el mismo archivo:
+
+```sql
+grant select (columna_nueva) on public.sales to authenticated;
+```
+
+Si se olvida, la pantalla que la pida revienta con `permission denied for table
+sales` —a nivel de tabla, sin decir cuál columna— y se repara volviendo a pegar
+[20261004000000_grants_columna_al_dia.sql](supabase/migrations/20261004000000_grants_columna_al_dia.sql).
+
 ## El módulo de empresas (portal de clientes)
 
 Gente de FUERA entra al CRM: los contactos de las empresas cliente (rol
