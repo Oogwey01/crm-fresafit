@@ -1,13 +1,13 @@
 /* ============================================================================
    scripts/generar-iconos.mjs — El logo de la app, en todos sus tamaños
    ----------------------------------------------------------------------------
-   La fresa de Fresafit se dibuja UNA vez aquí (cuerpo, hojas y semillas como
-   constantes) y de ahí salen todas las piezas que piden iOS, Android y los
-   navegadores:
+   La fuente es UNA sola: scripts/assets/logo-fresafit.png, la silueta oficial
+   de la marca (negra sobre transparente, 1080×1080). De ahí salen todas las
+   piezas que piden iOS, Android y los navegadores:
 
-     app/icon.svg          favicon vectorial (Next lo enlaza solo)
-     app/favicon.ico       navegadores viejos: 16/32/48 px, sin semillas porque
-                           a ese tamaño se vuelven ruido
+     app/icon.png          favicon que Next enlaza solo
+     app/favicon.ico       navegadores viejos: 16/32/48 px, con la silueta más
+                           grande porque a ese tamaño el margen se come el dibujo
      app/apple-icon.png    pantalla de inicio de iOS (180×180, fondo pleno:
                            iOS pinta de negro cualquier transparencia)
      public/icono-192.png  manifest de Android + avisos push (sw.js)
@@ -15,6 +15,10 @@
                            cabe en el círculo seguro del 80% que recorta Android
      public/icono-badge.png  silueta blanca sobre transparente: Android la usa
                            como máscara monocroma en la barra de estado
+
+   Del PNG fuente solo se aprovecha el canal alfa: la silueta se repinta de
+   blanco y se apoya sobre el degradado rosa de la marca. Así el archivo puede
+   cambiar de color mañana sin que estos íconos se enteren.
 
    Uso:  node scripts/generar-iconos.mjs
    (sharp no está en package.json: se toma prestado de Next, que lo trae.)
@@ -29,79 +33,103 @@ const require = createRequire(import.meta.url);
 const sharp = createRequire(require.resolve("next/package.json"))("sharp");
 
 const RAIZ = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const FUENTE = path.join(RAIZ, "scripts/assets/logo-fresafit.png");
 
-/* --- Geometría (lienzo de 512×512) --------------------------------------- */
-
-const CUERPO =
-  "M256 176 C196 168 128 186 124 252 C120 322 186 398 256 430 C326 398 392 322 388 252 C384 186 316 168 256 176 Z";
-
-/* Una hoja en forma de gota apuntando hacia arriba; la corona son cinco copias
-   giradas alrededor del mismo punto de anclaje, justo sobre la fruta. */
-const HOJA = "M0 12 C-22 2 -28 -32 0 -62 C28 -32 22 2 0 12 Z";
-const GIROS_HOJAS = [0, -32, 32, -64, 64];
-
-/* [cx, cy, rx, ry] — colocadas a mano para seguir el estrechamiento del fruto. */
-const SEMILLAS = [
-  [208, 236, 11, 15], [256, 232, 11, 15], [304, 236, 11, 15],
-  [184, 292, 11, 15], [232, 290, 11, 15], [280, 290, 11, 15], [328, 292, 11, 15],
-  [208, 348, 11, 15], [256, 350, 11, 15], [304, 348, 11, 15],
-  [232, 400, 10, 14], [280, 400, 10, 14],
-];
+/* --- Paleta ---------------------------------------------------------------- */
 
 const DEGRADADO = `<linearGradient id="fondo" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#f9639f"/>
       <stop offset="1" stop-color="#d42a72"/>
     </linearGradient>`;
 
-function fresa({ conSemillas }) {
-  const hojas = GIROS_HOJAS.map(
-    (g) => `<path transform="translate(256 172)${g ? ` rotate(${g})` : ""}" d="${HOJA}"/>`,
-  ).join("\n      ");
-  /* Las semillas van rellenas con el degradado del fondo para leerse como
-     huecos calados en la fruta, no como puntos encima. */
-  const semillas = conSemillas
-    ? `\n    <g fill="url(#fondo)">
-      ${SEMILLAS.map(([cx, cy, rx, ry]) => `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}"/>`).join("\n      ")}
-    </g>`
-    : "";
-  return `<g transform="rotate(-8 256 290)">
-    <path fill="#fff" d="${CUERPO}"/>
-    <g fill="#fff">
-      ${hojas}
-    </g>${semillas}
-  </g>`;
+/* Qué tanto del lado del lienzo ocupa la silueta, por pieza.
+   0.70 no es un número bonito al azar: el dibujo es más alto que ancho, así que
+   a esa escala su punto más lejano queda a ~180 px del centro, cómodamente
+   dentro del círculo seguro de 204.8 px que Android recorta en los "maskable". */
+const PROPORCION = { normal: 0.7, favicon: 0.86, badge: 0.94 };
+
+/* --- Silueta --------------------------------------------------------------- */
+
+/* Se lee el PNG en crudo para quedarnos solo con el alfa: todo píxel visible
+   pasa a blanco, y los bordes suavizados conservan su transparencia parcial
+   para que al posarse sobre el rosa no queden escalonados. */
+async function siluetaBlanca() {
+  const { data, info } = await sharp(FUENTE).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const alfa = data[(y * width + x) * channels + 3];
+      if (alfa <= 8) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  if (maxX < 0) throw new Error(`El logo fuente salió vacío: ${FUENTE}`);
+
+  for (let i = 0; i < data.length; i += channels) {
+    data[i] = 255;
+    data[i + 1] = 255;
+    data[i + 2] = 255;
+  }
+
+  /* Recortado al dibujo: el margen que trae el archivo original es suyo, no
+     nuestro, y aquí cada pieza decide cuánto aire quiere. */
+  return sharp(data, { raw: { width, height, channels } })
+    .extract({ left: minX, top: minY, width: maxX - minX + 1, height: maxY - minY + 1 })
+    .png()
+    .toBuffer();
 }
 
-function svgIcono({ conSemillas }) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Generado por scripts/generar-iconos.mjs — editar ahí, no aquí. -->
+const SILUETA = await siluetaBlanca();
+const { width: SIL_ANCHO, height: SIL_ALTO } = await sharp(SILUETA).metadata();
+
+/* La silueta se escala por su lado largo para que quepa completa, y luego se
+   centra. `position: centre` de sharp reparte los sobrantes impares hacia
+   abajo/derecha; medio píxel a esta escala no se ve. */
+async function siluetaEscalada(tamano, proporcion) {
+  const cabe = Math.round(tamano * proporcion);
+  const escala = cabe / Math.max(SIL_ANCHO, SIL_ALTO);
+  return sharp(SILUETA)
+    .resize({
+      width: Math.max(1, Math.round(SIL_ANCHO * escala)),
+      height: Math.max(1, Math.round(SIL_ALTO * escala)),
+      fit: "fill",
+      kernel: "lanczos3",
+    })
+    .png()
+    .toBuffer();
+}
+
+/* --- Rasterizado ----------------------------------------------------------- */
+
+/* El fondo se rasteriza a la densidad del tamaño final en vez de escalar un PNG
+   grande: librsvg dibuja el degradado directo al tamaño pedido. */
+async function iconoConFondo(tamano, proporcion = PROPORCION.normal) {
+  const fondo = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
     ${DEGRADADO}
   </defs>
   <rect width="512" height="512" fill="url(#fondo)"/>
-  ${fresa({ conSemillas })}
 </svg>
 `;
-}
-
-/* Silueta suelta (sin fondo) agrandada para llenar el lienzo: como el badge no
-   lleva fondo, el margen del ícono normal la haría verse diminuta. */
-function svgBadge() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <g transform="translate(256 256) scale(1.3) translate(-256 -262)">
-  ${fresa({ conSemillas: false })}
-  </g>
-</svg>
-`;
-}
-
-/* --- Rasterizado ---------------------------------------------------------- */
-
-/* Se rasteriza a la densidad del tamaño final en vez de escalar un PNG grande:
-   librsvg dibuja las curvas directo al tamaño pedido y quedan más nítidas. */
-function png(svg, tamano) {
-  return sharp(Buffer.from(svg), { density: (72 * tamano) / 512 })
+  return sharp(Buffer.from(fondo), { density: (72 * tamano) / 512 })
     .resize(tamano, tamano)
+    .composite([{ input: await siluetaEscalada(tamano, proporcion), gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
+/* El badge no lleva fondo: Android lo usa como máscara monocroma, así que solo
+   importa el alfa. Va sobre lienzo transparente para respetar el cuadrado. */
+async function iconoBadge(tamano) {
+  return sharp({
+    create: { width: tamano, height: tamano, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite([{ input: await siluetaEscalada(tamano, PROPORCION.badge), gravity: "centre" }])
     .png()
     .toBuffer();
 }
@@ -129,20 +157,20 @@ function ico(pngs) {
   return Buffer.concat([cabecera, ...entradas, ...pngs.map((p) => p.datos)]);
 }
 
-const completo = svgIcono({ conSemillas: true });
-const simple = svgIcono({ conSemillas: false });
-
 const salidas = [
-  ["app/icon.svg", Buffer.from(completo)],
-  ["app/apple-icon.png", await png(completo, 180)],
-  ["public/icono-512.png", await png(completo, 512)],
-  ["public/icono-192.png", await png(completo, 192)],
-  ["public/icono-badge.png", await png(svgBadge(), 96)],
+  ["app/icon.png", await iconoConFondo(512)],
+  ["app/apple-icon.png", await iconoConFondo(180)],
+  ["public/icono-512.png", await iconoConFondo(512)],
+  ["public/icono-192.png", await iconoConFondo(192)],
+  ["public/icono-badge.png", await iconoBadge(96)],
   [
     "app/favicon.ico",
     ico(
       await Promise.all(
-        [16, 32, 48].map(async (t) => ({ tamano: t, datos: await png(simple, t) })),
+        [16, 32, 48].map(async (t) => ({
+          tamano: t,
+          datos: await iconoConFondo(t, PROPORCION.favicon),
+        })),
       ),
     ),
   ],
