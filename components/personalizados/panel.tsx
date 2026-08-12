@@ -1,7 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { AlarmClock, Check, Copy, ExternalLink, Palette, Plus, Sparkles, Truck } from "lucide-react";
+import {
+  AlarmClock,
+  Check,
+  Copy,
+  Download,
+  ExternalLink,
+  Palette,
+  Plus,
+  Sparkles,
+  Store,
+  Truck,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +35,7 @@ import { VerDiseno } from "@/components/personalizados/ver-diseno";
 import {
   cambiarEstadoPersonalizado,
   ligaDisenoParaProveedor,
+  traerPedidosDeMaquila,
 } from "@/app/(app)/personalizados/actions";
 import {
   ESTADOS_PERSONALIZADO,
@@ -36,6 +48,7 @@ import {
 import { formatearFecha, hoyISO } from "@/lib/fecha";
 import { norm } from "@/lib/importar/tsv";
 import { iniciales } from "@/lib/utils";
+import type { EnlaceOrden } from "@/lib/personalizados/desde-maquila";
 import type { EstadoPersonalizadoId, Personalizado, Profile } from "@/lib/types";
 
 const ABIERTOS: readonly string[] = ESTADOS_PERSONALIZADO_ABIERTOS;
@@ -74,9 +87,14 @@ function mensajeParaEduardo(p: Personalizado, ligaDiseno: string | null): string
 export function PanelPersonalizados({
   personalizados,
   equipo,
+  enlacesOrden,
 }: {
   personalizados: Personalizado[];
   equipo: Profile[];
+  /* id de la ficha → el detalle de la venta en el panel del canal. Solo traen
+     enlace las que salieron de una venta del CRM: el folio de las viejas de la
+     hoja no existe en ningún panel. */
+  enlacesOrden: Record<string, EnlaceOrden>;
 }) {
   const porId = new Map(equipo.map((p) => [p.id, p]));
 
@@ -104,6 +122,10 @@ export function PanelPersonalizados({
     }
   }
   const { pending, ejecutar } = useAccionServidor();
+  /* Propio y no el `ejecutar` de arriba: ese lo comparten los cambios de estado
+     de la tabla, y el botón no debe deshabilitarse cuando alguien mueve una
+     ficha (ni al revés). */
+  const { pending: pendingTraer, ejecutar: ejecutarTraer } = useAccionServidor();
   const [dialogo, setDialogo] = useState<Personalizado | "nuevo" | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("abiertos");
@@ -116,6 +138,18 @@ export function PanelPersonalizados({
     (p) => p.estado === "enviado" && (p.updated_at ?? p.created_at).startsWith(hoy.slice(0, 7)),
   );
   const sinDiseno = enProceso.filter((p) => !p.foto_path);
+
+  /* Los cinturones personalizados que ya se vendieron y todavía no tenían
+     ficha. La ingesta los trae sola en cada pasada; esto es para no esperarla. */
+  function traer() {
+    ejecutarTraer(() => traerPedidosDeMaquila(), {
+      error: "No se pudo consultar. Revisa tu conexión.",
+      ok: (r) =>
+        r.datos.creadas > 0
+          ? `${r.datos.creadas} pedido(s) traídos. Ya solo falta subirles el diseño.`
+          : "Nada nuevo: todos los pedidos vendidos ya tienen su ficha.",
+    });
+  }
 
   /* El compilador de React memoiza esto solo: la lista base se deriva en cada
      render y envolverla a mano rompía su optimización. */
@@ -188,7 +222,13 @@ export function PanelPersonalizados({
                 />
               )}
             </div>
-            {canal && <div className="text-[11.5px] text-muted-foreground">{canal.nombre}</div>}
+            {/* La fecha de compra es la que ordena la lista: si no se ve, el
+                orden parece arbitrario. */}
+            <div className="truncate text-[11.5px] text-muted-foreground">
+              {[canal?.nombre, p.fecha_compra ? formatearFecha(p.fecha_compra) : null]
+                .filter(Boolean)
+                .join(" · ") || "—"}
+            </div>
           </div>
         );
       },
@@ -261,6 +301,19 @@ export function PanelPersonalizados({
       label: "",
       celda: (p) => (
         <div className="flex items-center gap-1.5">
+          {enlacesOrden[p.id] && (
+            <a
+              href={enlacesOrden[p.id].url}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-muted-foreground hover:text-primary"
+              title={`Ver la venta en ${obtenerCanal(enlacesOrden[p.id].canal)?.nombre ?? "el canal"}`}
+              aria-label={`Ver la venta en ${obtenerCanal(enlacesOrden[p.id].canal)?.nombre ?? "el canal"}`}
+            >
+              <Store className="size-4" />
+            </a>
+          )}
           {p.url && (
             <a
               href={p.url}
@@ -306,6 +359,15 @@ export function PanelPersonalizados({
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+          <Button
+            variant="outline"
+            onClick={traer}
+            disabled={pendingTraer}
+            className="h-auto w-full gap-1.5 rounded-[11px] px-[15px] py-2.5 text-[13.5px] font-semibold md:w-auto"
+          >
+            <Download className="size-4" strokeWidth={2.1} />
+            Traer pedidos vendidos
+          </Button>
           <ImportarPersonalizados />
           <Button
             onClick={() => setDialogo("nuevo")}

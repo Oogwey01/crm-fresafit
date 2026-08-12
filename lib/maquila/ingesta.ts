@@ -44,6 +44,7 @@ import { normalizarDireccion, type DireccionEnvio } from "@/lib/canales/direccio
 import { obtenerModeloMaquila } from "@/lib/catalogos";
 import { clasificarPago } from "@/lib/maquila/reglas";
 import { cargarCalendarioMaquila, costoVigente, listarCostosMaquila } from "@/lib/maquila/consultas";
+import { sembrarPersonalizadosDeMaquila } from "@/lib/personalizados/desde-maquila";
 import type { OrdenTN } from "@/lib/tiendanube/api";
 import type { OrdenML } from "@/lib/mercadolibre/api";
 import type { AcabadoMaquilaId, ComboMaquilaId, ModeloMaquilaId } from "@/lib/types";
@@ -67,6 +68,7 @@ type Ficha = {
   nombre: string;
   sku: string | null;
   variante: string | null;
+  imagen_url: string | null;
 };
 
 /* Lo que el núcleo necesita de un renglón, venga del canal que venga. */
@@ -93,6 +95,7 @@ type FilaFicha = {
     nombre: string;
     sku: string | null;
     variante: string | null;
+    imagen_url: string | null;
     tiendanube_variant_id: number | null;
   } | null;
 };
@@ -107,7 +110,7 @@ async function fichasActivas(): Promise<FilaFicha[]> {
       .from("maquila_productos")
       .select(
         "producto_id, modelo, acabado, combo," +
-          " producto:products!producto_id(nombre, sku, variante, tiendanube_variant_id)",
+          " producto:products!producto_id(nombre, sku, variante, imagen_url, tiendanube_variant_id)",
       )
       .eq("activo", true)
       .range(desde, hasta),
@@ -123,6 +126,7 @@ function aFicha(f: FilaFicha): Ficha {
     nombre: f.producto!.nombre,
     sku: f.producto!.sku,
     variante: f.producto!.variante,
+    imagen_url: f.producto!.imagen_url,
   };
 }
 
@@ -198,6 +202,10 @@ function renglonBase(datos: {
     origen: "api" as const,
     sku: datos.sku ?? datos.ficha.sku,
     diseno: datos.ficha.nombre,
+    /* La portada se CONGELA aquí: si mañana cambia la del catálogo, el pedido
+       conserva la que se produjo. Y va en el snapshot porque `es_interno()` no
+       incluye al maquilero: un join a products le devolvería vacío. */
+    imagen_url: datos.ficha.imagen_url,
     modelo: datos.ficha.modelo,
     acabado: datos.ficha.acabado,
     talla: tallaDeVariante(datos.ficha.variante),
@@ -397,7 +405,23 @@ export async function aplicarOrdenesMaquila(ordenes: OrdenTN[]): Promise<Resumen
     }
   }
 
-  return aplicarRenglonesMaquila("tienda_nube", renglones);
+  const resumen = await aplicarRenglonesMaquila("tienda_nube", renglones);
+  await sembrarFichas();
+  return resumen;
+}
+
+/* La ficha del diseñador, para los pedidos personalizados que aún no la tienen.
+   Va después de dar de alta los pedidos y NUNCA tira la ingesta: el pedido ya
+   está en el tablero de Eduardo, y una ficha que no se creó se vuelve a
+   intentar en la pasada siguiente (la condición de alta es que el pedido no
+   tenga ficha). */
+async function sembrarFichas(): Promise<void> {
+  try {
+    const { creadas } = await sembrarPersonalizadosDeMaquila(createAdminClient());
+    if (creadas > 0) console.info(`[maquila] ${creadas} ficha(s) de personalizado creadas.`);
+  } catch (e) {
+    console.error("[maquila] siembra de fichas de personalizado:", e);
+  }
 }
 
 /* ---- Mercado Libre -------------------------------------------------------- */
@@ -457,5 +481,7 @@ export async function aplicarOrdenesMaquilaML(
     }
   }
 
-  return aplicarRenglonesMaquila("mercado_libre", renglones);
+  const resumen = await aplicarRenglonesMaquila("mercado_libre", renglones);
+  await sembrarFichas();
+  return resumen;
 }

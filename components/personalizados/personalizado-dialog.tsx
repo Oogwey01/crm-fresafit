@@ -160,6 +160,18 @@ export function PersonalizadoDialog({
               onClose();
               return;
             }
+            /* Subir el arte se lo entrega a Eduardo: se dice cuál fue el efecto
+               en su tablero, o el diseñador no tiene forma de saber si llegó. */
+            const { arte } = sub.datos;
+            if (arte.ambiguo) {
+              toast.warning(
+                "Esa orden tiene más de un cinturón en maquila: liga el diseño al pedido que le toca desde su detalle.",
+              );
+            } else if (arte.ligados) {
+              toast.success("Diseño entregado: ya aparece en el pedido de Eduardo.");
+            } else if (arte.marcados) {
+              toast.success("Diseño actualizado en el pedido de Eduardo.");
+            }
           }
           toast.success(personalizado ? "Personalizado actualizado." : "Personalizado registrado.");
           onClose();

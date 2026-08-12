@@ -38,7 +38,7 @@ type Cliente = SupabaseClient<Database>;
    fuera es la fontanería (sale_id, producto_id, created_by, updated_at). */
 export const COLUMNAS_PEDIDO_MAQUILA =
   "id, canal, referencia_externa, referencia_orden, numero_orden, origen," +
-  " sku, diseno, modelo, acabado, talla, color, cantidad," +
+  " sku, diseno, imagen_url, modelo, acabado, talla, color, cantidad," +
   " requiere_palanca, palanca_color, combo, combo_diseno," +
   " personalizado_id, diseno_id, diseno_listo_en," +
   " pagado_en, ruta, corte_fecha, fecha_prometida," +

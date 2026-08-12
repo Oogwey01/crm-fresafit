@@ -1,6 +1,6 @@
 "use client";
 
-import { Image as ImageIcon, Minus, Plus } from "lucide-react";
+import { Minus, Plus } from "lucide-react";
 import { obtenerTipoProducto } from "@/lib/catalogos";
 import { estadoStock } from "@/lib/inventario/stock";
 import { tieneFull, stockFullDe, esTikTok, esTikTokDelegado, tiktokStockDe } from "@/lib/inventario/reabastecimiento";
@@ -23,46 +23,10 @@ export function PastillaTipo({ tipo }: { tipo: string }) {
   return <Pastilla nombre={t.nombre} color={t.color} />;
 }
 
-/* Miniatura de la portada (la subida en el CRM, si no la importada del canal).
-   Se usa <img> plano en vez de next/image para no tener que allowlistar el
-   hostname del CDN de Tienda Nube en next.config; para una miniatura es
-   suficiente. Cae a un placeholder cuando el producto no tiene foto.
-
-   `object-contain` sobre fondo suave, no `cover`: las fotos del catálogo vienen
-   con fondo blanco y encuadre propio, y recortarlas para llenar el cuadro le
-   comía los bordes al producto —las asas y las correas de las mochilas—. Al
-   agrandarlas ese recorte se notaba el doble. */
-export function Miniatura({
-  src,
-  alt,
-  tam = "size-20",
-}: {
-  src: string | null;
-  alt: string;
-  tam?: string;
-}) {
-  if (!src) {
-    return (
-      <div
-        className={cn(
-          "flex shrink-0 items-center justify-center rounded-lg border bg-muted text-muted-foreground/50",
-          tam,
-        )}
-      >
-        <ImageIcon className="size-6 md:size-8" />
-      </div>
-    );
-  }
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      className={cn("shrink-0 rounded-lg border bg-muted/30 object-contain", tam)}
-    />
-  );
-}
+/* La miniatura de la portada se mudó a components/compartido/miniatura.tsx al
+   necesitarla también el tablero de maquila. Se reexporta desde aquí para no
+   tocar los dos import de las tablas de productos. */
+export { Miniatura } from "@/components/compartido/miniatura";
 
 /* Marcas de la ficha: dónde vive su inventario y si sigue reponiéndose.
    Se pide `Omit<…,"imagenes">` porque las listas del catálogo no cargan la

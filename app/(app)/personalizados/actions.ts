@@ -2,10 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import type { TablesInsert, TablesUpdate } from "@/lib/supabase/tipos-bd";
-import type { Resultado } from "@/lib/acciones";
+import { mensajeDeError, type Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
 import { archivoDeFormData, rutaParaArchivo, urlFirmada } from "@/lib/storage";
+import {
+  propagarArteDePersonalizado,
+  type ResumenEnlaceArte,
+} from "@/lib/maquila/enlace-personalizados";
+import { sembrarPersonalizadosDeMaquila } from "@/lib/personalizados/desde-maquila";
 import type {
   EstadoPersonalizadoId,
   ModeloPersonalizadoId,
@@ -121,7 +126,7 @@ export async function borrarPersonalizado(id: string, fotoPath: string | null): 
 export async function subirFotoPersonalizado(
   id: string,
   formData: FormData,
-): Promise<Resultado<{ path: string }>> {
+): Promise<Resultado<{ path: string; arte: ResumenEnlaceArte }>> {
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;
 
@@ -153,8 +158,34 @@ export async function subirFotoPersonalizado(
     await cx.supabase.storage.from("personalizados").remove([anterior.foto_path as string]);
   }
 
+  /* El arte subido tiene que llegarle a Eduardo sin que nadie se acuerde de
+     ligarlo a mano: liga el pedido de maquila (que es lo que le abre la imagen)
+     y marca el diseño como listo. Si no puede decidir cuál pedido es, no
+     inventa — lo dice y la liga se queda para el detalle del pedido. */
+  const arte = await propagarArteDePersonalizado(cx.supabase, id, cx.user.id);
+  if (arte.ligados || arte.marcados) revalidatePath("/maquila");
+
   revalidar();
-  return { ok: true, datos: { path } };
+  return { ok: true, datos: { path, arte } };
+}
+
+/* Traer los pedidos personalizados que ya se vendieron y todavía no tienen
+   ficha. La ingesta hace esto sola en cada pasada; el botón existe para no
+   esperar al cron —y para reintentar si una pasada lo dejó a medias—. */
+export async function traerPedidosDeMaquila(): Promise<Resultado<{ creadas: number }>> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+
+  try {
+    const { creadas } = await sembrarPersonalizadosDeMaquila(cx.supabase);
+    if (creadas > 0) {
+      revalidar();
+      revalidatePath("/maquila"); // allá quedaron ligados a su ficha
+    }
+    return { ok: true, datos: { creadas } };
+  } catch (e) {
+    return { error: mensajeDeError(e, "No se pudieron traer los pedidos.") };
+  }
 }
 
 /* El bucket es privado: la vista pide un enlace temporal para pintar la foto. */

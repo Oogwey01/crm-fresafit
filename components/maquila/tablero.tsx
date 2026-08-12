@@ -17,6 +17,7 @@ import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { Resaltado } from "@/components/compartido/resaltado";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
+import { Miniatura } from "@/components/compartido/miniatura";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { GuiaMaquilaDialog } from "@/components/maquila/guia-dialog";
 import {
@@ -144,25 +145,28 @@ export function TableroMaquila({
       label: "Pedido",
       esTitulo: true,
       celda: (p) => (
-        <div className="min-w-0">
-          <div className="truncate font-semibold">
-            <Resaltado texto={p.diseno ?? p.sku ?? "Sin diseño"} busca={busqueda} />
-            {p.cantidad > 1 && <span className="ml-1.5 text-primary">×{p.cantidad}</span>}
-          </div>
-          <div className="truncate text-[12.5px] text-muted-foreground">
-            {[
-              obtenerModeloMaquila(p.modelo)?.nombre,
-              obtenerAcabadoMaquila(p.acabado)?.nombre,
-              p.talla ? `talla ${p.talla}` : null,
-              p.color,
-            ]
-              .filter(Boolean)
-              .join(" · ")}{" "}
-            {indicadoresDePedido(p).map((i) => (
-              <span key={i.icono} title={i.titulo}>
-                {i.icono}
-              </span>
-            ))}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Miniatura src={p.imagen_url} alt={p.diseno ?? p.sku ?? "Cinturón"} tam="size-11" />
+          <div className="min-w-0">
+            <div className="truncate font-semibold">
+              <Resaltado texto={p.diseno ?? p.sku ?? "Sin diseño"} busca={busqueda} />
+              {p.cantidad > 1 && <span className="ml-1.5 text-primary">×{p.cantidad}</span>}
+            </div>
+            <div className="truncate text-[12.5px] text-muted-foreground">
+              {[
+                obtenerModeloMaquila(p.modelo)?.nombre,
+                obtenerAcabadoMaquila(p.acabado)?.nombre,
+                p.talla ? `talla ${p.talla}` : null,
+                p.color,
+              ]
+                .filter(Boolean)
+                .join(" · ")}{" "}
+              {indicadoresDePedido(p).map((i) => (
+                <span key={i.icono} title={i.titulo}>
+                  {i.icono}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       ),

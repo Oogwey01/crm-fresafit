@@ -193,6 +193,11 @@ export function indicadoresDePedido(p: {
   acabado: string;
   combo: string;
   requiere_palanca: boolean;
+  /* Opcionales: los pedidos sin arte propio (una colección de catálogo) no
+     tienen nada que esperar y no pintan nada. */
+  personalizado_id?: string | null;
+  diseno_id?: string | null;
+  diseno_listo_en?: string | null;
 }): IndicadorMaquila[] {
   const out: IndicadorMaquila[] = [];
   if (p.acabado === "prensado") {
@@ -202,5 +207,15 @@ export function indicadoresDePedido(p: {
   }
   if (p.combo !== "ninguno") out.push({ icono: "🎁", titulo: "Lleva combo" });
   if (p.requiere_palanca) out.push({ icono: "🔧", titulo: "Requiere palanca" });
+  /* El arte: lo que decide si esta pieza se puede empezar. Se pinta solo cuando
+     el pedido tiene un diseño propio colgado —el de un personalizado o uno de
+     la biblioteca—, porque es ahí donde «todavía no llega» significa algo. */
+  if (p.personalizado_id || p.diseno_id) {
+    out.push(
+      p.diseno_listo_en
+        ? { icono: "🎨", titulo: "Diseño entregado: se puede producir" }
+        : { icono: "⏳", titulo: "Falta que diseño entregue el arte" },
+    );
+  }
   return out;
 }

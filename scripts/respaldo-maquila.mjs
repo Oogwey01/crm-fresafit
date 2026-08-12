@@ -177,7 +177,7 @@ async function cargarFichas() {
   const filas = await traerTodo((desde, hasta) =>
     cliente()
       .from("maquila_productos")
-      .select("producto_id, modelo, acabado, combo, producto:products!producto_id(sku, nombre, variante)")
+      .select("producto_id, modelo, acabado, combo, producto:products!producto_id(sku, nombre, variante, imagen_url)")
       .eq("activo", true)
       .range(desde, hasta),
   );
@@ -267,6 +267,7 @@ export function pedidoDeVenta(venta, ficha, numeroOrden, cal, hoy) {
     origen: "api",
     sku: ficha.producto?.sku ?? null,
     diseno: ficha.producto?.nombre ?? null,
+    imagen_url: ficha.producto?.imagen_url ?? null,
     modelo: ficha.modelo,
     acabado: ficha.acabado,
     talla: tallaDeVariante(ficha.producto?.variante),
@@ -355,7 +356,12 @@ async function congelarCostos(pedidos, costos) {
    siempre. Sin anticipos: los adelantos reales de Eduardo no se consumen en una
    regularización de algo que ya se le pagó.
 
-   Puro: agrupa y calcula, no escribe. Quien escribe es escribirCortes(). */
+   Puro: agrupa y calcula, no escribe. Quien escribe es escribirCortes().
+   Devuelve `{ cortes, sinTarifa }`, y lo segundo importa tanto como lo primero:
+   un pedido sin precio al día de su pago se queda fuera del corte, y un pedido
+   fuera del corte es uno que el próximo corte real le vuelve a cobrar a
+   Fresafit. Quien corra esto tiene que VERLO, no deducirlo de un total que no
+   cuadra. */
 export function agruparCortesHistoricos(pedidos, costos, cerrarHasta) {
   const porQuincena = new Map();
   for (const p of pedidos) {
@@ -370,13 +376,17 @@ export function agruparCortesHistoricos(pedidos, costos, cerrarHasta) {
   }
 
   const cortes = [];
+  const sinTarifa = [];
   for (const { q, pedidos: delPeriodo } of [...porQuincena.values()].sort((a, b) =>
     a.q.desde.localeCompare(b.q.desde),
   )) {
     const renglones = [];
     for (const p of delPeriodo) {
       const costo = costoVigente(costos, p.modelo, p.acabado, diaMX(p.pagado_en));
-      if (costo === null) continue; // sin tarifa no se puede cobrar: se queda fuera
+      if (costo === null) {
+        sinTarifa.push({ pagado: diaMX(p.pagado_en), modelo: p.modelo, acabado: p.acabado });
+        continue;
+      }
       renglones.push({
         pedido_id: p.id,
         concepto: p.diseno ?? p.sku ?? "Pieza de maquila",
@@ -391,7 +401,7 @@ export function agruparCortesHistoricos(pedidos, costos, cerrarHasta) {
     if (!renglones.length) continue;
     cortes.push({ q, renglones, totales: calcularCorte(renglones, [], TASA_IVA) });
   }
-  return cortes;
+  return { cortes, sinTarifa };
 }
 
 async function escribirCortes(cortes) {
@@ -502,13 +512,8 @@ async function main() {
      las filas, que todavía no tienen id— porque es la parte que toca dinero: hay
      que poder mirar cuánto se va a registrar como ya liquidado ANTES de que
      exista. */
-  const cortes = agruparCortesHistoricos(
-    aplicar ? [] : filas,
-    costos,
-    cerrarHasta,
-  );
   if (!aplicar) {
-    imprimirCortes(cortes, cerrarHasta);
+    imprimirCortes(agruparCortesHistoricos(filas, costos, cerrarHasta), cerrarHasta);
     const ejemplo = filas[0];
     if (ejemplo) {
       console.log("\n  Ejemplo del primer pedido:");
@@ -527,15 +532,15 @@ async function main() {
   const conCosto = await congelarCostos(pedidos, costos);
   console.log(`Costos congelados: ${conCosto}`);
 
-  const aEscribir = agruparCortesHistoricos(pedidos, costos, cerrarHasta);
-  imprimirCortes(aEscribir, cerrarHasta);
-  const creados = await escribirCortes(aEscribir);
+  const agrupado = agruparCortesHistoricos(pedidos, costos, cerrarHasta);
+  imprimirCortes(agrupado, cerrarHasta);
+  const creados = await escribirCortes(agrupado.cortes);
   console.log(`Cortes creados: ${creados}\n`);
 }
 
 const pesos = (n) => `$${n.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
 
-function imprimirCortes(cortes, cerrarHasta) {
+function imprimirCortes({ cortes, sinTarifa }, cerrarHasta) {
   console.log(
     `\nCortes históricos (quincenas hasta el ${cerrarHasta}, se registran YA PAGADOS): ${cortes.length}`,
   );
@@ -550,6 +555,32 @@ function imprimirCortes(cortes, cerrarHasta) {
   const total = cortes.reduce((s, c) => s + c.totales.total, 0);
   if (cortes.length) {
     console.log(`    ${"".padEnd(21)} ${String(piezas).padStart(3)} piezas   ya pagadas a Eduardo, ${pesos(centavos(total))} con IVA`);
+  }
+
+  /* Lo que se quedó fuera se GRITA: un pedido sin renglón de corte es un pedido
+     que el próximo corte real va a cobrar de nuevo. */
+  if (sinTarifa.length) {
+    const familias = new Map();
+    for (const s of sinTarifa) {
+      const k = `${s.modelo}/${s.acabado}`;
+      const f = familias.get(k) ?? { n: 0, desde: s.pagado, hasta: s.pagado };
+      familias.set(k, {
+        n: f.n + 1,
+        desde: s.pagado < f.desde ? s.pagado : f.desde,
+        hasta: s.pagado > f.hasta ? s.pagado : f.hasta,
+      });
+    }
+    console.log(
+      `\n  ⚠ ${sinTarifa.length} pieza(s) SIN TARIFA al día de su pago: quedan fuera del` +
+        ` corte histórico y el próximo corte real se las va a cobrar a Fresafit.`,
+    );
+    for (const [k, f] of familias) {
+      console.log(`      ${k}: ${f.n} pieza(s), pagos del ${f.desde} al ${f.hasta}`);
+    }
+    console.log(
+      "      Arréglalo cargando una vigencia anterior en maquila_costos" +
+        " (ver 20261006000100_maquila_tarifas_historicas.sql) y vuelve a correr esto.",
+    );
   }
 }
 

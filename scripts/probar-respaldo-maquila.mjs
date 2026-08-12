@@ -181,7 +181,7 @@ console.log("\nLos cortes históricos");
     sku: "SBD040M",
   });
 
-  const cortes = agruparCortesHistoricos(
+  const { cortes } = agruparCortesHistoricos(
     [
       pedido("a", "2026-08-03T18:00:00.000Z"),
       pedido("b", "2026-08-10T18:00:00.000Z", "entregado", 2),
@@ -215,13 +215,25 @@ console.log("\nLos cortes históricos");
   prueba("julio cobra a la tarifa de su pago", julio.renglones[0].costo_unitario, 420);
 
   /* Un pedido sin tarifa no se puede cobrar: se queda fuera antes que entrar en
-     cero y descuadrar el pago. */
-  const sinTarifa = agruparCortesHistoricos(
-    [{ ...pedido("f", "2026-08-03T18:00:00.000Z"), acabado: "bordado" }],
-    COSTOS,
+     cero y descuadrar el pago. Pero NO en silencio — es el caso que se comió el
+     histórico entero el 11/08/2026, cuando las 8 tarifas sembradas empezaban el
+     01/08 y todos los pedidos de abril a julio quedaban sin precio. Un pedido
+     fuera del corte histórico se lo cobra otra vez el corte siguiente. */
+  const huerfano = { ...pedido("f", "2026-08-03T18:00:00.000Z"), acabado: "bordado" };
+  const huerfano_ = agruparCortesHistoricos([huerfano], COSTOS, "2026-08-15");
+  prueba("sin tarifa no genera corte", huerfano_.cortes.length, 0);
+  prueba("sin tarifa se reporta, no se calla", huerfano_.sinTarifa.length, 1);
+  prueba("dice qué familia se quedó fuera", huerfano_.sinTarifa[0].acabado, "bordado");
+
+  /* Una tarifa anterior al pago sí lo rescata: es lo que hace la migración
+     20261006000100 al copiar las vigencias hacia abril. */
+  const rescatado = agruparCortesHistoricos(
+    [huerfano],
+    [...COSTOS, { modelo: "powerlift", acabado: "bordado", costo: 420, vigente_desde: "2026-04-01" }],
     "2026-08-15",
   );
-  prueba("sin tarifa no genera corte", sinTarifa.length, 0);
+  prueba("con vigencia retroactiva sí entra al corte", rescatado.cortes.length, 1);
+  prueba("y ya nadie se queda fuera", rescatado.sinTarifa.length, 0);
 }
 
 console.log(

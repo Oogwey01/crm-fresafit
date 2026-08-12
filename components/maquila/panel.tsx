@@ -5,6 +5,7 @@ import { AlarmClock, Clock, Factory, Plus, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/compartido/stat-card";
 import { EncabezadoSeccion } from "@/components/compartido/encabezado-seccion";
+import { Miniatura } from "@/components/compartido/miniatura";
 import { TabsSeccion } from "@/components/compartido/tabs-seccion";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { TableroMaquila } from "@/components/maquila/tablero";
@@ -141,17 +142,20 @@ export function PanelMaquila({
       label: "Pedido",
       esTitulo: true,
       celda: (p) => (
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{p.diseno ?? p.sku ?? "Sin diseño"}</div>
-          <div className="truncate text-[12.5px] text-muted-foreground">
-            {[
-              obtenerModeloMaquila(p.modelo)?.nombre,
-              obtenerAcabadoMaquila(p.acabado)?.nombre,
-              p.talla ? `talla ${p.talla}` : null,
-              p.color,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Miniatura src={p.imagen_url} alt={p.diseno ?? p.sku ?? "Cinturón"} tam="size-11" />
+          <div className="min-w-0">
+            <div className="truncate font-semibold">{p.diseno ?? p.sku ?? "Sin diseño"}</div>
+            <div className="truncate text-[12.5px] text-muted-foreground">
+              {[
+                obtenerModeloMaquila(p.modelo)?.nombre,
+                obtenerAcabadoMaquila(p.acabado)?.nombre,
+                p.talla ? `talla ${p.talla}` : null,
+                p.color,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
           </div>
         </div>
       ),
