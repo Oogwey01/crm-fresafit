@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
-import { ClipboardPaste, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ClipboardPaste, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -28,6 +28,7 @@ import { Resaltado } from "@/components/compartido/resaltado";
 import { SelectorProducto } from "@/components/compartido/selector-producto";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
+  actualizarItemRecepcion,
   agregarItemRecepcion,
   cambiarEstadoItem,
   cerrarRecepcion,
@@ -40,7 +41,7 @@ import {
 } from "@/app/(app)/bodega/actions";
 import { ESTADOS_RECEPCION, obtenerEstadoRecepcion, obtenerCanal } from "@/lib/catalogos";
 import { coincide, terminosBusqueda } from "@/lib/busqueda";
-import { matchProductoPorSku, normalizarSku, parsearCantidad, parsearTSV } from "@/lib/importar/tsv";
+import { matchProductoPorSku, norm, normalizarSku, parsearCantidad, parsearTSV } from "@/lib/importar/tsv";
 import { tallaDeVariante } from "@/lib/talla";
 import { formatearFecha } from "@/lib/fecha";
 import { cn } from "@/lib/utils";
@@ -71,13 +72,44 @@ export function SeccionRecepcion({
   productos: ProductoLigeroFila[];
 }) {
   const { pending, ejecutar } = useAccionServidor();
-  const [seleccionadaId, setSeleccionadaId] = useState<string | null>(recepciones[0]?.id ?? null);
-  const [dialogoNueva, setDialogoNueva] = useState(false);
-  const [importando, setImportando] = useState(false);
+  /* Una carga abierta a la vez, como los envíos full. Antes era un <Select> que
+     enseñaba una sola carga y escondía cuántas hay y cuáles siguen abiertas —que
+     es justo lo que dice la tarjeta «Cargas abiertas» de arriba—, y además no
+     daba dónde colapsar al cerrar. */
+  const [abiertoId, setAbiertoId] = useState<string | null>(recepciones[0]?.id ?? null);
+  const [dialogoCarga, setDialogoCarga] = useState<RecepcionConItems | "nueva" | null>(null);
+  const [importandoEn, setImportandoEn] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
 
-  const seleccionada =
-    recepciones.find((r) => r.id === seleccionadaId) ?? recepciones[0] ?? null;
+  /* Índice de búsqueda por carga, armado UNA vez por cambio de datos: se listan
+     hasta 50 cargas y una sola pasa de mil renglones, así que rehacer ese
+     recorrido en cada tecla se siente en el teléfono. */
+  const indice = useMemo(() => {
+    const nombres = new Map(productos.map((p) => [p.id, p.nombre]));
+    const mapa = new Map<string, string>();
+    for (const r of recepciones) {
+      const partes: string[] = [r.titulo];
+      for (const i of r.items) {
+        partes.push(
+          i.sku,
+          i.sku_consolidado ?? "",
+          (i.producto_id ? nombres.get(i.producto_id) : null) ?? i.producto_nombre ?? "",
+          i.talla ?? "",
+          i.categoria ?? "",
+        );
+      }
+      mapa.set(r.id, norm(partes.join(" ")));
+    }
+    return mapa;
+  }, [recepciones, productos]);
+
+  const terminos = terminosBusqueda(busqueda);
+  const visibles = terminos.length
+    ? recepciones.filter((r) => {
+        const texto = indice.get(r.id) ?? "";
+        return terminos.every((t) => texto.includes(t));
+      })
+    : recepciones;
 
   if (!recepciones.length) {
     return (
@@ -87,62 +119,52 @@ export function SeccionRecepcion({
           Una carga es la mercancía que llega y se va cargando al sistema, con sus estados
           Traer → Cargado → Checado → Descontado.
         </p>
-        <Button className="mt-4" onClick={() => setDialogoNueva(true)}>
+        <Button className="mt-4" onClick={() => setDialogoCarga("nueva")}>
           <Plus className="size-4" /> Nueva carga
         </Button>
-        {dialogoNueva && <DialogoCarga onClose={() => setDialogoNueva(false)} />}
+        {dialogoCarga && <DialogoCarga carga={null} onClose={() => setDialogoCarga(null)} />}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Buscar un SKU entre los cientos de renglones de una carga es lo que más
-          se hace aquí, y desde el teléfono: el campo va solo en el primer
-          renglón y la barra se queda pegada al bajar por la lista. El recuento
-          no se pinta dentro del campo porque ya está en la cabecera de la carga,
-          justo debajo, y con el nombre del producto ya resuelto. */}
+      {/* Buscar un SKU es lo que más se hace aquí, y desde el teléfono. Ahora
+          además dice en QUÉ carga está: el buscador recorta la lista de cargas
+          (mirando sus renglones) y, dentro de la que se abra, sus renglones. */}
       <BarraHerramientas className="mb-0">
         <CampoBusqueda
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar SKU, producto o talla…"
+          conteo={{ visibles: visibles.length, total: recepciones.length, unidad: "cargas" }}
         />
-
         <div className="flex flex-wrap items-center gap-2">
-          <Select value={seleccionada?.id} onValueChange={(v) => v && setSeleccionadaId(v)}>
-            <SelectTrigger className="w-full bg-card md:w-[320px]">
-              <SelectValue>
-                {(v: string) => recepciones.find((r) => r.id === v)?.titulo ?? "Carga"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {recepciones.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  {r.titulo} {r.estado === "cerrada" ? "· cerrada" : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
           <div className="flex-1" />
-
-          <Button variant="outline" onClick={() => setImportando(true)} disabled={!seleccionada}>
-            <ClipboardPaste className="size-4" /> Pegar renglones
-          </Button>
-          <Button onClick={() => setDialogoNueva(true)}>
+          <Button onClick={() => setDialogoCarga("nueva")}>
             <Plus className="size-4" /> Nueva carga
           </Button>
         </div>
       </BarraHerramientas>
 
-      {seleccionada && (
+      {visibles.length === 0 && (
+        <div className="rounded-2xl border bg-card p-8 text-center text-sm text-muted-foreground shadow-sm">
+          Ninguna carga contiene «{busqueda.trim()}».
+        </div>
+      )}
+
+      {visibles.map((carga) => (
         <DetalleCarga
-          carga={seleccionada}
+          key={carga.id}
+          carga={carga}
           productos={productos}
+          abierta={abiertoId === carga.id}
+          onAlternar={() => setAbiertoId(abiertoId === carga.id ? null : carga.id)}
           busqueda={busqueda}
           onLimpiarBusqueda={() => setBusqueda("")}
           pending={pending}
+          onEditarCarga={() => setDialogoCarga(carga)}
+          onPegarRenglones={() => setImportandoEn(carga.id)}
           onCambiarEstado={(item, estado) =>
             ejecutar(() => cambiarEstadoItem(item.id, estado), {
               ok:
@@ -159,9 +181,8 @@ export function SeccionRecepcion({
             })
           }
           onDescontarChecados={() =>
-            ejecutar(() => descontarChecados(seleccionada.id), {
-              confirmar:
-                "Se van a sumar al stock todos los renglones checados. ¿Seguir?",
+            ejecutar(() => descontarChecados(carga.id), {
+              confirmar: "Se van a sumar al stock todos los renglones checados. ¿Seguir?",
               error: "No se pudo descontar. Revisa tu conexión.",
               alExito: (r) => {
                 const datos = "datos" in r ? r.datos : { descontados: 0 };
@@ -174,39 +195,56 @@ export function SeccionRecepcion({
             })
           }
           onCerrar={() =>
-            ejecutar(() => cerrarRecepcion(seleccionada.id, seleccionada.estado === "abierta"), {
-              ok: seleccionada.estado === "abierta" ? "Carga cerrada." : "Carga reabierta.",
+            ejecutar(() => cerrarRecepcion(carga.id, carga.estado === "abierta"), {
+              ok: carga.estado === "abierta" ? "Carga cerrada." : "Carga reabierta.",
+              /* Cerrar una carga es decir «con ésta ya terminé», así que se
+                 pliega y deja ver el resto. Al reabrir NO se toca: si alguien la
+                 reabre es justamente para volver a meterle mano.
+                 Va en alExito y no junto a la acción porque `revalidar()` vuelve
+                 a pintar desde el servidor sin tocar el estado del cliente. */
+              alExito: () => {
+                if (carga.estado === "abierta") setAbiertoId(null);
+              },
             })
           }
           onBorrarCarga={() =>
-            ejecutar(() => borrarRecepcion(seleccionada.id), {
-              confirmar: `¿Borrar la carga «${seleccionada.titulo}» y todos sus renglones?`,
+            ejecutar(() => borrarRecepcion(carga.id), {
+              confirmar: `¿Borrar la carga «${carga.titulo}» y todos sus renglones?`,
               ok: "Carga borrada.",
-              alExito: () => setSeleccionadaId(null),
+              alExito: () => setAbiertoId(null),
             })
           }
         />
-      )}
+      ))}
 
-      {dialogoNueva && <DialogoCarga onClose={() => setDialogoNueva(false)} />}
-      {importando && seleccionada && (
+      {dialogoCarga && (
+        <DialogoCarga
+          carga={dialogoCarga === "nueva" ? null : dialogoCarga}
+          onClose={() => setDialogoCarga(null)}
+        />
+      )}
+      {importandoEn && (
         <DialogoImportarRenglones
-          recepcionId={seleccionada.id}
+          recepcionId={importandoEn}
           productos={productos}
-          onClose={() => setImportando(false)}
+          onClose={() => setImportandoEn(null)}
         />
       )}
     </div>
   );
 }
 
-/* --- Detalle de una carga: avance por estado + tabla de renglones ---------- */
+/* --- Una carga: cabecera plegable + avance por estado + tabla de renglones -- */
 function DetalleCarga({
   carga,
   productos,
+  abierta,
+  onAlternar,
   busqueda,
   onLimpiarBusqueda,
   pending,
+  onEditarCarga,
+  onPegarRenglones,
   onCambiarEstado,
   onBorrarItem,
   onDescontarChecados,
@@ -215,15 +253,21 @@ function DetalleCarga({
 }: {
   carga: RecepcionConItems;
   productos: ProductoLigeroFila[];
+  abierta: boolean;
+  onAlternar: () => void;
   busqueda: string;
   onLimpiarBusqueda: () => void;
   pending: boolean;
+  onEditarCarga: () => void;
+  onPegarRenglones: () => void;
   onCambiarEstado: (item: RecepcionItem, estado: EstadoRecepcionId) => void;
   onBorrarItem: (item: RecepcionItem) => void;
   onDescontarChecados: () => void;
   onCerrar: () => void;
   onBorrarCarga: () => void;
 }) {
+  /* null = cerrado; objeto = corrigiendo ese renglón. */
+  const [renglonEnEdicion, setRenglonEnEdicion] = useState<RecepcionItem | null>(null);
   /* La CANTIDAD CONSOLIDADA de la hoja: suma de unidades por SKU consolidado.
      Se deriva aquí en vez de guardarse para que no pueda descuadrarse. */
   const consolidado = useMemo(() => {
@@ -266,7 +310,20 @@ function DetalleCarga({
 
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
-      <div className="flex flex-wrap items-center gap-3 border-b px-5 py-3.5">
+      {/* La cabecera ES el disparador del acordeón, así que los botones de
+          acción bajan al cuerpo: un <button> dentro de otro es HTML inválido y
+          el clic deja de responder donde se solapan. */}
+      <button
+        type="button"
+        onClick={onAlternar}
+        aria-expanded={abierta}
+        className="flex w-full flex-wrap items-center gap-3 px-5 py-3.5 text-left"
+      >
+        <ChevronDown
+          className={cn("size-4 shrink-0 text-muted-foreground transition-transform", !abierta && "-rotate-90")}
+          strokeWidth={2}
+          aria-hidden="true"
+        />
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="truncate text-[16px] font-bold">{carga.titulo}</h2>
@@ -274,30 +331,39 @@ function DetalleCarga({
             {carga.estado === "cerrada" && <Pastilla nombre="Cerrada" color="#94a3b8" />}
           </div>
           <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-            {busqueda.trim()
+            {busqueda.trim() && abierta
               ? `${visibles.length} de ${carga.items.length} renglones`
               : `${carga.items.length} ${carga.items.length === 1 ? "renglón" : "renglones"}`}{" "}
             · {formatearFecha(carga.created_at.slice(0, 10))}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {porEstado.map((e) => (
             <Pastilla key={e.id} nombre={`${e.nombre}: ${e.n}`} color={e.color} />
           ))}
         </div>
+      </button>
 
-        <div className="ml-auto flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onDescontarChecados} disabled={pending}>
-            Descontar checados
-          </Button>
-          <Button variant="outline" size="sm" onClick={onCerrar} disabled={pending}>
-            {carga.estado === "abierta" ? "Cerrar carga" : "Reabrir"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onBorrarCarga} disabled={pending}>
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
+      {!abierta ? null : (
+        <>
+      <div className="flex flex-wrap gap-2 border-t px-5 py-2.5">
+        <Button variant="outline" size="sm" onClick={onPegarRenglones} disabled={pending}>
+          <ClipboardPaste className="size-4" /> Pegar renglones
+        </Button>
+        <Button variant="outline" size="sm" onClick={onEditarCarga} disabled={pending}>
+          <Pencil className="size-4" /> Editar carga
+        </Button>
+        <div className="flex-1" />
+        <Button variant="outline" size="sm" onClick={onDescontarChecados} disabled={pending}>
+          Descontar checados
+        </Button>
+        <Button variant="outline" size="sm" onClick={onCerrar} disabled={pending}>
+          {carga.estado === "abierta" ? "Cerrar carga" : "Reabrir"}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onBorrarCarga} disabled={pending}>
+          <Trash2 className="size-4" />
+        </Button>
       </div>
 
       {carga.pedido_proveedor_id && (
@@ -378,14 +444,25 @@ function DetalleCarga({
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onBorrarItem(i)}
-                        className="text-muted-foreground hover:text-destructive"
-                        aria-label="Quitar renglón"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRenglonEnEdicion(i)}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={`Corregir ${i.sku}`}
+                          title="Corregir este renglón"
+                        >
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onBorrarItem(i)}
+                          className="text-muted-foreground hover:text-destructive"
+                          aria-label="Quitar renglón"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -405,8 +482,57 @@ function DetalleCarga({
           if (!coincide(terminos, fila.sku, fila.talla, fila.producto_nombre)) onLimpiarBusqueda();
         }}
       />
+
+      {renglonEnEdicion && (
+        <DialogoRenglon
+          carga={carga}
+          item={renglonEnEdicion}
+          productos={productos}
+          onClose={() => setRenglonEnEdicion(null)}
+        />
+      )}
+        </>
+      )}
     </div>
   );
+}
+
+/* --- Lo que un renglón capturado a mano deriva solo ------------------------
+   Lo comparten el alta y la corrección para que un renglón editado quede
+   idéntico a uno recién capturado (y a uno pegado, que normaliza igual del lado
+   del servidor con `filaRecepcion`). */
+function derivarRenglon(
+  carga: RecepcionConItems,
+  productos: ProductoLigeroFila[],
+  campos: { sku: string; productoId: string | null; talla: string; unidades: number },
+): RecepcionItemInput {
+  const limpio = campos.sku.trim().toUpperCase();
+  const t = campos.talla.trim().toUpperCase();
+
+  /* El SKU de la hoja es base + talla (SBD002 + CH), y la columna «Consolidado»
+     suma por esa base. Se deriva quitando la talla del final en vez de pedir
+     otro campo: es lo que se haría a mano, siempre igual. */
+  const consolidado =
+    t && normalizarSku(limpio).endsWith(normalizarSku(t)) && limpio.length > t.length
+      ? limpio.slice(0, limpio.length - t.length)
+      : null;
+
+  /* La categoría (POWERLIFT, HEBILLA…) no se captura: se hereda del hermano que
+     ya esté en la carga, que es de donde salió al pegar la hoja. */
+  const hermano = consolidado
+    ? carga.items.find((i) => (i.sku_consolidado || i.sku) === consolidado)
+    : undefined;
+  const producto = productos.find((p) => p.id === campos.productoId);
+
+  return {
+    sku: limpio,
+    producto_id: campos.productoId ?? matchProductoPorSku(limpio, productos).producto?.id ?? null,
+    unidades_no_procesadas: Math.trunc(campos.unidades),
+    sku_consolidado: consolidado,
+    categoria: hermano?.categoria ?? null,
+    producto_nombre: producto?.nombre ?? hermano?.producto_nombre ?? null,
+    talla: t || null,
+  };
 }
 
 /* --- Capturar un renglón a mano -------------------------------------------
@@ -441,33 +567,12 @@ function AltaRenglon({
 
   function agregar() {
     if (!listo) return;
-    const limpio = sku.trim().toUpperCase();
-    const t = talla.trim().toUpperCase();
-
-    /* El SKU de la hoja es base + talla (SBD002 + CH), y la columna
-       «Consolidado» suma por esa base. Se deriva quitando la talla del final en
-       vez de pedir otro campo: es lo que se haría a mano, siempre igual. */
-    const consolidado =
-      t && normalizarSku(limpio).endsWith(normalizarSku(t)) && limpio.length > t.length
-        ? limpio.slice(0, limpio.length - t.length)
-        : null;
-
-    /* La categoría (POWERLIFT, HEBILLA…) no se captura: se hereda del hermano
-       que ya esté en la carga, que es de donde salió al pegar la hoja. */
-    const hermano = consolidado
-      ? carga.items.find((i) => (i.sku_consolidado || i.sku) === consolidado)
-      : undefined;
-    const producto = productos.find((p) => p.id === productoId);
-
-    const fila: RecepcionItemInput = {
-      sku: limpio,
-      producto_id: productoId ?? matchProductoPorSku(limpio, productos).producto?.id ?? null,
-      unidades_no_procesadas: Math.trunc(cantidad),
-      sku_consolidado: consolidado,
-      categoria: hermano?.categoria ?? null,
-      producto_nombre: producto?.nombre ?? hermano?.producto_nombre ?? null,
-      talla: t || null,
-    };
+    const fila = derivarRenglon(carga, productos, {
+      sku,
+      productoId,
+      talla,
+      unidades: cantidad,
+    });
 
     ejecutar(() => agregarItemRecepcion(carga.id, fila), {
       ok: `${fila.sku}: ${fila.unidades_no_procesadas} al renglón de la carga.`,
@@ -539,18 +644,165 @@ function AltaRenglon({
   );
 }
 
-/* --- Alta de una carga ---------------------------------------------------- */
-function DialogoCarga({ onClose }: { onClose: () => void }) {
+/* --- Corregir un renglón ya capturado --------------------------------------
+   Va en diálogo y no editando la fila en su sitio: la tabla es ancha (860 px con
+   scroll horizontal) y esto se usa desde el teléfono, donde editar dentro de la
+   fila es pelearse con el scroll. Tampoco sirve reusar el alta de abajo: con
+   doscientos renglones estarías corrigiendo el de arriba mirando un formulario
+   que está al final de la lista. */
+function DialogoRenglon({
+  carga,
+  item,
+  productos,
+  onClose,
+}: {
+  carga: RecepcionConItems;
+  item: RecepcionItem;
+  productos: ProductoLigeroFila[];
+  onClose: () => void;
+}) {
   const { pending, ejecutar } = useAccionServidor();
-  const [titulo, setTitulo] = useState("");
-  const [canal, setCanal] = useState<"tienda_nube" | "mercado_libre">("tienda_nube");
-  const [notas, setNotas] = useState("");
+  const idTallas = useId();
+  const [sku, setSku] = useState(item.sku);
+  const [productoId, setProductoId] = useState<string | null>(item.producto_id);
+  const [talla, setTalla] = useState(item.talla ?? "");
+  const [unidades, setUnidades] = useState(String(item.unidades_no_procesadas));
+
+  /* Ya descontado = sus unidades YA se sumaron a products.stock y quedaron
+     firmadas en el ledger. Cambiarlas aquí no deshace esa suma, así que los dos
+     campos que mueven inventario se bloquean —lo descriptivo sí se corrige—. El
+     mismo candado está en la server action, que es el que de verdad cuenta. */
+  const descontado = item.estado === "descontado";
+  const cantidad = Number(unidades);
+  const listo = sku.trim() !== "" && Number.isFinite(cantidad) && cantidad > 0;
+
+  function guardar() {
+    if (!listo) return;
+    ejecutar(
+      () =>
+        actualizarItemRecepcion(
+          item.id,
+          derivarRenglon(carga, productos, { sku, productoId, talla, unidades: cantidad }),
+        ),
+      {
+        ok: "Renglón corregido.",
+        error: "No se pudo guardar el renglón. Revisa tu conexión.",
+        alExito: onClose,
+      },
+    );
+  }
 
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Nueva carga</DialogTitle>
+          <DialogTitle>Corregir renglón</DialogTitle>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          {descontado && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] leading-relaxed text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+              Este renglón ya se descontó: sus {item.unidades_no_procesadas} unidades ya se sumaron
+              al stock. Cambiarlas aquí no lo corregiría —hay que ajustar el stock desde
+              Inventario—, así que el producto y las unidades quedan fijos. La talla y el SKU sí se
+              pueden corregir.
+            </p>
+          )}
+          <Campo
+            etiqueta="SKU"
+            htmlFor={descontado ? "renglon-sku" : undefined}
+            ayuda={
+              descontado
+                ? "Se corrige el texto; la ficha a la que ya se le sumó el stock no cambia."
+                : "Elige del catálogo para que al descontarlo mueva stock."
+            }
+          >
+            {descontado ? (
+              /* Sin selector de ficha: elegir otra no movería nada —el stock ya
+                 se sumó a la de antes— y ofrecerlo haría creer lo contrario. */
+              <Input
+                id="renglon-sku"
+                className="font-mono uppercase"
+                value={sku}
+                onChange={(e) => setSku(e.target.value.toUpperCase())}
+              />
+            ) : (
+              <SelectorProducto
+                valor={sku}
+                productoId={productoId}
+                productos={productos}
+                placeholder="SKU o nombre del producto…"
+                onCambio={(nuevoSku, id) => {
+                  setSku(nuevoSku);
+                  setProductoId(id);
+                  if (id && !talla.trim()) {
+                    const elegido = productos.find((p) => p.id === id);
+                    setTalla(tallaDeVariante(elegido?.variante) ?? "");
+                  }
+                }}
+              />
+            )}
+          </Campo>
+          <div className="flex gap-3">
+            <Campo etiqueta="Talla" htmlFor="renglon-talla" className="flex-1">
+              <Input
+                id="renglon-talla"
+                list={idTallas}
+                className="uppercase"
+                value={talla}
+                onChange={(e) => setTalla(e.target.value.toUpperCase())}
+              />
+              <datalist id={idTallas}>
+                {TALLAS_SUGERIDAS.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+            </Campo>
+            <Campo etiqueta="Unidades" htmlFor="renglon-unidades" className="flex-1">
+              <Input
+                id="renglon-unidades"
+                type="number"
+                min="1"
+                step="1"
+                disabled={descontado}
+                value={unidades}
+                onChange={(e) => setUnidades(e.target.value)}
+              />
+            </Campo>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={pending}>
+            Cancelar
+          </Button>
+          <Button disabled={pending || !listo} onClick={guardar}>
+            {pending ? "Guardando…" : "Guardar cambios"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* --- Alta y edición de una carga ------------------------------------------ */
+function DialogoCarga({
+  carga,
+  onClose,
+}: {
+  carga: RecepcionConItems | null;
+  onClose: () => void;
+}) {
+  const { pending, ejecutar } = useAccionServidor();
+  const [titulo, setTitulo] = useState(carga?.titulo ?? "");
+  const [canal, setCanal] = useState<"tienda_nube" | "mercado_libre">(
+    (carga?.canal as "tienda_nube" | "mercado_libre") ?? "tienda_nube",
+  );
+  const [notas, setNotas] = useState(carga?.notas ?? "");
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{carga ? "Editar carga" : "Nueva carga"}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3">
           <Campo etiqueta="Nombre" htmlFor="carga-titulo">
@@ -592,12 +844,27 @@ function DialogoCarga({ onClose }: { onClose: () => void }) {
             disabled={pending}
             onClick={() =>
               ejecutar(
-                () => guardarRecepcion(null, { titulo, canal, pedido_proveedor_id: null, notas }),
-                { ok: "Carga creada.", error: "No se pudo crear. Revisa tu conexión.", alExito: onClose },
+                () =>
+                  guardarRecepcion(carga?.id ?? null, {
+                    titulo,
+                    canal,
+                    /* Se arrastra tal cual: el diálogo no lo captura, pero la
+                       acción escribe la columna siempre. Mandar null al editar
+                       desligaría la carga de su pedido a proveedor sin decirlo,
+                       y con ello se iría el aviso de no contar el stock dos
+                       veces. */
+                    pedido_proveedor_id: carga?.pedido_proveedor_id ?? null,
+                    notas,
+                  }),
+                {
+                  ok: carga ? "Carga actualizada." : "Carga creada.",
+                  error: "No se pudo guardar. Revisa tu conexión.",
+                  alExito: onClose,
+                },
               )
             }
           >
-            {pending ? "Guardando…" : "Crear carga"}
+            {pending ? "Guardando…" : carga ? "Guardar cambios" : "Crear carga"}
           </Button>
         </DialogFooter>
       </DialogContent>

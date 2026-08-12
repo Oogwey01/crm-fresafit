@@ -211,9 +211,24 @@ export function DialogoInsumo({
       <SeccionFormulario
         titulo="Cómo se compra"
         pasoTitulo="¿Cómo se compra?"
+        pasoAyuda="Cada medida en la que se compra, con su precio. «Apartado» y «En camino» se cuentan en paquetes de esa medida."
         contador={presentaciones.length || null}
         abiertaPorDefecto={presentaciones.length > 0}
       >
+        {/* Qué son las dos últimas columnas. Va aquí y no como ayuda de cada
+            campo porque son <Input> sueltos dentro de una rejilla de seis
+            columnas, y colgarles un renglón de texto la rompería. Sin `md:hidden`
+            a propósito: la duda es la misma en la computadora. */}
+        {presentaciones.length > 0 && (
+          <p className="w-full text-[12.5px] leading-relaxed text-muted-foreground">
+            <b className="font-semibold text-foreground">Apartado</b>: paquetes ya comprometidos,
+            que aunque estén en bodega ya no se pueden usar.{" "}
+            <b className="font-semibold text-foreground">En camino</b>: paquetes ya pedidos que
+            todavía no llegan. Se cuentan en <b className="font-semibold text-foreground">paquetes
+            de esta presentación</b>, no en piezas, y son informativos: no se suman ni se restan del
+            stock.
+          </p>
+        )}
         <div className="flex w-full items-start gap-2">
           {presentaciones.length === 0 ? (
             <p className="text-[12.5px] text-muted-foreground">
@@ -284,17 +299,22 @@ export function DialogoInsumo({
                 className="h-9"
                 type="number"
                 min="0"
+                aria-label={`Paquetes apartados de ${p.descripcion || "esta presentación"}`}
                 value={p.reserva}
                 onChange={(e) => cambiar(p.llave, "reserva", e.target.value)}
               />
             </div>
             <div className="flex items-end gap-1">
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="text-[11.5px] text-muted-foreground">Pedido</span>
+                {/* «En camino» y no «Pedido»: es la palabra que ya usa la tabla
+                    de insumos, y «pedido» se confundía con el pedido a
+                    proveedor, que es otra cosa. */}
+                <span className="text-[11.5px] text-muted-foreground">En camino</span>
                 <Input
                   className="h-9"
                   type="number"
                   min="0"
+                  aria-label={`Paquetes en camino de ${p.descripcion || "esta presentación"}`}
                   value={p.pedido}
                   onChange={(e) => cambiar(p.llave, "pedido", e.target.value)}
                 />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { ExternalLink, Package, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ExternalLink, Package, Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -45,6 +45,7 @@ import {
 import { coincide, terminosBusqueda } from "@/lib/busqueda";
 import { matchProductoPorSku } from "@/lib/importar/tsv";
 import { formatearFecha } from "@/lib/fecha";
+import { cn } from "@/lib/utils";
 import { urlRastreo } from "@/lib/pedidos/rastreo";
 import { aNumero } from "@/lib/validacion";
 import type { ProductoLigeroFila } from "@/app/(app)/bodega/page";
@@ -216,6 +217,11 @@ type Ejecutar = ReturnType<typeof useAccionServidor>["ejecutar"];
 function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: Ejecutar }) {
   const idListaPaqueterias = useId();
   const idListaTipos = useId();
+  /* Nace plegado: lo que se viene a hacer aquí es trabajar las CAJAS, y en el
+     teléfono estos ocho campos eran ocho renglones apilados antes de llegar a
+     ellas. La guía y el estado —lo único que se consulta a menudo— se leen en el
+     resumen sin desplegar nada. */
+  const [abierto, setAbierto] = useState(false);
   const guardado = {
     id_plataforma: envio.id_plataforma ?? "",
     paqueteria: envio.paqueteria ?? "",
@@ -257,9 +263,70 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
 
   const set = (parche: Partial<typeof campos>) => setCampos((c) => ({ ...c, ...parche }));
 
+  /* Guardar ANTES de plegar. Los campos se salvan en su `onBlur` y aquí no hay
+     botón de guardar, pero React no dispara blur al desmontar: sin esto, teclear
+     la guía y pulsar directo el encabezado para cerrar perdía lo escrito sin
+     decir nada. `guardar()` ya ignora la llamada si no cambió nada, así que en
+     el caso normal no es más que una comparación. */
+  function alternar() {
+    guardar();
+    setAbierto((v) => !v);
+  }
+
+  /* Lo que se lee sin desplegar: en qué va, con qué guía y entre qué fechas. */
+  const resumen = [
+    obtenerEstadoEnvioFull(envio.estado)?.nombre,
+    [envio.paqueteria, envio.num_guia].filter(Boolean).join(" · ") || "Sin guía capturada",
+    envio.fecha_envio
+      ? `${formatearFecha(envio.fecha_envio)}${
+          envio.fecha_llegada_estimada ? ` → ${formatearFecha(envio.fecha_llegada_estimada)}` : ""
+        }`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
+    <div className="mb-3 rounded-lg border bg-muted/20">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={alternar}
+          aria-expanded={abierto}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <ChevronDown
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform",
+              !abierto && "-rotate-90",
+            )}
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+          <span className="text-[12px] font-bold uppercase tracking-wide text-muted-foreground">
+            Datos del envío
+          </span>
+          <span className="min-w-0 truncate text-[12.5px] text-muted-foreground">{resumen}</span>
+        </button>
+        {/* Fuera del botón que pliega: es el clic más frecuente de esta ficha y
+            no tiene por qué costar un despliegue (ni anidar un <a> en un
+            <button>, que además es HTML inválido). */}
+        {rastreo && (
+          <a
+            href={rastreo}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary hover:underline"
+          >
+            <ExternalLink className="size-3.5" />
+            Ver dónde va la caja
+          </a>
+        )}
+      </div>
+
+      {abierto && (
     /* min-w-0 en cada Campo: sin él la celda del grid no encoge y el mono desborda. */
-    <div className="mb-3 grid gap-3 rounded-lg border bg-muted/20 p-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-3 border-t p-3 sm:grid-cols-2 lg:grid-cols-3">
       <Campo className="min-w-0" etiqueta="ID de envío" htmlFor={`${envio.id}-id`}>
         <Input
           id={`${envio.id}-id`}
@@ -303,6 +370,8 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
         </datalist>
       </Campo>
 
+      {/* El enlace de rastreo se subió al encabezado plegado: se consulta más de
+          lo que se recaptura la guía. */}
       <Campo className="min-w-0" etiqueta="Número de rastreo" htmlFor={`${envio.id}-guia`}>
         <Input
           id={`${envio.id}-guia`}
@@ -312,17 +381,6 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
           onChange={(e) => set({ num_guia: e.target.value })}
           onBlur={() => guardar()}
         />
-        {rastreo && (
-          <a
-            href={rastreo}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex w-fit items-center gap-1 text-[12px] font-medium text-primary hover:underline"
-          >
-            <ExternalLink className="size-3.5" />
-            Ver dónde va la caja
-          </a>
-        )}
       </Campo>
 
       <Campo className="min-w-0" etiqueta="F. de envío" htmlFor={`${envio.id}-fecha-envio`}>
@@ -381,6 +439,8 @@ function DatosEnvio({ envio, ejecutar }: { envio: EnvioFullConCajas; ejecutar: E
           onBlur={() => guardar()}
         />
       </Campo>
+        </div>
+      )}
     </div>
   );
 }

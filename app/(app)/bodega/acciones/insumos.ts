@@ -52,6 +52,11 @@ export async function guardarInsumo(id: string | null, input: InsumoInput): Prom
   const nombre = input.nombre.trim();
   if (!nombre) return { error: "El insumo necesita un nombre." };
 
+  /* Se calculan ANTES de la fila del insumo porque sus totales van ahí (abajo). */
+  const presentaciones = input.presentaciones.filter(
+    (p) => Number.isFinite(p.unidades) && p.unidades > 0,
+  );
+
   const fila = {
     nombre,
     unidad: input.unidad.trim() || "pieza",
@@ -63,6 +68,16 @@ export async function guardarInsumo(id: string | null, input: InsumoInput): Prom
     dimensiones: textoONulo(input.dimensiones),
     maximo: input.maximo != null && input.maximo >= 0 ? input.maximo : null,
     link: textoONulo(input.link),
+    /* Lo apartado y lo que viene en camino se llevan POR PRESENTACIÓN (son
+       paquetes de esa medida) y en el insumo se guarda su suma, que es lo que
+       pinta la tabla. Faltaban aquí: solo los escribía el importador de la hoja,
+       así que editar «Apartado» en el diálogo no cambiaba nada en la lista y el
+       campo parecía no servir para nada.
+       OJO: la suma mezcla medidas distintas —2 paquetes de 100 más 1 de 200 dan
+       «3»—, así que es un semáforo de «hay algo apartado / algo viene», no una
+       cantidad con la que se pueda operar. */
+    reserva: presentaciones.reduce((a, p) => a + Math.max(0, p.reserva || 0), 0),
+    pedido: presentaciones.reduce((a, p) => a + Math.max(0, p.pedido || 0), 0),
   };
 
   const { data, error } = id
@@ -79,17 +94,15 @@ export async function guardarInsumo(id: string | null, input: InsumoInput): Prom
   /* Las presentaciones cargadas desde la hoja traen `clave` (su llave natural).
      Reescribirlas las perdería, así que solo se borran las que no la tienen y
      las de la hoja se dejan intactas salvo que se editen aquí. */
-  const validas = input.presentaciones
-    .filter((p) => Number.isFinite(p.unidades) && p.unidades > 0)
-    .map((p) => ({
-      insumo_id: insumoId,
-      descripcion: textoONulo(p.descripcion),
-      unidades: Math.round(p.unidades),
-      precio: p.precio != null && p.precio >= 0 ? p.precio : null,
-      reserva: Math.max(0, p.reserva || 0),
-      pedido: Math.max(0, p.pedido || 0),
-      link: textoONulo(p.link),
-    }));
+  const validas = presentaciones.map((p) => ({
+    insumo_id: insumoId,
+    descripcion: textoONulo(p.descripcion),
+    unidades: Math.round(p.unidades),
+    precio: p.precio != null && p.precio >= 0 ? p.precio : null,
+    reserva: Math.max(0, p.reserva || 0),
+    pedido: Math.max(0, p.pedido || 0),
+    link: textoONulo(p.link),
+  }));
 
   /* Se insertan las nuevas ANTES de podar las viejas: al revés, un fallo entre
      las dos sentencias dejaba el insumo sin ninguna presentación —y con ella se

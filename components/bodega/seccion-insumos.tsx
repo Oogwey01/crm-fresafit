@@ -170,11 +170,14 @@ export function SeccionInsumos({
           >
             {i.stock} {i.unidad}
           </div>
+          {/* En PAQUETES, no en piezas: son la suma de lo apartado y lo pedido
+              de cada presentación. Decirlo aquí evita leerlos como unidades del
+              renglón de arriba, que sí son piezas. */}
           {(i.reserva > 0 || i.pedido > 0) && (
             <div className="text-[11.5px] text-muted-foreground">
-              {i.reserva > 0 && `${i.reserva} apartado`}
+              {i.reserva > 0 && `${i.reserva} paq. apartados`}
               {i.reserva > 0 && i.pedido > 0 && " · "}
-              {i.pedido > 0 && `${i.pedido} en camino`}
+              {i.pedido > 0 && `${i.pedido} paq. en camino`}
             </div>
           )}
         </div>

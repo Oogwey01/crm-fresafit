@@ -143,6 +143,60 @@ export async function agregarItemRecepcion(
   return { ok: true };
 }
 
+/* Corregir un renglón ya capturado. Hasta ahora un SKU mal tecleado obligaba a
+   borrar el renglón y volver a escribirlo entero, con su talla y sus unidades.
+
+   OJO con los renglones ya DESCONTADOS: sus unidades ya se sumaron a
+   `products.stock` y quedaron firmadas en el ledger (RPC descontar_recepcion,
+   20260821000000). Cambiarlas aquí no deshace esa suma —la RPC es idempotente
+   por estado y no vuelve a correr—, así que el stock quedaría diciendo una cosa
+   y la carga otra. Por eso `producto_id` y `unidades_no_procesadas` se conservan
+   tal como están en la base y solo se dejan corregir los datos descriptivos
+   (SKU, talla, consolidado, nombre), que no mueven inventario.
+
+   El candado va aquí y no solo en la pantalla: la acción es `interno` y
+   cualquiera del equipo puede llamarla directo. */
+export async function actualizarItemRecepcion(
+  id: string,
+  input: RecepcionItemInput,
+): Promise<Resultado> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+  if (!input.sku.trim()) return { error: "El renglón necesita su SKU." };
+  if (!Number.isFinite(input.unidades_no_procesadas) || input.unidades_no_procesadas <= 0)
+    return { error: "Las unidades tienen que ser más de cero." };
+
+  const { data: actual, error: errorLectura } = await cx.supabase
+    .from("recepcion_items")
+    .select("recepcion_id, estado, producto_id, unidades_no_procesadas")
+    .eq("id", id)
+    .single();
+  if (errorLectura || !actual) {
+    return { error: errorLectura?.message ?? "Ese renglón ya no está en la carga." };
+  }
+
+  const fila = filaRecepcion(actual.recepcion_id as string, input);
+  const descontado = actual.estado === "descontado";
+  const { recepcion_id: _sinTocar, ...campos } = fila;
+  void _sinTocar; // la carga a la que pertenece no se mueve al editar
+
+  const { error } = await cx.supabase
+    .from("recepcion_items")
+    .update(
+      descontado
+        ? {
+            ...campos,
+            producto_id: actual.producto_id,
+            unidades_no_procesadas: actual.unidades_no_procesadas,
+          }
+        : campos,
+    )
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidar();
+  return { ok: true };
+}
+
 /* Mover un renglón por los estados de la hoja. «descontado» no se escribe a
    mano: pasa por la RPC, que suma el stock y deja rastro una sola vez. */
 export async function cambiarEstadoItem(
