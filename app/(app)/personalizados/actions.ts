@@ -25,6 +25,9 @@ export type PersonalizadoInput = {
   modelo: ModeloPersonalizadoId | null;
   talla: string;
   no_venta: string;
+  /* La orden del CRM a la que quedó ligado, si se eligió de la lista. Convive
+     con `no_venta`, que sigue siendo texto libre: ver buscarVentas. */
+  sale_order_id: string | null;
   canal: "tienda_nube" | "mercado_libre" | "tiktok_shop" | "otro" | null;
   fecha_compra: string | null;
   fecha_produccion: string | null;
@@ -51,6 +54,7 @@ export async function guardarPersonalizado(
     modelo: input.modelo,
     talla: textoONulo(input.talla),
     no_venta: textoONulo(input.no_venta),
+    sale_order_id: input.sale_order_id,
     canal: input.canal,
     fecha_compra: input.fecha_compra,
     fecha_produccion: input.fecha_produccion,
@@ -246,4 +250,104 @@ export async function importarPersonalizados(
 
   revalidar();
   return { ok: true, datos: { creados: nuevas.length, omitidos } };
+}
+
+/* ===================== Elegir la venta de la que salió ==================== */
+
+/* Un candidato del buscador de ventas del diálogo. */
+export type VentaCandidata = {
+  id: string;
+  /* El folio VISIBLE al cliente ("4728"): lo que se copia hoy a mano y lo que
+     se sigue guardando en `no_venta`. Puede faltar en órdenes viejas. */
+  numero: string | null;
+  /* El id de la orden en la plataforma; sirve de respaldo cuando no hay folio. */
+  referencia_orden: string;
+  canal: string;
+  fecha: string;
+  cliente: string | null;
+};
+
+/* Buscar entre las ventas ya importadas para no teclear el número a mano.
+
+   Va contra `sale_orders` y NO contra `sales`: `sales` guarda un renglón por
+   PRODUCTO vendido y su `referencia_externa` es "<order_id>:<variant_id>", así
+   que buscar «4728» ahí no encuentra nada. El folio que la gente copia del panel
+   de la tienda vive en `sale_orders.numero`.
+
+   Devuelve un puñado y no una lista: son miles de órdenes y no pueden viajar con
+   la página, igual que los personalizados se BUSCAN desde maquila en vez de
+   listarse. Por eso también el mínimo de dos caracteres: con uno solo, cualquier
+   cosa coincide y la propuesta no ayuda. */
+export async function buscarVentas(
+  texto: string,
+): Promise<Resultado<{ ventas: VentaCandidata[] }>> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+
+  const q = texto.trim();
+  if (q.length < 2) return { ok: true, datos: { ventas: [] } };
+  /* Los comodines de PostgREST se escapan: un «%» tecleado traería todo. */
+  const patron = `%${q.replace(/[%_,]/g, "")}%`;
+  if (patron === "%%") return { ok: true, datos: { ventas: [] } };
+
+  const columnas = "id, numero, referencia_orden, canal, fecha, cliente:customers!cliente_id(nombre)";
+
+  /* Primero por folio, después por nombre de cliente: dos consultas y no un
+     `.or()` porque el orden de preferencia importa —un match de número vale más
+     que uno de nombre— y el `or` sobre una tabla embebida no filtra el padre. */
+  const porNumero = await cx.supabase
+    .from("sale_orders")
+    .select(columnas)
+    .or(`numero.ilike.${patron},referencia_orden.ilike.${patron}`)
+    .order("fecha", { ascending: false })
+    .order("id")
+    .limit(12);
+  if (porNumero.error) return { error: porNumero.error.message };
+  if (porNumero.data?.length) {
+    return { ok: true, datos: { ventas: aCandidatas(porNumero.data) } };
+  }
+
+  /* Por cliente van DOS consultas —primero los clientes, luego sus órdenes— en
+     vez de filtrar por la tabla embebida: un filtro sobre un embed que no es
+     `!inner` no recorta al padre, así que el `limit` se gastaría en órdenes que
+     no casan y la búsqueda devolvería vacío teniendo resultados. */
+  const clientes = await cx.supabase
+    .from("customers")
+    .select("id")
+    .ilike("nombre", patron)
+    .limit(20);
+  if (clientes.error) return { error: clientes.error.message };
+
+  const ids = (clientes.data ?? []).map((c) => c.id as string);
+  if (!ids.length) return { ok: true, datos: { ventas: [] } };
+
+  const porCliente = await cx.supabase
+    .from("sale_orders")
+    .select(columnas)
+    .in("cliente_id", ids)
+    .order("fecha", { ascending: false })
+    .order("id")
+    .limit(12);
+  if (porCliente.error) return { error: porCliente.error.message };
+  return { ok: true, datos: { ventas: aCandidatas(porCliente.data ?? []) } };
+}
+
+type FilaOrden = {
+  id: string;
+  numero: string | null;
+  referencia_orden: string;
+  canal: string;
+  fecha: string;
+  cliente: { nombre: string } | { nombre: string }[] | null;
+};
+
+function aCandidatas(filas: unknown[]): VentaCandidata[] {
+  return (filas as FilaOrden[]).map((f) => ({
+    id: f.id,
+    numero: f.numero,
+    referencia_orden: f.referencia_orden,
+    canal: f.canal,
+    fecha: f.fecha,
+    cliente: Array.isArray(f.cliente) ? (f.cliente[0]?.nombre ?? null) : (f.cliente?.nombre ?? null),
+  }));
 }

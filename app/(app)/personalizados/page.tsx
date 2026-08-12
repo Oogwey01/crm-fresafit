@@ -25,7 +25,7 @@ export default async function PersonalizadosPage() {
       supabase
         .from("personalizados")
         .select(
-          "id, cliente, tipo, modelo, talla, no_venta, canal, fecha_compra, fecha_produccion, fecha_limite, url, foto_path, estado, notas, responsable_id, created_by, created_at, updated_at",
+          "id, cliente, tipo, modelo, talla, no_venta, sale_order_id, canal, fecha_compra, fecha_produccion, fecha_limite, url, foto_path, estado, notas, responsable_id, created_by, created_at, updated_at",
         )
         .order("fecha_limite", { ascending: true, nullsFirst: false })
         .range(desde, hasta),

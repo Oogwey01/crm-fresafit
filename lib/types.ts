@@ -1235,7 +1235,13 @@ export type Personalizado = {
   tipo: TipoPersonalizadoId | null;
   modelo: ModeloPersonalizadoId | null;
   talla: string | null;
+  /* El folio VISIBLE de la venta, tal como lo copia quien captura. Sigue siendo
+     texto libre —hay ventas que nunca entraron al CRM— y es la llave con la que
+     maquila busca el diseño de un pedido (acciones/disenos.ts). */
   no_venta: string | null;
+  /* La orden del CRM de la que salió, cuando se eligió de la lista en vez de
+     teclear el número (ver 20261006000000_personalizados_venta.sql). */
+  sale_order_id: string | null;
   canal: "tienda_nube" | "mercado_libre" | "tiktok_shop" | "otro" | null;
   fecha_compra: string | null;
   /* Cuándo se mandó a producción (= diseño aprobado por el cliente). */

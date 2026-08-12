@@ -3050,6 +3050,7 @@ export type Database = {
           no_venta: string | null
           notas: string | null
           responsable_id: string | null
+          sale_order_id: string | null
           talla: string | null
           tipo: string | null
           updated_at: string
@@ -3071,6 +3072,7 @@ export type Database = {
           no_venta?: string | null
           notas?: string | null
           responsable_id?: string | null
+          sale_order_id?: string | null
           talla?: string | null
           tipo?: string | null
           updated_at?: string
@@ -3092,6 +3094,7 @@ export type Database = {
           no_venta?: string | null
           notas?: string | null
           responsable_id?: string | null
+          sale_order_id?: string | null
           talla?: string | null
           tipo?: string | null
           updated_at?: string

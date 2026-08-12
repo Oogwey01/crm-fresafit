@@ -24,7 +24,9 @@ import {
   borrarPersonalizado,
   guardarPersonalizado,
   subirFotoPersonalizado,
+  type VentaCandidata,
 } from "@/app/(app)/personalizados/actions";
+import { PastillaVenta } from "@/components/personalizados/selector-venta";
 import {
   CANALES,
   ESTADOS_PERSONALIZADO,
@@ -71,6 +73,13 @@ export function PersonalizadoDialog({
   const [modelo, setModelo] = useState<ModeloPersonalizadoId | null>(personalizado?.modelo ?? null);
   const [talla, setTalla] = useState(personalizado?.talla ?? "");
   const [noVenta, setNoVenta] = useState(personalizado?.no_venta ?? "");
+  /* La venta del CRM a la que quedó ligado. Al editar una ficha vieja arranca en
+     null aunque tenga número: se capturó a mano y nadie confirmó cuál era. La
+     pastilla lo dice («sin venta ligada») y basta con buscarla una vez. */
+  const [venta, setVenta] = useState<VentaCandidata | null>(null);
+  const [saleOrderId, setSaleOrderId] = useState<string | null>(
+    personalizado?.sale_order_id ?? null,
+  );
   const [canal, setCanal] = useState<string | null>(personalizado?.canal ?? null);
   const [fechaCompra, setFechaCompra] = useState(personalizado?.fecha_compra ?? hoyISO());
   const [fechaProduccion, setFechaProduccion] = useState(personalizado?.fecha_produccion ?? "");
@@ -101,6 +110,21 @@ export function PersonalizadoDialog({
     })),
   ];
 
+  /* Elegir la venta llena de un golpe los tres datos que salen de ella: el
+     folio, el canal y el día de compra. El canal solo si estaba en blanco —si
+     alguien ya lo puso a mano, manda—; la fecha sí se pisa, porque su valor por
+     defecto es «hoy», que casi nunca es el día en que compraron.
+     Al teclear a mano llega venta=null y se suelta la liga: el número queda como
+     texto libre, que es lo que era antes de esto. */
+  function elegirVenta(texto: string, elegida: VentaCandidata | null) {
+    setNoVenta(texto);
+    setVenta(elegida);
+    setSaleOrderId(elegida?.id ?? null);
+    if (!elegida) return;
+    if (!canal && elegida.canal !== "punto_fisico") setCanal(elegida.canal);
+    setFechaCompra(elegida.fecha);
+  }
+
   function guardar() {
     ejecutar(
       () =>
@@ -110,6 +134,7 @@ export function PersonalizadoDialog({
           modelo,
           talla,
           no_venta: noVenta,
+          sale_order_id: saleOrderId,
           canal: canal as "tienda_nube" | "mercado_libre" | "tiktok_shop" | "otro" | null,
           fecha_compra: fechaCompra || null,
           fecha_produccion: fechaProduccion || null,
@@ -201,11 +226,12 @@ export function PersonalizadoDialog({
           opcional
           idMovil="pz-talla"
         />
-        <PastillaEntrada
+        <PastillaVenta
           etiqueta="Nº de venta"
           valor={noVenta}
-          onCambio={setNoVenta}
-          opcional
+          ventaLigada={venta}
+          onCambio={elegirVenta}
+          ayuda="Búscala entre las ventas del CRM o escribe el número a mano."
           idMovil="pz-venta"
         />
         <PastillaOpcion<string>

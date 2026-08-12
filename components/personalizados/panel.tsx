@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlarmClock, Copy, ExternalLink, Palette, Plus, Sparkles, Truck } from "lucide-react";
+import { AlarmClock, Check, Copy, ExternalLink, Palette, Plus, Sparkles, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -176,8 +176,17 @@ export function PanelPersonalizados({
         const canal = obtenerCanal(p.canal ?? "");
         return (
           <div className="min-w-0">
-            <div className="truncate font-mono text-[12.5px]">
+            <div className="flex items-center gap-1 truncate font-mono text-[12.5px]">
               <Resaltado texto={p.no_venta ?? "—"} busca={busqueda} />
+              {/* Ligado a una venta del CRM y no solo tecleado: es la diferencia
+                  entre un número que alguien copió y uno que existe de verdad. */}
+              {p.sale_order_id && (
+                <Check
+                  className="size-3 shrink-0 text-emerald-600"
+                  strokeWidth={2.5}
+                  aria-label="Ligado a una venta del CRM"
+                />
+              )}
             </div>
             {canal && <div className="text-[11.5px] text-muted-foreground">{canal.nombre}</div>}
           </div>
