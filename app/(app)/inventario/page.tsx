@@ -1,5 +1,5 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
-import { catalogoProveedores, equipoCompleto } from "@/lib/supabase/consultas";
+import { catalogoProveedores } from "@/lib/supabase/consultas";
 import { vistaDinero } from "@/lib/supabase/vista-dinero";
 import { adjuntarCostos } from "@/lib/supabase/montos";
 import { estadoCanales } from "@/lib/canales/integraciones";
@@ -15,13 +15,8 @@ import {
   LIMITE_MOVIMIENTOS,
 } from "@/lib/inventario/origenes";
 import { paramsReordenDesdeEnv, type EnCamino, type VentaReorden } from "@/lib/inventario/reabastecimiento";
-import type {
-  ProductConProveedor,
-  FotoDeFicha,
-  RolId,
-  StockLog,
-  ConteoConProducto,
-} from "@/lib/types";
+import { puedeVerHistorialStock } from "@/lib/inventario/historial-temporal";
+import type { ProductConProveedor, FotoDeFicha, RolId, StockLog } from "@/lib/types";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
 
@@ -105,9 +100,15 @@ export default async function InventarioPage({
 }) {
   await exigirModulo("inventario");
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
-  const { supabase, rol: rolCrudo } = await usuarioActual();
+  const { supabase, user, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
   const avisosConexion = avisosDeConexion(await searchParams);
+
+  /* TEMPORAL (ver lib/inventario/historial-temporal.ts): el historial de stock
+     está a medio pulir y se acota a una persona. Se resuelve ANTES del
+     Promise.all para que la consulta ni siquiera salga para el resto: esconder
+     la pestaña y traer igual los movimientos sería pagar el payload por nada. */
+  const verHistorial = puedeVerHistorialStock(user?.email);
 
   /* El costo es EGRESO —lo que nos cuesta— y el precio, INGRESO. Con los dos al
      lado, el margen de cada SKU es una resta, así que ninguno viaja para quien
@@ -134,9 +135,7 @@ export default async function InventarioPage({
     movimientosRes,
     ventasRes,
     enCaminoRes,
-    equipo,
     reconSnapRes,
-    conteosRes,
     canales,
     piloto,
   ] = await Promise.all([
@@ -189,15 +188,20 @@ export default async function InventarioPage({
        holgado o el filtro de canal mentiría: con ~70 movimientos reales al mes
        y 90 días de retención, 250 no corta nunca en la práctica.
 
-       `autor` es quien lo provocó: null en lo que hicieron el cron o un webhook. */
-    supabase
-      .from("stock_log")
-      .select(
-        `${COLUMNAS_STOCK_LOG}, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)`,
-      )
-      .not("origen", "in", FILTRO_PUESTA_AL_DIA)
-      .order("creado_en", { ascending: false })
-      .limit(LIMITE_MOVIMIENTOS),
+       `autor` es quien lo provocó: null en lo que hicieron el cron o un webhook.
+
+       Condicionada mientras el historial esté acotado: quien no lo ve tampoco
+       paga la consulta. */
+    verHistorial
+      ? supabase
+          .from("stock_log")
+          .select(
+            `${COLUMNAS_STOCK_LOG}, producto:products!producto_id(nombre, variante), autor:profiles!created_by(nombre)`,
+          )
+          .not("origen", "in", FILTRO_PUESTA_AL_DIA)
+          .order("creado_en", { ascending: false })
+          .limit(LIMITE_MOVIMIENTOS)
+      : Promise.resolve({ data: [] }),
     // Ventas de la ventana: alimentan la velocidad de salida de cada producto.
     // Agregadas por día/canal/producto en la base (RPC ventas_reorden), que es
     // la granularidad que usa el panel: mismo resultado, muchas menos filas
@@ -209,17 +213,9 @@ export default async function InventarioPage({
        función devuelve producto y cantidad, sin costo ni proveedor, para que
        «Qué pedir» siga descontando lo que ya viene en camino. */
     supabase.rpc("unidades_en_camino"),
-    // Equipo (para los selectores de "quién contó/corroboró" en el conteo físico).
-    equipoCompleto(),
     // Última reconciliación guardada: se muestra al instante (la lectura en vivo
     // de los canales es lo que tarda; se refresca con «Revisar ahora» o el cron).
     supabase.from("reconciliacion_snapshots").select("resumen, creado_en").eq("id", "actual").maybeSingle(),
-    // Conteos físicos recientes (con el producto para comparar contra el CRM).
-    supabase
-      .from("conteos_fisicos")
-      .select("*, producto:products!producto_id(id, nombre, variante, sku, stock)")
-      .order("fecha", { ascending: false })
-      .limit(200),
     // Estado de los tres canales para la UI, en una sola query.
     estadoCanales(),
     // Monitor del piloto: sale de la foto horaria y del ledger, sin llamar a
@@ -238,7 +234,6 @@ export default async function InventarioPage({
   }));
   const movimientos = (movimientosRes.data ?? []) as unknown as StockLog[];
   const ventas = (ventasRes.data ?? []) as unknown as VentaReorden[];
-  const conteos = (conteosRes.data ?? []) as unknown as ConteoConProducto[];
   const snap = reconSnapRes.data as { resumen: ResumenReconciliacion; creado_en: string } | null;
   const reconciliacionInicial = snap
     ? { resumen: snap.resumen, creadoEn: snap.creado_en }
@@ -264,9 +259,8 @@ export default async function InventarioPage({
       mercadolibre={canales.mercadolibre}
       tiktok={canales.tiktok}
       escrituraCanales={ESCRITURA_CANALES}
+      verHistorial={verHistorial}
       piloto={piloto}
-      conteos={conteos}
-      equipo={equipo}
       reconciliacionInicial={reconciliacionInicial}
       avisosConexion={avisosConexion}
     />

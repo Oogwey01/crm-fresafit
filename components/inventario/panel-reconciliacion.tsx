@@ -11,29 +11,22 @@ import { cn } from "@/lib/utils";
 import { PanelPiloto } from "@/components/inventario/panel-piloto";
 import { FichasDuplicadas } from "@/components/inventario/fichas-duplicadas";
 import { TablaDescuadres } from "@/components/inventario/tabla-descuadres";
-import { ConteoFisico } from "@/components/inventario/conteo-fisico";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
-import type { ConteoConProducto, ProductConProveedor, Profile } from "@/lib/types";
 
 
 /* Pestaña de reconciliación completa. El resultado de la revisión vive aquí:
    se corre a demanda (lee los catálogos en vivo de cada canal), así que se
-   guarda en estado local hasta que se vuelva a pedir. */
+   guarda en estado local hasta que se vuelva a pedir.
+
+   El conteo físico se fue de aquí a /bodega: comparar canales es análisis de
+   escritorio, contar el anaquel es trabajo de piso. */
 export function PanelReconciliacion({
   piloto,
-  conteos,
-  productos,
-  equipo,
   reconciliacionInicial,
 }: {
   /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
   piloto: EstadoPiloto;
-  /* Conteos físicos recientes (con su producto). */
-  conteos: ConteoConProducto[];
-  productos: ProductConProveedor[];
-  /* Equipo, para los selectores de "quién contó/corroboró". */
-  equipo: Profile[];
   /* Última reconciliación guardada, para mostrarla al instante al entrar. */
   reconciliacionInicial: { resumen: ResumenReconciliacion; creadoEn: string } | null;
 }) {
@@ -136,8 +129,6 @@ export function PanelReconciliacion({
           Pulsa «Revisar ahora» para generar el reporte.
         </p>
       )}
-
-      <ConteoFisico conteos={conteos} productos={productos} equipo={equipo} />
     </div>
   );
 }

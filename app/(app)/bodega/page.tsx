@@ -13,6 +13,7 @@ import type {
   InsumoMovimiento,
   InsumoPermiso,
   Product,
+  ConteoConProducto,
   RecepcionBodega,
   RecepcionConItems,
   RecepcionItem,
@@ -71,6 +72,7 @@ export default async function BodegaPage() {
     permisosRes,
     equipo,
     productos,
+    conteosRes,
   ] = await Promise.all([
     supabase
       .from("recepciones_bodega")
@@ -140,6 +142,19 @@ export default async function BodegaPage() {
         .order("nombre")
         .range(desde, hasta),
     ),
+    /* Conteos físicos recientes, con el producto para comparar lo contado contra
+       lo que dice el CRM. El desempate por `id` no es adorno: la fecha es un DÍA
+       y se repite en cuanto se cuentan varias cosas la misma jornada, así que sin
+       él el orden entre esas filas queda al azar de la base y el tope de 200
+       podría partir el grupo de forma distinta en cada carga. */
+    supabase
+      .from("conteos_fisicos")
+      .select(
+        "id, producto_id, descripcion, cantidad, contado_por, corroborado_por, nota, fecha, created_by, created_at, producto:products!producto_id(id, nombre, variante, sku, stock)",
+      )
+      .order("fecha", { ascending: false })
+      .order("id")
+      .limit(200),
   ]);
 
   /* Los renglones de recepción son los únicos que NO van anidados: una sola
@@ -242,6 +257,7 @@ export default async function BodegaPage() {
       permisos={permisos}
       equipo={equipo}
       productos={productos}
+      conteos={(conteosRes.data ?? []) as unknown as ConteoConProducto[]}
       puedeMoverInsumos={puedeMoverInsumos}
       admin={puedeAdministrar(rol)}
     />

@@ -225,8 +225,10 @@ export function tiktokStockDe(p: {
   return esTikTokDelegado(p) ? p.stock : 0;
 }
 
-/* Producto con lo mínimo que necesita el cálculo (acepta ProductConProveedor). */
-type ProductoReorden = Pick<
+/* Producto con lo mínimo que necesita el cálculo (acepta ProductConProveedor).
+   Exportado para que /proveedores —que no carga el catálogo pesado de
+   Inventario— pueda tipar el suyo contra lo que el cálculo de verdad exige. */
+export type ProductoReorden = Pick<
   ProductConProveedor,
   | "id"
   | "nombre"

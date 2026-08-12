@@ -18,7 +18,6 @@ import { ESTADOS_STOCK, estadoStock, obtenerEstadoStock } from "@/lib/inventario
 import {
   calcularReabastecimiento,
   type EnCamino,
-  type GrupoReorden,
   type ParamsReorden,
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
@@ -34,14 +33,7 @@ import {
   useFiltrosProductos,
 } from "@/components/inventario/usar-filtros-productos";
 import type { VistaDinero } from "@/lib/permisos-dinero";
-import type {
-  ProductConProveedor,
-  Supplier,
-  StockLog,
-  RolId,
-  ConteoConProducto,
-  Profile,
-} from "@/lib/types";
+import type { ProductConProveedor, Supplier, StockLog, RolId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -65,24 +57,29 @@ import { BarraCanales } from "@/components/inventario/barra-canales";
 import { AvisosInventario } from "@/components/inventario/avisos-inventario";
 import { PanelReconciliacion } from "@/components/inventario/panel-reconciliacion";
 import type { EstadoPiloto } from "@/lib/inventario/piloto";
-import { TablaReabastecer } from "@/components/inventario/tabla-reabastecer";
 import type { ResumenReconciliacion } from "@/lib/inventario/reconciliacion";
 
 type Pestana =
   | "productos"
-  | "reabastecer"
   | "movimientos"
   | "reconciliacion";
 
+/* «Qué pedir» se fue a /proveedores: cuánto tengo y a quién le compro son dos
+   preguntas distintas, y la segunda es solo de dirección. Aquí se quedan el KPI
+   «Por pedir» y su aviso, que son el dato, no la pantalla de trabajo. */
 const PESTANAS = [
   ["productos", "Productos"],
-  ["reabastecer", "Qué pedir"],
   ["movimientos", "Historial de stock"],
   ["reconciliacion", "Reconciliación"],
 ] as const;
 
-/* Ventana de ventas del reorden que se muestra al entrar (la tabla «Qué pedir»
-   la deja cambiar; la tarjeta KPI y la ficha del producto usan ésta). */
+/* TEMPORAL: el historial está a medio pulir y se acota a una persona
+   (ver lib/inventario/historial-temporal.ts). */
+const PESTANAS_SIN_HISTORIAL = PESTANAS.filter(([id]) => id !== "movimientos");
+
+/* Ventana de ventas del reorden con la que se cuenta el KPI «Por pedir» (la
+   tabla de /proveedores la deja cambiar; aquí y en la ficha del producto es
+   ésta, para que los tres cuenten lo mismo al entrar). */
 const VENTANA_REORDEN = 30;
 
 /* Solo las pestañas que permiten dar de alta algo (movimientos es de lectura). */
@@ -141,9 +138,8 @@ export function PanelInventario({
   mercadolibre,
   tiktok,
   escrituraCanales,
+  verHistorial,
   piloto,
-  conteos,
-  equipo,
   reconciliacionInicial,
   avisosConexion,
 }: {
@@ -163,12 +159,11 @@ export function PanelInventario({
   tiktok: { conectada: boolean; ultimaSync: string | null };
   /* false (el default del sistema) = el CRM no modifica nada en las plataformas. */
   escrituraCanales: boolean;
+  /* TEMPORAL: quién ve la pestaña «Historial de stock» mientras se afina
+     (ver lib/inventario/historial-temporal.ts). */
+  verHistorial: boolean;
   /* Estado del piloto de escritura: qué productos manda el CRM y cómo van. */
   piloto: EstadoPiloto;
-  /* Conteos físicos recientes (con su producto). */
-  conteos: ConteoConProducto[];
-  /* Equipo, para los selectores de "quién contó/corroboró". */
-  equipo: Profile[];
   /* Última reconciliación guardada, para mostrarla al instante al entrar. */
   reconciliacionInicial: { resumen: ResumenReconciliacion; creadoEn: string } | null;
   /* Avisos al volver del OAuth, ya resueltos en el servidor por la page. */
@@ -232,6 +227,9 @@ export function PanelInventario({
     movimientos: StockLog[];
     tope: boolean;
   }>(async () => {
+    /* El hook no puede montarse condicionalmente, pero su carga sí: quien no ve
+       la pestaña tampoco dispara la consulta. */
+    if (!verHistorial) return { movimientos: [], tope: false };
     if (vistaMov === VISTA_MOV_INICIAL && filtroCanalMov === CANAL_MOV_INICIAL) {
       return { movimientos, tope: movimientos.length >= LIMITE_MOVIMIENTOS };
     }
@@ -294,13 +292,12 @@ export function PanelInventario({
     if (pestana === "productos") setProductoDialog("nuevo");
   }
 
-  /* Los pedidos a proveedor viven en su propio módulo, que es solo de dirección.
-     Desde aquí se navega: con el renglón sugerido en la URL cuando sale de «Qué
-     pedir», y sin nada cuando sale del aviso de stock bajo. Para quien no es
-     dirección estos botones no se pintan (ver `esDireccion`). */
-  function irAPedidoNuevo(grupo?: GrupoReorden) {
-    const query = grupo ? `?producto=${grupo.productoId}&cantidad=${grupo.sugerido}` : "";
-    router.push(`/proveedores${query}`);
+  /* El reabastecimiento entero —«Qué pedir» y los pedidos a proveedor— vive en
+     su propio módulo, que es solo de dirección. Desde aquí solo se navega, y
+     únicamente para quien puede entrar: para el resto, el KPI y los avisos son
+     un dato que se lee, sin clic (ver `esDireccion`). */
+  function irAProveedores() {
+    router.push("/proveedores");
   }
 
   /* Cuántos de los filtros plegados están puestos, para el contador del botón.
@@ -431,7 +428,12 @@ export function PanelInventario({
         </div>
       </div>
 
-      <TabsSeccion opciones={PESTANAS} valor={pestana} onCambio={setPestana} className="mb-4" />
+      <TabsSeccion
+        opciones={verHistorial ? PESTANAS : PESTANAS_SIN_HISTORIAL}
+        valor={pestana}
+        onCambio={setPestana}
+        className="mb-4"
+      />
 
       {/* Tarjetas KPI. En el teléfono se ven las TRES accionables en un renglón;
           «SKUs» y «Valor inventario» son datos de contexto que ahí solo estiraban
@@ -443,7 +445,22 @@ export function PanelInventario({
           icono={Boxes}
           className="hidden md:block"
         />
-        <button type="button" onClick={() => setPestana("reabastecer")} className="text-left">
+        {/* El dato lo ve todo el equipo; el clic lleva a /proveedores y solo lo
+            tiene dirección, que es quien puede abrir esa pantalla. Un botón que
+            no lleva a ningún lado se lee peor que una tarjeta quieta. */}
+        {esDireccion ? (
+          <button type="button" onClick={irAProveedores} className="text-left">
+            <StatCard
+              etiqueta="Por pedir"
+              valor={String(porPedir.length)}
+              icono={ShoppingCart}
+              nota="con la venta de 30 días"
+              notaClassName="hidden md:block"
+              valorClassName={porPedir.length > 0 ? "text-red-600" : undefined}
+              className="h-full transition-colors hover:bg-accent/40"
+            />
+          </button>
+        ) : (
           <StatCard
             etiqueta="Por pedir"
             valor={String(porPedir.length)}
@@ -451,9 +468,8 @@ export function PanelInventario({
             nota="con la venta de 30 días"
             notaClassName="hidden md:block"
             valorClassName={porPedir.length > 0 ? "text-red-600" : undefined}
-            className="h-full transition-colors hover:bg-accent/40"
           />
-        </button>
+        )}
         <StatCard
           etiqueta="Por acabarse"
           valor={String(porAcabarse.length)}
@@ -486,35 +502,22 @@ export function PanelInventario({
               SKUs es la acción principal de esta pantalla, y metido en la fila
               de filtros pesaba lo mismo que dos selects que casi nadie toca.
               Los filtros bajan al renglón de abajo, como secundarios. */}
-          {(pestana === "productos" || pestana === "reabastecer") && (
+          {pestana === "productos" && (
             <CampoBusqueda
               valor={busqueda}
               onCambio={setBusqueda}
               placeholder="Buscar producto, SKU o proveedor…"
-              /* En «Qué pedir» no se pinta el recuento porque ahí la lista son
-                 grupos de reorden, no productos sueltos. */
-              conteo={
-                pestana === "productos"
-                  ? {
-                      visibles: productosVisibles.length,
-                      total: productos.length,
-                      unidad: "productos",
-                    }
-                  : undefined
-              }
+              conteo={{
+                visibles: productosVisibles.length,
+                total: productos.length,
+                unidad: "productos",
+              }}
             />
           )}
 
-          {/* Segundo renglón: los filtros, ya como controles secundarios. En
-              «Qué pedir» el único es el tipo, que en el teléfono va plegado: ahí
-              la fila entera sobra y se esconde para no dejar un hueco. */}
-          <div
-            className={cn(
-              "flex-wrap items-center gap-2",
-              pestana === "reabastecer" ? "hidden md:flex" : "flex",
-            )}
-          >
-            {(pestana === "productos" || pestana === "reabastecer") && (
+          {/* Segundo renglón: los filtros, ya como controles secundarios. */}
+          <div className="flex flex-wrap items-center gap-2">
+            {pestana === "productos" && (
               /* Tipo y stock viven en la barra en escritorio y plegados en el
                  teléfono (ver el bloque de «Más filtros»): son los MISMOS
                  controles, montados donde caben. */
@@ -564,7 +567,7 @@ export function PanelInventario({
               </>
             )}
 
-            {pestana === "movimientos" && (
+            {verHistorial && pestana === "movimientos" && (
               <>
                 <ControlSegmentado
                   opciones={VISTAS_MOV}
@@ -670,10 +673,9 @@ export function PanelInventario({
         porAcabarse={porAcabarse}
         agotados={agotados}
         gestor={gestor}
-        pestana={pestana}
-        onVerQuePedir={() => setPestana("reabastecer")}
+        onVerQuePedir={esDireccion ? irAProveedores : undefined}
         onVerPorStock={verProductosPorStock}
-        onGenerarPedido={esDireccion ? () => irAPedidoNuevo() : undefined}
+        onGenerarPedido={esDireccion ? irAProveedores : undefined}
       />
 
       {pestana === "productos" &&
@@ -700,18 +702,7 @@ export function PanelInventario({
             onAbrir={(p) => router.push(`/inventario/producto/${p.id}`)}
           />
         ))}
-      {pestana === "reabastecer" && (
-        <TablaReabastecer
-          productos={productos}
-          ventas={ventas}
-          enCamino={enCamino}
-          params={paramsReorden}
-          busqueda={busqueda}
-          filtroTipo={filtroTipo}
-          onPedir={esDireccion ? irAPedidoNuevo : undefined}
-        />
-      )}
-      {pestana === "movimientos" && (
+      {verHistorial && pestana === "movimientos" && (
         <TablaMovimientos
           movimientos={movimientosFiltrados}
           vista={vistaMov}
@@ -721,13 +712,7 @@ export function PanelInventario({
       )}
 
       {pestana === "reconciliacion" && (
-        <PanelReconciliacion
-          piloto={piloto}
-          conteos={conteos}
-          productos={productos}
-          equipo={equipo}
-          reconciliacionInicial={reconciliacionInicial}
-        />
+        <PanelReconciliacion piloto={piloto} reconciliacionInicial={reconciliacionInicial} />
       )}
 
       {/* La ficha del producto ya no vive aquí: abrir un renglón NAVEGA a

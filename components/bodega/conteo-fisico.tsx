@@ -17,8 +17,8 @@ import {
   registrarConteo,
   borrarConteo,
   type ConteoInput,
-} from "@/app/(app)/inventario/actions";
-import type { ConteoConProducto, ProductConProveedor, Profile } from "@/lib/types";
+} from "@/app/(app)/bodega/actions";
+import type { ConteoConProducto, Product, Profile } from "@/lib/types";
 import { DatePicker } from "@/components/compartido/date-picker";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { cn } from "@/lib/utils";
@@ -28,14 +28,20 @@ const NADIE = "none";
 
 /* Registro de conteos físicos de inventario: quién contó qué y quién lo
    corroboró. Compara la cantidad contada contra el stock del CRM para resaltar
-   los descuadres del inventario real. */
+   los descuadres del inventario real.
+
+   Vivía en la pestaña Reconciliación de /inventario y se mudó a Bodega, que es
+   donde se cuenta y con el teléfono en la mano. */
 export function ConteoFisico({
   conteos,
   productos,
   equipo,
 }: {
   conteos: ConteoConProducto[];
-  productos: ProductConProveedor[];
+  /* Solo el catálogo para elegir qué se contó: no hace falta el producto
+     completo de /inventario. El stock contra el que se compara viaja en cada
+     conteo (`c.producto.stock`), no en esta lista. */
+  productos: Pick<Product, "id" | "nombre" | "variante" | "activo">[];
   equipo: Profile[];
 }) {
   const { pending, ejecutar } = useAccionServidor();

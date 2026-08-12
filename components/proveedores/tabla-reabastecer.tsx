@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Music2, Truck, Warehouse } from "lucide-react";
-import { obtenerTipoProducto } from "@/lib/catalogos";
+import { TIPOS_PRODUCTO, obtenerTipoProducto } from "@/lib/catalogos";
 import { formatearFecha, hoyISO } from "@/lib/fecha";
 import {
   calcularReabastecimiento,
@@ -10,9 +10,10 @@ import {
   type EnCamino,
   type GrupoReorden,
   type ParamsReorden,
+  type ProductoReorden,
   type VentaReorden,
 } from "@/lib/inventario/reabastecimiento";
-import type { CanalId, ProductConProveedor } from "@/lib/types";
+import type { CanalId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -21,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { cn } from "@/lib/utils";
 
@@ -62,21 +64,25 @@ function textoCobertura(dias: number | null): string {
   return `${Math.round(dias)} días`;
 }
 
+/* Qué hay que comprar y cuándo. Vivía en Inventario, pero la pregunta que
+   contesta —«¿qué le pido al proveedor?»— es la que abre este módulo, y aquí el
+   pedido se arma sin salir de la pantalla.
+
+   Se trajo la búsqueda y el filtro de tipo DENTRO: en Inventario bajaban de la
+   barra de herramientas del panel, que aquí no existe. La tabla ya era dueña de
+   sus otros tres controles (ventana, plataforma, «solo lo que urge»), así que
+   ahora se basta sola. */
 export function TablaReabastecer({
   productos,
   ventas,
   enCamino,
   params,
-  busqueda,
-  filtroTipo,
   onPedir,
 }: {
-  productos: ProductConProveedor[];
+  productos: ProductoReorden[];
   ventas: VentaReorden[];
   enCamino: EnCamino;
   params: ParamsReorden;
-  busqueda: string;
-  filtroTipo: string;
   /* Solo dirección puede armar el pedido: para el resto la columna se queda
      con la sugerencia y sin botón. */
   onPedir?: (grupo: GrupoReorden) => void;
@@ -84,6 +90,8 @@ export function TablaReabastecer({
   const [ventanaDias, setVentanaDias] = useState(30);
   const [canal, setCanal] = useState<CanalId | "todas">("todas");
   const [soloUrgentes, setSoloUrgentes] = useState(true);
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroTipo, setFiltroTipo] = useState("todos");
 
   const grupos = useMemo(
     () => calcularReabastecimiento({ productos, ventas, enCamino, ventanaDias, canal, params }),
@@ -252,6 +260,34 @@ export function TablaReabastecer({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* El buscador va en su propio renglón y a todo el ancho, como en el
+          catálogo: con más de mil fichas es la acción principal. El recuento no
+          se pinta porque aquí la lista son grupos de reorden —un producto
+          publicado en tres plataformas es UNA fila—, no productos sueltos. */}
+      <div className="flex flex-col gap-2 md:flex-row md:items-center">
+        <CampoBusqueda
+          valor={busqueda}
+          onCambio={setBusqueda}
+          placeholder="Buscar producto, SKU o proveedor…"
+        />
+        <Select value={filtroTipo} onValueChange={(v) => setFiltroTipo(v ?? "todos")}>
+          <SelectTrigger className="w-full bg-card md:w-[190px]">
+            <SelectValue>
+              {(v: string) =>
+                v === "todos" ? "Todos los tipos" : (obtenerTipoProducto(v)?.nombre ?? "Tipo")}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos los tipos</SelectItem>
+            {TIPOS_PRODUCTO.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.nombre}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3.5 md:flex-row md:items-center md:justify-between">
         <p className="text-[13.5px] leading-relaxed text-muted-foreground">
           Cuánto se vende de cada producto, cuánto queda y cuándo hay que pedirlo para que no se

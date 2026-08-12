@@ -11,10 +11,12 @@ import { SeccionRecepcion } from "@/components/bodega/seccion-recepcion";
 import { SeccionConjuntos } from "@/components/bodega/seccion-conjuntos";
 import { SeccionFulls } from "@/components/bodega/seccion-fulls";
 import { SeccionInsumos } from "@/components/bodega/seccion-insumos";
+import { ConteoFisico } from "@/components/bodega/conteo-fisico";
 import type { CanalesFicha, ProductoLigeroFila } from "@/app/(app)/bodega/page";
 import type {
   ConjuntoArmado,
   ConjuntoConComponentes,
+  ConteoConProducto,
   EnvioFullConCajas,
   InsumoConPresentaciones,
   InsumoMovimiento,
@@ -24,12 +26,17 @@ import type {
 } from "@/lib/types";
 
 /* Personalizados salió de aquí a su propio módulo: quien los lleva es diseño,
-   no bodega. Queda el enlace en la cabecera. */
+   no bodega. Queda el enlace en la cabecera.
+
+   «Conteo físico» llegó al revés: vivía en la pestaña Reconciliación de
+   /inventario, que es la pantalla de análisis del catálogo, cuando contar el
+   anaquel se hace aquí y con el teléfono en la mano. */
 const PESTANAS = [
   ["recepcion", "Recepción"],
   ["conjuntos", "Conjuntos"],
   ["fulls", "Envíos full"],
   ["insumos", "Insumos"],
+  ["conteo", "Conteo físico"],
 ] as const;
 
 type Pestana = (typeof PESTANAS)[number][0];
@@ -45,6 +52,7 @@ export function PanelBodega({
   permisos,
   equipo,
   productos,
+  conteos,
   puedeMoverInsumos,
   admin,
 }: {
@@ -58,6 +66,8 @@ export function PanelBodega({
   permisos: InsumoPermiso[];
   equipo: Profile[];
   productos: ProductoLigeroFila[];
+  /* Conteos físicos recientes (con su producto, para ver el descuadre). */
+  conteos: ConteoConProducto[];
   /* Si esta persona puede mover el stock de insumos (el candado real es la RPC). */
   puedeMoverInsumos: boolean;
   admin: boolean;
@@ -176,6 +186,9 @@ export function PanelBodega({
           puedeMover={puedeMoverInsumos}
           admin={admin}
         />
+      )}
+      {pestana === "conteo" && (
+        <ConteoFisico conteos={conteos} productos={productos} equipo={equipo} />
       )}
     </div>
   );

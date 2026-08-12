@@ -28,6 +28,7 @@ import {
   ORIGENES_PUESTA_AL_DIA,
 } from "@/lib/inventario/origenes";
 import { ESCRITURA_CANALES } from "@/lib/inventario/escritura-canales";
+import { puedeVerHistorialStock } from "@/lib/inventario/historial-temporal";
 import type {
   ProductPhoto,
   StockLog,
@@ -364,6 +365,12 @@ export async function movimientosStock(opts: {
 }): Promise<{ movimientos: StockLog[]; tope: boolean } | { error: string }> {
   const cx = await exigirRol("interno", "Solo el equipo interno puede ver el historial.");
   if ("error" in cx) return cx;
+  /* TEMPORAL (ver lib/inventario/historial-temporal.ts). Va aquí además de en la
+     pantalla: esconder la pestaña no cierra la acción, y cualquiera del equipo
+     interno puede llamarla directo. */
+  if (!puedeVerHistorialStock(cx.user.email)) {
+    return { error: "El historial de stock está en revisión." };
+  }
 
   const limite =
     opts.limite ?? (opts.vista === "reales" ? LIMITE_MOVIMIENTOS : LIMITE_PUESTAS_AL_DIA);
@@ -455,49 +462,8 @@ export async function borrarFotoProducto(id: string, storagePath: string): Promi
   return { ok: true };
 }
 
-/* ============================ Conteo físico ============================== */
-
-export type ConteoInput = {
-  producto_id: string | null;
-  descripcion: string;
-  cantidad: number;
-  contado_por: string;
-  corroborado_por: string;
-  nota: string;
-  fecha: string;
-};
-
-export async function registrarConteo(input: ConteoInput): Promise<Resultado> {
-  const cx = await exigirRol("interno", "Solo el equipo interno puede registrar conteos.");
-  if ("error" in cx) return cx;
-  if (!input.producto_id && !input.descripcion.trim())
-    return { error: "Elige un producto o describe qué se contó." };
-  if (!Number.isInteger(input.cantidad) || input.cantidad < 0)
-    return { error: "La cantidad contada debe ser un entero ≥ 0." };
-
-  const { error } = await cx.supabase.from("conteos_fisicos").insert({
-    producto_id: input.producto_id,
-    descripcion: textoONulo(input.descripcion),
-    cantidad: input.cantidad,
-    contado_por: textoONulo(input.contado_por),
-    corroborado_por: textoONulo(input.corroborado_por),
-    nota: textoONulo(input.nota),
-    fecha: input.fecha || undefined,
-    created_by: cx.user.id,
-  });
-  if (error) return { error: error.message };
-  revalidatePath("/inventario");
-  return { ok: true };
-}
-
-export async function borrarConteo(id: string): Promise<Resultado> {
-  const cx = await exigirRol("interno", "Solo el equipo interno puede borrar conteos.");
-  if ("error" in cx) return cx;
-  const { error } = await cx.supabase.from("conteos_fisicos").delete().eq("id", id);
-  if (error) return { error: error.message };
-  revalidatePath("/inventario");
-  return { ok: true };
-}
+/* El conteo físico se mudó a /bodega (app/(app)/bodega/acciones/conteos.ts):
+   contar el anaquel se hace ahí, no en la pantalla de análisis del catálogo. */
 
 /* Galería importada de los canales para UN producto. Va aparte del listado
    porque `products.imagenes` pesa ~950 KB sobre el catálogo completo y solo la

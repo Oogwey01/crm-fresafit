@@ -20,7 +20,6 @@ export function AvisosInventario({
   porAcabarse,
   agotados,
   gestor,
-  pestana,
   onVerQuePedir,
   onVerPorStock,
   onGenerarPedido,
@@ -29,25 +28,28 @@ export function AvisosInventario({
   porAcabarse: ProductConProveedor[];
   agotados: ProductConProveedor[];
   gestor: boolean;
-  pestana: string;
-  onVerQuePedir: () => void;
+  /* Solo dirección: «Qué pedir» vive en /proveedores, que es su módulo. Sin
+     handler el aviso sigue enseñando el número, pero como dato quieto. */
+  onVerQuePedir?: () => void;
   onVerPorStock: (estado: string) => void;
   /* Solo dirección: el pedido a proveedor vive en su propio módulo. */
   onGenerarPedido?: () => void;
 }) {
-  /* En «Qué pedir» ya estás viendo el reorden: repetirlo arriba sobra. */
-  const mostrarPorPedir = porPedir.length > 0 && pestana !== "reabastecer";
-  const hayAlgo = mostrarPorPedir || porAcabarse.length > 0 || agotados.length > 0;
+  const hayAlgo = porPedir.length > 0 || porAcabarse.length > 0 || agotados.length > 0;
   if (!hayAlgo) return null;
 
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
-      {mostrarPorPedir && (
+      {porPedir.length > 0 && (
         <Aviso
           icono={ShoppingCart}
           tono="rojo"
           onClick={onVerQuePedir}
-          titulo="Se acaban antes de que llegue un pedido nuevo, con la venta de los últimos 30 días"
+          titulo={
+            onVerQuePedir
+              ? "Se acaban antes de que llegue un pedido nuevo, con la venta de los últimos 30 días. Ver «Qué pedir» en Proveedores"
+              : "Se acaban antes de que llegue un pedido nuevo, con la venta de los últimos 30 días"
+          }
         >
           <b className="font-bold">{porPedir.length}</b> por pedir ya
         </Aviso>
@@ -90,12 +92,24 @@ export function AvisosInventario({
 }
 
 const TONOS = {
-  rojo: "border-red-200 bg-red-50 text-red-800 hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900/50",
+  rojo: "border-red-200 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300",
   ambar:
-    "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300 dark:hover:bg-amber-900/50",
-  gris: "border-border bg-muted/40 text-muted-foreground hover:bg-muted",
+    "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  gris: "border-border bg-muted/40 text-muted-foreground",
 } as const;
 
+/* El realce del cursor va aparte: solo lo lleva el aviso que de verdad se puede
+   pulsar. */
+const HOVER = {
+  rojo: "transition-colors hover:bg-red-100 dark:hover:bg-red-900/50",
+  ambar: "transition-colors hover:bg-amber-100 dark:hover:bg-amber-900/50",
+  gris: "transition-colors hover:bg-muted",
+} as const;
+
+/* Sin `onClick` se pinta como texto y no como botón: el aviso sigue diciendo su
+   número —que es el dato— pero no promete un clic que no lleva a ningún lado.
+   Pasa con «por pedir» para quien no es dirección: la lista vive en /proveedores
+   y esa pantalla no la puede abrir. */
 function Aviso({
   icono: Icono,
   tono,
@@ -106,21 +120,31 @@ function Aviso({
   icono: LucideIcon;
   tono: keyof typeof TONOS;
   titulo: string;
-  onClick: () => void;
+  onClick?: () => void;
   children: React.ReactNode;
 }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={titulo}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-[10px] border px-3 py-1.5 text-[13px] transition-colors",
-        TONOS[tono],
-      )}
-    >
+  const clases = cn(
+    "inline-flex items-center gap-2 rounded-[10px] border px-3 py-1.5 text-[13px]",
+    TONOS[tono],
+    onClick && HOVER[tono],
+  );
+  const contenido = (
+    <>
       <Icono className="size-4 shrink-0" strokeWidth={1.9} aria-hidden="true" />
       {children}
+    </>
+  );
+
+  if (!onClick) {
+    return (
+      <span title={titulo} className={clases}>
+        {contenido}
+      </span>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} title={titulo} className={clases}>
+      {contenido}
     </button>
   );
 }

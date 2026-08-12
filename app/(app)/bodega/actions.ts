@@ -14,3 +14,4 @@ export * from "@/app/(app)/bodega/acciones/recepcion";
 export * from "@/app/(app)/bodega/acciones/conjuntos";
 export * from "@/app/(app)/bodega/acciones/full";
 export * from "@/app/(app)/bodega/acciones/insumos";
+export * from "@/app/(app)/bodega/acciones/conteos";
