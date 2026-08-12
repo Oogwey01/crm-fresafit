@@ -498,7 +498,17 @@ async function main() {
   console.log("  por estado:", Object.fromEntries(cuenta((f) => f.estado)));
   console.log("  por modelo:", Object.fromEntries(cuenta((f) => `${f.modelo}/${f.acabado}`)));
 
+  /* Los cortes que se van a dar por pagados. Se calculan también en seco —sobre
+     las filas, que todavía no tienen id— porque es la parte que toca dinero: hay
+     que poder mirar cuánto se va a registrar como ya liquidado ANTES de que
+     exista. */
+  const cortes = agruparCortesHistoricos(
+    aplicar ? [] : filas,
+    costos,
+    cerrarHasta,
+  );
   if (!aplicar) {
+    imprimirCortes(cortes, cerrarHasta);
     const ejemplo = filas[0];
     if (ejemplo) {
       console.log("\n  Ejemplo del primer pedido:");
@@ -517,15 +527,30 @@ async function main() {
   const conCosto = await congelarCostos(pedidos, costos);
   console.log(`Costos congelados: ${conCosto}`);
 
-  const cortes = agruparCortesHistoricos(pedidos, costos, cerrarHasta);
-  console.log(`\nCortes históricos por escribir: ${cortes.length}`);
+  const aEscribir = agruparCortesHistoricos(pedidos, costos, cerrarHasta);
+  imprimirCortes(aEscribir, cerrarHasta);
+  const creados = await escribirCortes(aEscribir);
+  console.log(`Cortes creados: ${creados}\n`);
+}
+
+const pesos = (n) => `$${n.toLocaleString("es-MX", { minimumFractionDigits: 2 })}`;
+
+function imprimirCortes(cortes, cerrarHasta) {
+  console.log(
+    `\nCortes históricos (quincenas hasta el ${cerrarHasta}, se registran YA PAGADOS): ${cortes.length}`,
+  );
   for (const c of cortes) {
     console.log(
-      `  · ${c.q.desde}…${c.q.hasta}: ${c.totales.piezas} piezas, subtotal $${c.totales.subtotal}, total $${c.totales.total}`,
+      `  · ${c.q.desde}…${c.q.hasta}  ${String(c.totales.piezas).padStart(3)} piezas` +
+        `   subtotal ${pesos(c.totales.subtotal).padStart(12)}` +
+        `   con IVA ${pesos(c.totales.total).padStart(12)}`,
     );
   }
-  const creados = await escribirCortes(cortes);
-  console.log(`Cortes creados: ${creados}\n`);
+  const piezas = cortes.reduce((s, c) => s + c.totales.piezas, 0);
+  const total = cortes.reduce((s, c) => s + c.totales.total, 0);
+  if (cortes.length) {
+    console.log(`    ${"".padEnd(21)} ${String(piezas).padStart(3)} piezas   ya pagadas a Eduardo, ${pesos(centavos(total))} con IVA`);
+  }
 }
 
 /* Solo cuando se invoca como programa: importarlo desde las pruebas no debe
