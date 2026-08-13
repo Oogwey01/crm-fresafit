@@ -14,9 +14,11 @@ import { upsertClientesPorClave } from "@/lib/canales/clientes";
 import {
   aMonto,
   guardarTotalesOrden,
+  marcarOrdenesRetiradas,
   refrescarRenglones,
   separarAltas,
   ventanaDesde,
+  type EstadoRetiro,
   type OpcionesImportacion,
   type TotalOrden,
 } from "@/lib/canales/ventas-cuadre";
@@ -61,6 +63,15 @@ function motivoRetiro(o: OrdenTN): MotivoRetiro {
      devolvió, eso es lo que describe el movimiento. `voided` —el pago se anuló
      sin llegar a capturarse— es una cancelación: nunca hubo dinero que volver. */
   return o.payment_status === "refunded" ? "reembolso_tn" : "cancelacion_tn";
+}
+
+/* Estado con el que la orden muerta queda en `sale_orders`. Viene del estado de
+   PAGO, que `sale_orders.estado` (el status de la orden) no conocía: una orden
+   reembolsada sigue con status 'open' y por eso seguía sumando en Métricas. */
+function estadoRetiro(o: OrdenTN): EstadoRetiro {
+  if (o.payment_status === "refunded") return "refunded";
+  if (o.payment_status === "voided") return "voided";
+  return "cancelled";
 }
 
 /* Correo del comprador, normalizado: es la llave con la que se identifica al
@@ -398,6 +409,19 @@ async function aplicarOrdenes(
       const correo = correoDe(o);
       return totalDeOrden(o, correo ? (clientes.get(correo) ?? null) : null);
     }),
+  );
+
+  /* El total de la orden muerta también deja de sumar: sin este marcado, el
+     retiro solo borraba renglones de `sales` y `sale_orders` conservaba la
+     orden viva para Métricas. Va aunque no haya renglones que borrar: el corte
+     de altas solo aplica a `sales`, así que una orden puede estar archivada en
+     `sale_orders` sin haber tenido nunca renglones. */
+  await marcarOrdenesRetiradas(
+    "tienda_nube",
+    ordenes.filter(estaCancelada).map((o) => ({
+      referencia_orden: String(o.id),
+      estado: estadoRetiro(o),
+    })),
   );
 
   /* Órdenes retiradas: se agrupan POR MOTIVO. Para el stock da igual —las piezas

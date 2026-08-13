@@ -22,7 +22,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { diaMX } from "@/lib/fecha";
 import type { Json } from "@/lib/supabase/tipos-bd";
-import { porLotes, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
+import { porLotes, TAM_LOTE_IN, TAM_LOTE_UPSERT } from "@/lib/supabase/lotes";
 
 /* Una orden tal como la reporta el panel del canal. */
 export type TotalOrden = {
@@ -180,8 +180,14 @@ export async function guardarTotalesOrden(ordenes: TotalOrden[]): Promise<number
   const unicas = new Map<string, TotalOrden>();
   for (const o of ordenes) unicas.set(`${o.canal}:${o.referencia_orden}`, o);
 
-  /* En tandas: reimportar el histórico son cientos de órdenes de una sentada. */
-  const filas = [...unicas.values()].map(cuadrarDesglose);
+  /* En tandas: reimportar el histórico son cientos de órdenes de una sentada.
+     El estado viaja normalizado a minúsculas: TikTok manda 'COMPLETED' y el
+     corte de canceladas en la base compara contra minúsculas — cualquier canal
+     con otra convención de mayúsculas lo rompería en silencio. */
+  const filas = [...unicas.values()].map(cuadrarDesglose).map((o) => ({
+    ...o,
+    estado: o.estado?.trim().toLowerCase() || null,
+  }));
   let guardadas = 0;
   for (let i = 0; i < filas.length; i += TAM_LOTE_UPSERT) {
     const tanda = filas.slice(i, i + TAM_LOTE_UPSERT);
@@ -219,6 +225,55 @@ export async function guardarTotalesOrden(ordenes: TotalOrden[]): Promise<number
     guardadas += data?.length ?? 0;
   }
   return guardadas;
+}
+
+/* Estados con los que una orden deja de contar como ingreso. Es el vocabulario
+   que entiende `orden_viva()` en la base; cada importador traduce el suyo. */
+export type EstadoRetiro = "cancelled" | "refunded" | "voided" | "invalid";
+
+export type OrdenRetirada = { referencia_orden: string; estado: EstadoRetiro };
+
+/* Marca en `sale_orders` las órdenes que el canal da por muertas (canceladas,
+   reembolsadas, anuladas). Sin esto, el retiro solo borraba los renglones de
+   `sales` y el TOTAL de la orden seguía sumando en Métricas para siempre — por
+   eso "ayer" cuadraba contra el panel y una semana no.
+
+   Solo UPDATE, nunca insert: una orden muerta que jamás se archivó no está
+   sumando nada, y darle fila aquí obligaría a todos los lectores a filtrarla.
+   Re-marcar lo ya marcado no cambia nada, así que webhook y cron pueden avisar
+   de la misma cancelación sin pisarse. */
+export async function marcarOrdenesRetiradas(
+  canal: string,
+  ordenes: OrdenRetirada[],
+): Promise<number> {
+  if (ordenes.length === 0) return 0;
+  const admin = createAdminClient();
+
+  const refsPorEstado = new Map<EstadoRetiro, string[]>();
+  for (const o of ordenes) {
+    const refs = refsPorEstado.get(o.estado) ?? [];
+    refs.push(o.referencia_orden);
+    refsPorEstado.set(o.estado, refs);
+  }
+
+  let marcadas = 0;
+  for (const [estado, refs] of refsPorEstado) {
+    /* En tandas: el `.in()` viaja en la URL y una reimportación del histórico
+       junta cientos de referencias. Sin guardia `.neq("estado", …)`: con
+       `estado` NULL el neq da NULL y esa fila se quedaría sin marcar. */
+    const cuentas = await porLotes(refs, TAM_LOTE_IN, async (lote) => {
+      const { data, error } = await admin
+        .from("sale_orders")
+        .update({ estado })
+        .eq("canal", canal)
+        .in("referencia_orden", lote)
+        .select("id");
+      if (error) throw new Error(error.message);
+      return data?.length ?? 0;
+    });
+    marcadas += cuentas.reduce((a, b) => a + b, 0);
+  }
+  return marcadas;
 }
 
 /* Corrige fecha/monto/cantidad/envío de los renglones YA importados. Devuelve

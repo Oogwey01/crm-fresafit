@@ -20,6 +20,7 @@ import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/int
 import {
   aMonto,
   guardarTotalesOrden,
+  marcarOrdenesRetiradas,
   refrescarRenglones,
   separarAltas,
   ventanaDesde,
@@ -527,6 +528,18 @@ async function aplicarOrdenes(
         infoEnvio.get(o.id)?.costo_envio ?? null,
       ),
     ),
+  );
+
+  /* El total de la orden muerta también deja de sumar: sin este marcado, la
+     cancelación solo borraba renglones de `sales` y `sale_orders` conservaba la
+     orden viva para Métricas. Va aunque no haya renglones que borrar: el corte
+     de altas solo aplica a `sales`. */
+  await marcarOrdenesRetiradas(
+    "mercado_libre",
+    ordenes.filter(estaCancelada).map((o) => ({
+      referencia_orden: String(o.id),
+      estado: o.status === "invalid" ? ("invalid" as const) : ("cancelled" as const),
+    })),
   );
 
   // Órdenes canceladas/inválidas: retirar sus renglones si se importaron.

@@ -20,6 +20,7 @@ import { leerDatosIntegracion, mezclarDatosIntegracion } from "@/lib/canales/int
 import {
   aMonto,
   guardarTotalesOrden,
+  marcarOrdenesRetiradas,
   refrescarRenglones,
   separarAltas,
   ventanaDesde,
@@ -378,6 +379,18 @@ async function aplicarOrdenes(
     vendibles.map((o) =>
       totalDeOrden(o, o.buyer_email ? (clientes.get(o.buyer_email) ?? null) : null),
     ),
+  );
+
+  /* El total de la orden muerta también deja de sumar: sin este marcado, la
+     cancelación solo borraba renglones de `sales` y `sale_orders` conservaba la
+     orden viva para Métricas (con el status además en MAYÚSCULAS, que el corte
+     de canceladas ni siquiera reconocía). */
+  await marcarOrdenesRetiradas(
+    "tiktok_shop",
+    ordenes.filter(estaCancelada).map((o) => ({
+      referencia_orden: o.id,
+      estado: "cancelled" as const,
+    })),
   );
 
   const refsCanceladas = ordenes
