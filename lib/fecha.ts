@@ -196,6 +196,19 @@ export function rangoPersonalizado(desde: string, hasta: string): {
   };
 }
 
+/* Mes corto de un "AAAA-MM" con mayúscula, ej. "2026-02" → "Feb". */
+export function mesCorto(ym: string): string {
+  const nombre = MESES[parseInt(ym.slice(5, 7), 10) - 1] ?? "";
+  return nombre.charAt(0).toUpperCase() + nombre.slice(1);
+}
+
+/* Primer y último día de un "AAAA-MM", como Periodo. */
+export function rangoDeMes(ym: string): Periodo {
+  const [anio, mes] = ym.split("-").map(Number);
+  const ultimo = new Date(anio, mes, 0).getDate(); // día 0 del mes siguiente
+  return { desde: `${ym}-01`, hasta: `${ym}-${String(ultimo).padStart(2, "0")}` };
+}
+
 /* Atajos de rango que ofrece el selector de fechas. Son los que pidió Armando
    ("últimos 30 días, últimos 7, últimos 15, mes actual, semana actual"), más
    ayer, que sale gratis. El orden es el que se pinta en la columna. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlarmClock,
   Check,
@@ -12,6 +12,7 @@ import {
   Sparkles,
   Store,
   Truck,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,11 +25,13 @@ import {
 } from "@/components/ui/select";
 import { BarraHerramientas } from "@/components/compartido/barra-herramientas";
 import { CampoBusqueda } from "@/components/compartido/campo-busqueda";
+import { RangoFechas } from "@/components/compartido/rango-fechas";
 import { Resaltado } from "@/components/compartido/resaltado";
 import { StatCard } from "@/components/compartido/stat-card";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { FiltroMeses } from "@/components/personalizados/filtro-meses";
 import { PersonalizadoDialog } from "@/components/personalizados/personalizado-dialog";
 import { ImportarPersonalizados } from "@/components/personalizados/importar-personalizados";
 import { VerDiseno } from "@/components/personalizados/ver-diseno";
@@ -45,7 +48,8 @@ import {
   obtenerCanal,
   obtenerEstadoPersonalizado,
 } from "@/lib/catalogos";
-import { formatearFecha, hoyISO } from "@/lib/fecha";
+import { formatearFecha, hoyISO, rangoDeMes, type PresetRangoId } from "@/lib/fecha";
+import { enRango } from "@/lib/metricas";
 import { norm } from "@/lib/importar/tsv";
 import { iniciales } from "@/lib/utils";
 import type { EnlaceOrden } from "@/lib/personalizados/desde-maquila";
@@ -58,6 +62,22 @@ const ABIERTOS: readonly string[] = ESTADOS_PERSONALIZADO_ABIERTOS;
    la sesión y redirige al enlace firmado. Lazy por defecto de next/image, así
    que solo viajan las que entran en pantalla. */
 const rutaDiseno = (path: string) => `/api/personalizados/diseno?path=${encodeURIComponent(path)}`;
+
+const colorEstado = (id: string) => obtenerEstadoPersonalizado(id)?.color;
+
+/* El mismo punto que en la hoja hace el relleno de la celda: es lo que permite
+   barrer la columna Estado de un vistazo sin leer palabra por palabra. */
+function PuntoEstado({ estado }: { estado: string }) {
+  const color = colorEstado(estado);
+  if (!color) return null;
+  return (
+    <span
+      className="size-2 shrink-0 rounded-full"
+      style={{ backgroundColor: color }}
+      aria-hidden="true"
+    />
+  );
+}
 
 /* El texto que se le manda a Eduardo (el proveedor que borda/imprime) por
    WhatsApp. Antes se armaba a mano cada vez. La liga del diseño es un enlace
@@ -129,14 +149,70 @@ export function PanelPersonalizados({
   const [dialogo, setDialogo] = useState<Personalizado | "nuevo" | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("abiertos");
+  /* Rango sobre la FECHA DE COMPRA: es la que ordena la lista y la que se ve
+     bajo el nº de venta, así que el recorte se explica solo. Arranca vacío —
+     todo a la vista—; el preset se guarda aparte para poder rotular el atajo. */
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [preset, setPreset] = useState<PresetRangoId | "">("");
+  const presetElegido = useRef<PresetRangoId | "">("");
+  const hayRango = Boolean(desde && hasta);
 
-  const enProceso = personalizados.filter((p) => ABIERTOS.includes(p.estado));
+  /* La tira de meses sale de las fichas mismas (por fecha de compra), acotada
+     a fechas plausibles: hay un par de fichas viejas con el año mal capturado
+     (1900, meses futuros) que pintarían pestañas fantasma. */
+  const mesLimite = hoyISO().slice(0, 7);
+  const meses = [
+    ...new Set(
+      personalizados
+        .map((p) => p.fecha_compra?.slice(0, 7))
+        .filter((ym): ym is string => Boolean(ym && ym >= "2025-01" && ym <= mesLimite)),
+    ),
+  ].sort();
+  /* El mes «activo» se deduce del rango en vez de guardarse aparte: así la
+     pastilla y el calendario nunca se contradicen, y mover el rango a mano
+     suelta la pastilla sola. */
+  const mesActivo =
+    meses.find((ym) => {
+      const r = rangoDeMes(ym);
+      return r.desde === desde && r.hasta === hasta;
+    }) ?? null;
+
+  function elegirMes(ym: string | null) {
+    const r = ym ? rangoDeMes(ym) : { desde: "", hasta: "" };
+    setDesde(r.desde);
+    setHasta(r.hasta);
+    setPreset("");
+    presetElegido.current = "";
+    /* Elegir un mes es mirar historia, y la historia vive en «enviado»: con el
+       filtro «En proceso» un mes cerrado sale vacío y parece que no hay datos
+       (pasó de verdad: se creyó perdido lo que sí estaba). Volver a «Todo»
+       regresa al default del día a día. */
+    setFiltroEstado(ym ? "todos" : "abiertos");
+  }
+
+  /* Las fichas viejas de la hoja no traen fecha de compra: con un rango puesto
+     no hay forma de decir si caen dentro, así que se quedan fuera. Se cuentan
+     para avisarlo en la barra en vez de que desaparezcan sin explicación. */
+  const base = hayRango
+    ? personalizados.filter((p) => p.fecha_compra && enRango(p.fecha_compra, { desde, hasta }))
+    : personalizados;
+  const sinFechaCompra = hayRango ? personalizados.filter((p) => !p.fecha_compra).length : 0;
+
+  /* Las cuatro tarjetas miran el periodo elegido, no el total: con un rango
+     puesto, «fuera de fecha» es de esos pedidos y no del módulo entero. */
+  const enProceso = base.filter((p) => ABIERTOS.includes(p.estado));
   const hoy = hoyISO();
   /* Vencido = se prometió para una fecha que ya pasó y todavía no sale. */
   const vencidos = enProceso.filter((p) => p.fecha_limite && p.fecha_limite < hoy);
-  const enviadosEsteMes = personalizados.filter(
-    (p) => p.estado === "enviado" && (p.updated_at ?? p.created_at).startsWith(hoy.slice(0, 7)),
-  );
+  /* Sin rango la tarjeta es «este mes» (lo de siempre). Con rango, filtrar
+     además por el mes en curso daría casi siempre cero: lo que se pidió en
+     junio se envió en junio. Ahí cuenta los enviados del periodo. */
+  const enviados = hayRango
+    ? base.filter((p) => p.estado === "enviado")
+    : base.filter(
+        (p) => p.estado === "enviado" && (p.updated_at ?? p.created_at).startsWith(hoy.slice(0, 7)),
+      );
   const sinDiseno = enProceso.filter((p) => !p.foto_path);
 
   /* Los cinturones personalizados que ya se vendieron y todavía no tenían
@@ -154,7 +230,7 @@ export function PanelPersonalizados({
   /* El compilador de React memoiza esto solo: la lista base se deriva en cada
      render y envolverla a mano rompía su optimización. */
   const q = norm(busqueda);
-  const visibles = personalizados.filter((p) => {
+  const visibles = base.filter((p) => {
     if (filtroEstado === "abiertos" && !ABIERTOS.includes(p.estado)) return false;
     if (filtroEstado !== "abiertos" && filtroEstado !== "todos" && p.estado !== filtroEstado)
       return false;
@@ -281,15 +357,37 @@ export function PanelPersonalizados({
             })
           }
         >
-          <SelectTrigger className="h-8 w-[155px]">
+          {/* Los colores de la hoja: la celda se tiñe del estado —al 12%, que
+              es como se pinta todo el CRM— y el punto lleva el color a fondo
+              entero. El nombre se queda en el color del texto a propósito: el
+              amarillo de «En diseño» sobre fondo claro no se lee. */}
+          <SelectTrigger
+            className="h-8 w-[155px]"
+            style={
+              colorEstado(p.estado)
+                ? {
+                    backgroundColor: `${colorEstado(p.estado)}1F`,
+                    borderColor: `${colorEstado(p.estado)}59`,
+                  }
+                : undefined
+            }
+          >
             <SelectValue>
-              {(v: string) => obtenerEstadoPersonalizado(v)?.nombre ?? "Estado"}
+              {(v: string) => (
+                <span className="flex items-center gap-1.5">
+                  <PuntoEstado estado={v} />
+                  {obtenerEstadoPersonalizado(v)?.nombre ?? "Estado"}
+                </span>
+              )}
             </SelectValue>
           </SelectTrigger>
           <SelectContent>
             {ESTADOS_PERSONALIZADO.map((e) => (
               <SelectItem key={e.id} value={e.id}>
-                {e.nombre}
+                <span className="flex items-center gap-1.5">
+                  <PuntoEstado estado={e.id} />
+                  {e.nombre}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -359,6 +457,28 @@ export function PanelPersonalizados({
           </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+          {/* Mismo selector que Finanzas y Métricas: atajos y rango a mano en un
+              solo calendario, sobre la fecha de compra. */}
+          <RangoFechas
+            desde={desde}
+            hasta={hasta}
+            preset={preset}
+            /* Elegir un atajo dispara onPreset y enseguida onChange, así que
+               limpiar el preset ahí lo borraría siempre. El ref (síncrono, ya
+               puesto cuando llega el onChange) distingue «vino de un atajo» de
+               «lo eligió a mano en el calendario». */
+            onPreset={(id) => {
+              presetElegido.current = id;
+              setPreset(id);
+            }}
+            onChange={(d, h) => {
+              setDesde(d);
+              setHasta(h);
+              setPreset(presetElegido.current);
+              presetElegido.current = "";
+            }}
+            className="w-full md:w-[220px]"
+          />
           <Button
             variant="outline"
             onClick={traer}
@@ -379,6 +499,8 @@ export function PanelPersonalizados({
         </div>
       </div>
 
+      <FiltroMeses meses={meses} activo={mesActivo} onElegir={elegirMes} />
+
       <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
         <StatCard etiqueta="En proceso" valor={String(enProceso.length)} icono={Sparkles} />
         <StatCard
@@ -394,7 +516,12 @@ export function PanelPersonalizados({
           icono={Palette}
           valorClassName={sinDiseno.length > 0 ? "text-amber-600" : undefined}
         />
-        <StatCard etiqueta="Enviados este mes" valor={String(enviadosEsteMes.length)} icono={Truck} />
+        <StatCard
+          etiqueta={hayRango ? "Enviados" : "Enviados este mes"}
+          valor={String(enviados.length)}
+          icono={Truck}
+          nota={hayRango ? "del periodo elegido" : undefined}
+        />
       </div>
 
       <BarraHerramientas>
@@ -402,7 +529,7 @@ export function PanelPersonalizados({
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar por cliente, nº de venta o nota…"
-          conteo={{ visibles: visibles.length, total: personalizados.length, unidad: "pedidos" }}
+          conteo={{ visibles: visibles.length, total: base.length, unidad: "pedidos" }}
         />
         <div className="flex flex-wrap items-center gap-2">
           <Select value={filtroEstado} onValueChange={(v) => setFiltroEstado(v ?? "abiertos")}>
@@ -422,11 +549,40 @@ export function PanelPersonalizados({
               <SelectItem value="todos">Todos los estados</SelectItem>
               {ESTADOS_PERSONALIZADO.map((e) => (
                 <SelectItem key={e.id} value={e.id}>
-                  {e.nombre}
+                  <span className="flex items-center gap-1.5">
+                    <PuntoEstado estado={e.id} />
+                    {e.nombre}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {hayRango && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setDesde("");
+                  setHasta("");
+                  setPreset("");
+                  presetElegido.current = "";
+                }}
+                className="h-8 gap-1 text-[13px] text-muted-foreground"
+              >
+                <X className="size-3.5" />
+                Quitar fechas
+              </Button>
+              {/* Las viejas de la hoja no traen fecha de compra: si no se dice,
+                  parece que el filtro se comió pedidos. */}
+              {sinFechaCompra > 0 && (
+                <span className="text-[12.5px] text-muted-foreground">
+                  {sinFechaCompra} sin fecha de compra {sinFechaCompra === 1 ? "queda" : "quedan"}{" "}
+                  fuera
+                </span>
+              )}
+            </>
+          )}
           <div className="flex-1" />
           {vencidos.length > 0 && <Pastilla nombre={`${vencidos.length} fuera de fecha`} color="#d63031" />}
         </div>

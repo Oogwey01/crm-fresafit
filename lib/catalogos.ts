@@ -337,13 +337,18 @@ export const ESTADOS_RECEPCION = [
    «Personalizados FRESA FIT» con sus colores. `produccion` arranca cuando el
    cliente aprobó el diseño y se mandó al proveedor: es la fecha que hoy nadie
    encuentra. `eduardo` es el paso de bordado, que lleva él. */
+/* Los cuatro primeros y el último son EXACTAMENTE los colores con los que el
+   equipo pinta las celdas en la hoja «Personalizados FRESA FIT» (gris recibido,
+   amarillo diseño, naranja Eduardo, verde enviado): así el tablero se lee igual
+   aquí que allá. «En producción» y «Listo» no existen en la hoja —son del CRM—
+   y por eso son los dos que no salen de ese muestrario. */
 export const ESTADOS_PERSONALIZADO = [
-  { id: "recibido", nombre: "Recibido", color: "#94a3b8" },
-  { id: "diseno", nombre: "En diseño", color: "#f6c445" },
-  { id: "eduardo", nombre: "Con Eduardo", color: "#e8730c" },
+  { id: "recibido", nombre: "Recibido", color: "#9e9e9e" },
+  { id: "diseno", nombre: "En diseño", color: "#f5b301" },
+  { id: "eduardo", nombre: "Con Eduardo", color: "#f4600d" },
   { id: "produccion", nombre: "En producción", color: "#6c5ce7" },
-  { id: "listo", nombre: "Listo", color: "#16a34a" },
-  { id: "enviado", nombre: "Enviado", color: "#22c55e" },
+  { id: "listo", nombre: "Listo", color: "#0e9f6e" },
+  { id: "enviado", nombre: "Enviado", color: "#00c46a" },
 ] as const;
 
 /* Los estados en los que el pedido sigue en manos del equipo (los que se
