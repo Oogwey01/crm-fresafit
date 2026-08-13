@@ -9,11 +9,6 @@ import { conexionMercadolibre } from "@/lib/mercadolibre/api";
 import { importacionCompletaML } from "@/lib/mercadolibre/sync";
 import { importarVentasML } from "@/lib/mercadolibre/ventas";
 
-/* Los 300s por defecto de Vercel alcanzan para el cron diario pero no para un
-   reimporte con `?dias=` grande: la info de envío se pide POR ORDEN y una
-   ventana de 45 días ya se quedaba a medias (FUNCTION_INVOCATION_TIMEOUT). */
-export const maxDuration = 800;
-
 /* Reconciliación completa con Mercado Libre. La dispara el cron diario de
    Vercel a las 6:30 UTC — media hora DESPUÉS del de Tienda Nube, a propósito:
    cada full-sync adopta y propaga solo diferencias, así que el orden TN→ML
