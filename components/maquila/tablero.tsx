@@ -30,6 +30,7 @@ import {
   ESTADOS_MAQUILA_ACTIVOS,
   SUBESTADOS_MAQUILA,
   obtenerAcabadoMaquila,
+  obtenerCanal,
   obtenerColorPalanca,
   obtenerEstadoMaquila,
   obtenerModeloMaquila,
@@ -39,9 +40,11 @@ import {
   SEMAFORO_MAQUILA,
   grupoDePedido,
   indicadoresDePedido,
+  particionarPedidos,
   semaforoMaquila,
 } from "@/lib/maquila/reglas";
-import { formatearFecha } from "@/lib/fecha";
+import { formatearFecha, formatearFechaHora } from "@/lib/fecha";
+import { direccionEnUnaLinea } from "@/lib/canales/direccion";
 import { norm } from "@/lib/importar/tsv";
 import type {
   EstadoMaquilaId,
@@ -52,13 +55,17 @@ import type {
 
 const ACTIVOS: readonly string[] = ESTADOS_MAQUILA_ACTIVOS;
 
-type Vista = "hoy" | "corte" | "prensados" | "atrasados" | "historial";
+/* Sin vista de atrasados: es un subconjunto de «Hoy» y las filas vencidas ya
+   se pintan en rojo en cualquier vista — la pastilla roja de la barra filtra.
+   `espera` solo existe para el equipo: a Eduardo la RLS ni le entrega esas
+   filas y el segmento no se le pinta. */
+export type Vista = "espera" | "hoy" | "corte" | "prensados" | "esperando" | "historial";
 
-const VISTAS = [
+const VISTAS_TALLER = [
   ["hoy", "Hoy"],
   ["corte", "Corte actual"],
   ["prensados", "Prensados"],
-  ["atrasados", "Atrasados"],
+  ["esperando", "Esperando diseño"],
   ["historial", "Historial"],
 ] as const;
 
@@ -88,22 +95,47 @@ function subestadosDisponibles(p: PedidoMaquila) {
 export function TableroMaquila({
   pedidos,
   guias,
+  disenosPorPedido,
   hoy,
   esEquipo,
   onAbrir,
+  vista: vistaControlada,
+  onVista,
+  soloAtrasados: soloAtrasadosControlado,
+  onSoloAtrasados,
 }: {
   pedidos: PedidoMaquila[];
   /* Las solicitudes de guía vivas, indexadas por paquete: es lo que convierte
      la columna Guía en «solicitada / lista para imprimir». */
   guias: GuiaMaquila[];
+  /* pedido_id → ruta del arte en el bucket `personalizados`. Lo que hace que
+     cada renglón enseñe SU cinturón y no la portada del catálogo. */
+  disenosPorPedido: Record<string, string>;
   hoy: string;
   esEquipo: boolean;
   onAbrir?: (p: PedidoMaquila) => void;
+  /* La vista y el filtro de atrasados admiten control externo: el panel del
+     equipo los levanta para que sus StatCards naveguen hasta aquí. Sin estas
+     props (la vista del maquilero) el tablero se maneja solo. */
+  vista?: Vista;
+  onVista?: (v: Vista) => void;
+  soloAtrasados?: boolean;
+  onSoloAtrasados?: (v: boolean) => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
-  const [vista, setVista] = useState<Vista>("hoy");
+  const [vistaInterna, setVistaInterna] = useState<Vista>("hoy");
+  const [soloAtrasadosInterno, setSoloAtrasadosInterno] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const [guiaPara, setGuiaPara] = useState<PedidoMaquila | null>(null);
+
+  const vista = vistaControlada ?? vistaInterna;
+  const setVista = onVista ?? setVistaInterna;
+  const soloAtrasados = soloAtrasadosControlado ?? soloAtrasadosInterno;
+  const setSoloAtrasados = onSoloAtrasados ?? setSoloAtrasadosInterno;
+
+  const VISTAS: readonly (readonly [Vista, string])[] = esEquipo
+    ? ([["espera", "Esperando pago"], ...VISTAS_TALLER] as const)
+    : VISTAS_TALLER;
 
   /* El cruce guía↔pedido es por (canal, grupo): no hay FK porque la guía es
      del paquete y el pedido del renglón. `grupoDePedido` espeja el coalesce
@@ -112,27 +144,41 @@ export function TableroMaquila({
   const guiaDe = (p: PedidoMaquila) =>
     guiaPorPaquete.get(`${p.canal}|${grupoDePedido(p)}`) ?? null;
 
-  const base = pedidos.filter((p) => p.estado !== "esperando_pago");
-  const activos = base.filter((p) => ACTIVOS.includes(p.estado));
-  const atrasados = activos.filter((p) => p.fecha_prometida && p.fecha_prometida < hoy);
-  /* El corte "actual" es el lote pendiente más viejo: si quedó uno atrás, ese
-     es el que urge, no el del calendario de esta semana. */
-  const enCorte = activos.filter((p) => p.ruta === "corte");
-  const corteActual = enCorte.reduce<string | null>(
-    (min, p) => (p.corte_fecha && (!min || p.corte_fecha < min) ? p.corte_fecha : min),
-    null,
-  );
-
-  const porVista: Record<Vista, PedidoMaquila[]> = {
-    hoy: activos.filter((p) => p.fecha_prometida && p.fecha_prometida <= hoy),
-    corte: enCorte.filter((p) => p.corte_fecha === corteActual),
-    prensados: activos.filter((p) => p.ruta === "directa" || p.acabado === "prensado"),
-    atrasados,
-    historial: base.filter((p) => !ACTIVOS.includes(p.estado)),
+  /* El arte, servido por la ruta que ya usa /personalizados: valida la sesión y
+     redirige al enlace firmado y redimensionado, así que la página no firma
+     nada por adelantado y el navegador solo pide las miniaturas que se ven. */
+  const arteDe = (p: PedidoMaquila) => {
+    const path = disenosPorPedido[p.id];
+    return path ? `/api/personalizados/diseno?path=${encodeURIComponent(path)}` : null;
   };
 
+  /* Un personalizado no se puede empezar sin el arte, y ese pendiente es del
+     diseñador. Las vistas de trabajo enseñan SOLO lo que ya se puede producir
+     —lo de catálogo entra derecho, sin esperar a nadie— y lo demás vive en su
+     propia vista, para que se vea que viene en camino y no que se perdió. */
+  const parte = particionarPedidos(pedidos, ACTIVOS, hoy);
+  const { atrasados, corteActual } = parte;
+
+  const porVista: Record<Vista, PedidoMaquila[]> = {
+    espera: esEquipo ? parte.esperandoPago : [],
+    hoy: parte.paraHoy,
+    corte: parte.loteActual,
+    prensados: parte.prensados,
+    esperando: parte.esperandoArte,
+    historial: parte.historial,
+  };
+
+  /* La lente de atrasados: filtra la vista activa a lo realmente atrasado
+     (listo Y vencido) — por pertenencia, no por fecha, para que el historial
+     viejo no se cuele. Si el último atrasado se entrega, se apaga sola. */
+  const filtroAtrasados = soloAtrasados && atrasados.length > 0;
+  const idsAtrasados = new Set(atrasados.map((p) => p.id));
+  const enVista = filtroAtrasados
+    ? porVista[vista].filter((p) => idsAtrasados.has(p.id))
+    : porVista[vista];
+
   const q = norm(busqueda);
-  const visibles = porVista[vista].filter((p) => {
+  const visibles = enVista.filter((p) => {
     if (!q) return true;
     return [p.diseno, p.sku, p.numero_orden, p.envio_nombre, p.talla, p.color, p.notas]
       .filter(Boolean)
@@ -146,7 +192,15 @@ export function TableroMaquila({
       esTitulo: true,
       celda: (p) => (
         <div className="flex min-w-0 items-center gap-2.5">
-          <Miniatura src={p.imagen_url} alt={p.diseno ?? p.sku ?? "Cinturón"} tam="size-11" />
+          {/* El arte manda sobre la portada del catálogo: en un personalizado
+              la foto de la tienda es la misma para los ocho pedidos, y lo que
+              hay que producir es el diseño que subió el diseñador. Sin arte
+              (gamuza PRO, o todavía sin entregar) se queda la del producto. */}
+          <Miniatura
+            src={arteDe(p) ?? p.imagen_url}
+            alt={arteDe(p) ? `Diseño de ${p.envio_nombre ?? p.numero_orden ?? "el pedido"}` : (p.diseno ?? p.sku ?? "Cinturón")}
+            tam="size-11"
+          />
           <div className="min-w-0">
             <div className="truncate font-semibold">
               <Resaltado texto={p.diseno ?? p.sku ?? "Sin diseño"} busca={busqueda} />
@@ -387,6 +441,73 @@ export function TableroMaquila({
     },
   ];
 
+  /* La vista de espera enseña otra cosa: no hay promesa ni estado que mover
+     (el pago no ha entrado), lo que importa es QUÉ llegó, de quién y cuándo. */
+  const columnasEspera: Columna<PedidoMaquila>[] = [
+    {
+      clave: "pedido",
+      label: "Pedido",
+      esTitulo: true,
+      celda: (p) => (
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Miniatura src={p.imagen_url} alt={p.diseno ?? p.sku ?? "Cinturón"} tam="size-11" />
+          <div className="min-w-0">
+            <div className="truncate font-semibold">
+              <Resaltado texto={p.diseno ?? p.sku ?? "Sin diseño"} busca={busqueda} />
+            </div>
+            <div className="truncate text-[12.5px] text-muted-foreground">
+              {[
+                obtenerModeloMaquila(p.modelo)?.nombre,
+                obtenerAcabadoMaquila(p.acabado)?.nombre,
+                p.talla ? `talla ${p.talla}` : null,
+                p.color,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      clave: "orden",
+      label: "Orden",
+      celda: (p) => (
+        <div className="min-w-0">
+          <div className="truncate font-mono text-[12.5px]">
+            <Resaltado texto={p.numero_orden ?? "manual"} busca={busqueda} />
+          </div>
+          <div className="text-[11.5px] text-muted-foreground">
+            {obtenerCanal(p.canal)?.nombre ?? p.canal}
+          </div>
+        </div>
+      ),
+    },
+    {
+      clave: "cliente",
+      label: "Cliente",
+      celda: (p) => (
+        <div className="min-w-0">
+          <div className="truncate">
+            <Resaltado texto={p.envio_nombre ?? "—"} busca={busqueda} />
+          </div>
+          <div className="truncate text-[11.5px] text-muted-foreground">
+            {direccionEnUnaLinea(p.envio_direccion) || "—"}
+          </div>
+        </div>
+      ),
+    },
+    {
+      clave: "llego",
+      label: "Llegó",
+      celda: (p) => (
+        <span className="text-muted-foreground">{formatearFechaHora(p.created_at)}</span>
+      ),
+    },
+  ];
+
+  const esEspera = vista === "espera";
+
   return (
     <div>
       <BarraHerramientas>
@@ -394,7 +515,7 @@ export function TableroMaquila({
           valor={busqueda}
           onCambio={setBusqueda}
           placeholder="Buscar por diseño, orden, cliente o SKU…"
-          conteo={{ visibles: visibles.length, total: porVista[vista].length, unidad: "pedidos" }}
+          conteo={{ visibles: visibles.length, total: enVista.length, unidad: "pedidos" }}
         />
         <div className="flex flex-wrap items-center gap-2">
           <ControlSegmentado opciones={VISTAS} valor={vista} onCambio={setVista} />
@@ -404,27 +525,61 @@ export function TableroMaquila({
             </span>
           )}
           <div className="flex-1" />
+          {parte.esperandoArte.length > 0 && (
+            <Pastilla nombre={`${parte.esperandoArte.length} esperando diseño`} color="#f59e0b" />
+          )}
           {atrasados.length > 0 && (
-            <Pastilla nombre={`${atrasados.length} atrasados`} color="#d63031" />
+            <button
+              type="button"
+              aria-pressed={soloAtrasados}
+              title={
+                soloAtrasados
+                  ? "Quitar el filtro y ver la vista completa"
+                  : "Dejar solo los atrasados en la vista"
+              }
+              onClick={() => setSoloAtrasados(!soloAtrasados)}
+              className={`rounded-md ${soloAtrasados ? "ring-2 ring-red-500/50" : ""}`}
+            >
+              <Pastilla nombre={`${atrasados.length} atrasados`} color="#d63031" />
+            </button>
           )}
         </div>
       </BarraHerramientas>
 
+      {esEspera && (
+        <p className="mb-3 text-[13.5px] text-muted-foreground">
+          Ya llegó la orden pero el pago no se ha aprobado, así que{" "}
+          <b className="font-semibold text-foreground">no se produce ni se le muestra a Eduardo</b>.
+          Cuando el pago entra, se calcula la fecha prometida y el pedido salta solo al tablero. Si
+          la orden se cancela antes, se marca y se queda como constancia.
+        </p>
+      )}
+
       <TablaSimple
-        cols="grid-cols-[minmax(200px,1.3fr)_150px_120px_150px_190px_170px]"
-        columnas={columnas}
+        cols={
+          esEspera
+            ? "grid-cols-[minmax(220px,1.4fr)_140px_minmax(200px,1fr)_150px]"
+            : "grid-cols-[minmax(200px,1.3fr)_150px_120px_150px_190px_170px]"
+        }
+        columnas={esEspera ? columnasEspera : columnas}
         datos={visibles}
         filaKey={(p) => p.id}
-        minW="min-w-[1080px]"
+        minW={esEspera ? "min-w-[820px]" : "min-w-[1080px]"}
         filaClassName={(p) =>
           ACTIVOS.includes(p.estado) && p.fecha_prometida && p.fecha_prometida < hoy
             ? "bg-red-500/5"
             : ""
         }
         vacio={
-          vista === "historial"
-            ? "Todavía no se entrega nada."
-            : "Nada pendiente en esta vista. 🎉"
+          filtroAtrasados
+            ? "Sin atrasados en esta vista."
+            : esEspera
+              ? "Nada esperando pago. Cuando una orden llegue sin pagar, cae aquí y NO al tablero de Eduardo."
+              : vista === "historial"
+                ? "Todavía no se entrega nada."
+                : vista === "esperando"
+                  ? "Nada atorado en diseño: todo lo vendido ya tiene su arte."
+                  : "Nada pendiente en esta vista. 🎉"
         }
         onRowClick={onAbrir}
       />

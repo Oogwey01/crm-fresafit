@@ -5,6 +5,7 @@ import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
 import { archivoDeFormData, rutaParaArchivo, urlFirmada } from "@/lib/storage";
 import { revalidar } from "@/app/(app)/maquila/acciones/comun";
+import { recalcularArranqueMaquila } from "@/lib/maquila/arranque";
 import type { AcabadoMaquilaId, Personalizado } from "@/lib/types";
 
 /* El arte que Eduardo necesita para producir, dentro del CRM y no en un chat.
@@ -120,6 +121,13 @@ export async function marcarDisenoListo(
     })
     .eq("id", pedidoId);
   if (error) return { error: error.message };
+
+  /* El plazo cuenta desde el arte, así que marcarlo (o retirarlo, cuando el
+     arte se rechaza) mueve la promesa. Al desmarcar el pedido se queda sin
+     arranque y conserva la fecha que tenía: es lo que deja el tablero ordenado
+     mientras diseño lo resuelve. */
+  await recalcularArranqueMaquila(cx.supabase, [pedidoId]);
+
   revalidar();
   return { ok: true };
 }

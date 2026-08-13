@@ -16,10 +16,13 @@
    ============================================================================ */
 
 import {
+  arranqueDePedido,
   clasificarPago,
   corteSiguiente,
   diaEfectivoDePago,
   esDiaHabil,
+  esperaArte,
+  particionarPedidos,
   semaforoMaquila,
   sumarDiasHabiles,
 } from "../lib/maquila/reglas.ts";
@@ -128,6 +131,110 @@ prueba("venció ayer → rojo", semaforoMaquila("2026-08-06", "2026-08-07"), "ro
 prueba("vence en 2 días → amarillo", semaforoMaquila("2026-08-09", "2026-08-07"), "amarillo");
 prueba("vence en 3 días → verde", semaforoMaquila("2026-08-10", "2026-08-07"), "verde");
 prueba("sin fecha → null", semaforoMaquila(null, "2026-08-07"), null);
+
+/* El arte: quién entra al tablero de Eduardo y desde cuándo le corre el reloj.
+   Los dos instantes se escriben con formatos distintos a propósito — la base
+   devuelve "+00:00" y toISOString() escribe "Z" —, que es justo lo que rompería
+   una comparación de textos. */
+const PAGO = "2026-08-04T18:00:00+00:00";
+const ARTE = "2026-08-07T15:30:00.000Z";
+
+console.log("El arte (esperaArte):");
+prueba(
+  "gamuza PRO: sin personalizado ni diseño, no espera a nadie",
+  esperaArte({ personalizado_id: null, diseno_id: null, diseno_listo_en: null }),
+  false,
+);
+prueba(
+  "personalizado sin arte: espera",
+  esperaArte({ personalizado_id: "p1", diseno_id: null, diseno_listo_en: null }),
+  true,
+);
+prueba(
+  "personalizado con arte entregado: ya no espera",
+  esperaArte({ personalizado_id: "p1", diseno_id: null, diseno_listo_en: ARTE }),
+  false,
+);
+prueba(
+  "diseño de biblioteca sin entregar: espera igual",
+  esperaArte({ personalizado_id: null, diseno_id: "d1", diseno_listo_en: null }),
+  true,
+);
+
+console.log("El arranque (arranqueDePedido):");
+prueba(
+  "lo de catálogo arranca con el pago",
+  arranqueDePedido({ pagado_en: PAGO, personalizado_id: null, diseno_id: null, diseno_listo_en: null }),
+  PAGO,
+);
+prueba(
+  "un personalizado sin arte todavía no arranca",
+  arranqueDePedido({ pagado_en: PAGO, personalizado_id: "p1", diseno_id: null, diseno_listo_en: null }),
+  null,
+);
+prueba(
+  "con el arte entregado después del pago, manda el arte",
+  arranqueDePedido({ pagado_en: PAGO, personalizado_id: "p1", diseno_id: null, diseno_listo_en: ARTE }),
+  ARTE,
+);
+prueba(
+  "arte entregado ANTES del pago: manda el pago (comparación de instantes, no de texto)",
+  arranqueDePedido({
+    pagado_en: "2026-08-09T01:00:00+00:00",
+    personalizado_id: "p1",
+    diseno_id: null,
+    diseno_listo_en: ARTE,
+  }),
+  "2026-08-09T01:00:00+00:00",
+);
+prueba(
+  "sin pago, arranca con el arte (captura manual por adelantado)",
+  arranqueDePedido({ pagado_en: null, personalizado_id: "p1", diseno_id: null, diseno_listo_en: ARTE }),
+  ARTE,
+);
+
+/* El pedido se clasifica desde el arranque, no desde el pago. Es lo que hace
+   recalcularArranqueMaquila (lib/maquila/arranque.ts) al soltarse el pedido:
+   los tres días que tardó el diseño no se los come el taller. */
+console.log("La promesa cuenta desde el arte, no desde el pago:");
+prueba(
+  "sublimado pagado el mar 4-ago: corte del jue 6, promesa 15-ago",
+  clasificarPago("2026-08-04", "10:00", "sublimado", cal),
+  { diaEfectivo: "2026-08-04", ruta: "corte", corteFecha: "2026-08-06", fechaPrometida: "2026-08-15" },
+);
+prueba(
+  "con el arte entregado el vie 7-ago, ese mismo pedido pasa al corte del lun 10 y promete el 19",
+  clasificarPago("2026-08-07", "10:00", "sublimado", cal),
+  { diaEfectivo: "2026-08-07", ruta: "corte", corteFecha: "2026-08-10", fechaPrometida: "2026-08-19" },
+);
+
+/* La partición del tablero: una sola pasada reparte lo que pintan el panel del
+   equipo, el tablero compartido y la vista del maquilero. Siete pedidos que
+   cubren cada cajón, con "hoy" = jueves 13-ago-2026. */
+const CATALOGO = { personalizado_id: null, diseno_id: null, diseno_listo_en: null };
+const PEDIDOS = [
+  { id: "sin-pagar", estado: "esperando_pago", ruta: "corte", acabado: "sublimado", corte_fecha: null, fecha_prometida: null, ...CATALOGO },
+  { id: "sin-arte", estado: "recibido", ruta: "corte", acabado: "sublimado", corte_fecha: "2026-08-13", fecha_prometida: null, ...CATALOGO, personalizado_id: "p1" },
+  { id: "arte-listo", estado: "recibido", ruta: "corte", acabado: "sublimado", corte_fecha: "2026-08-13", fecha_prometida: "2026-08-25", ...CATALOGO, personalizado_id: "p2", diseno_listo_en: ARTE },
+  { id: "atrasado", estado: "en_produccion", ruta: "corte", acabado: "bordado", corte_fecha: "2026-08-06", fecha_prometida: "2026-08-10", ...CATALOGO },
+  { id: "prensado", estado: "recibido", ruta: "directa", acabado: "prensado", corte_fecha: null, fecha_prometida: "2026-08-20", ...CATALOGO },
+  { id: "vence-hoy", estado: "terminado", ruta: "corte", acabado: "sublimado", corte_fecha: "2026-08-06", fecha_prometida: "2026-08-13", ...CATALOGO },
+  { id: "entregado", estado: "entregado", ruta: "corte", acabado: "sublimado", corte_fecha: null, fecha_prometida: "2026-08-01", ...CATALOGO },
+];
+const ACTIVOS = ["recibido", "pendiente_produccion", "en_produccion", "terminado"];
+const ids = (xs) => xs.map((p) => p.id);
+
+console.log("La partición del tablero (particionarPedidos):");
+const parte = particionarPedidos(PEDIDOS, ACTIVOS, "2026-08-13");
+prueba("lo sin pagar se aparta y no toca lo demás", ids(parte.esperandoPago), ["sin-pagar"]);
+prueba("lo trabado en diseño no es trabajo del taller", ids(parte.esperandoArte), ["sin-arte"]);
+prueba("con el arte entregado, el pedido cuenta como listo", ids(parte.listos), ["arte-listo", "atrasado", "prensado", "vence-hoy"]);
+prueba("«hoy» = vence hoy o ya se pasó (contiene a los atrasados)", ids(parte.paraHoy), ["atrasado", "vence-hoy"]);
+prueba("atrasado es SOLO lo ya vencido", ids(parte.atrasados), ["atrasado"]);
+prueba("prensados = ruta directa", ids(parte.prensados), ["prensado"]);
+prueba("el corte actual es el lote pendiente más VIEJO", parte.corteActual, "2026-08-06");
+prueba("el lote actual junta lo de ese corte, no lo del siguiente", ids(parte.loteActual), ["atrasado", "vence-hoy"]);
+prueba("el historial es lo que ya salió del juego", ids(parte.historial), ["entregado"]);
 
 if (fallas) {
   console.error(`\n${fallas} prueba(s) fallaron.`);

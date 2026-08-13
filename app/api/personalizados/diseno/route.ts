@@ -14,13 +14,18 @@ import { exigirRol } from "@/lib/supabase/guardia";
    ya caducada.
 
    La guardia es la misma de los server actions del módulo (`exigirRol`); las
-   políticas del bucket la refuerzan por debajo, como en todo lo demás. */
+   políticas del bucket la refuerzan por debajo, como en todo lo demás.
+
+   Nivel "maquila" y no "interno" porque el tablero de Eduardo pinta aquí las
+   miniaturas de sus pedidos: es el mismo arte, y quién alcanza cuál lo decide
+   la policy del bucket —`maquilero_ve_personalizado`, 20261002000000—, que solo
+   le abre los diseños de pedidos suyos ya pagados. Pedir uno ajeno da 404. */
 
 const MINIATURA = { width: 760, height: 200, resize: "contain" as const, quality: 60 };
 const UNA_HORA = 60 * 60;
 
 export async function GET(request: Request) {
-  const cx = await exigirRol("interno");
+  const cx = await exigirRol("maquila");
   if ("error" in cx) return NextResponse.json({ error: cx.error }, { status: 401 });
 
   const { searchParams } = new URL(request.url);

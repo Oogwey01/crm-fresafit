@@ -13,20 +13,33 @@ lo viejo. Si algo aquí estorba, cámbialo — pero cámbialo aquí también.
    "para simplificar".
 2. **`.env.local` apunta a PRODUCCIÓN.** Correr un script en la laptop toca la
    base real. Introspección (`supabase gen types`) sí; escrituras, nunca.
-3. **Las migraciones SQL se pegan a mano** en el SQL Editor de Supabase. Escribe
-   el `.sql` idempotente en `supabase/migrations/` y di qué archivo correr. Los
+3. **Las migraciones SQL se aplican con `supabase db push`.** Escribe el `.sql`
+   idempotente en `supabase/migrations/` y córrelo:
+
+   ```
+   supabase db push --dry-run --linked   # qué va a correr
+   supabase db push --linked             # correrlo
+   ```
+
+   La contraseña sale de `SUPABASE_DB_PASSWORD` en `.env.local`; no hace falta
+   `supabase login` (su token caduca) porque todo va por conexión directa. Los
    tipos se regeneran solos en el siguiente `pnpm dev`; para forzarlo,
    `pnpm gen:types`. Sin eso el compilador seguiría creyendo en el esquema viejo
    y dejaría pasar columnas que ya no existen.
 
-   **Nunca `supabase db push`.** Pegar en el SQL Editor no escribe en
-   `supabase_migrations.schema_migrations`, así que las 84 migraciones locales
-   figuran con la columna Remote VACÍA (compruébalo con `supabase migration
-   list`): para el CLI esta base está virgen y un push intentaría reaplicarlas
-   todas de golpe contra producción. El historial se podría reparar
-   (`migration repair --status applied`, que marca sin ejecutar), pero antes hay
-   que verificar una por una que están aplicadas — marcar como aplicada una que
-   nunca corrió la deja fuera para siempre.
+   **Ese push va DIRECTO a producción**, igual que pegar en el SQL Editor pero
+   sin la pausa de leer el SQL antes de darle Run. El `--dry-run` es esa pausa.
+
+   Hasta el 12/08/2026 esto se hacía a mano y el historial del CLI estaba
+   vacío. Se sembró con `migration repair --status applied` tras comprobar con
+   `supabase db diff --linked` que el esquema de las migraciones y el de
+   producción coincidían. **Si repites ese diff, tres diferencias son ruido
+   esperado y no significan que falte nada:** los `GRANT … TO anon` masivos (el
+   proyecto real trae default privileges que la imagen del CLI no),
+   `envio_full_cajas.dimensiones` (su migración solo borra la columna si TODAS
+   las filas se pudieron parsear: en la base sombra, vacía, la borra; en
+   producción hay cajas mal capturadas y la conserva) y la policy
+   `meli publicaciones: ver (interno)`, idéntica en ambos lados.
 4. **Los `useMemo` de [components/metricas/panel.tsx](components/metricas/panel.tsx)
    son deliberados**: mueven los filtros de categoría y talla sin round-trip.
    No los subas al servidor sin preguntar.

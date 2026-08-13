@@ -5,7 +5,7 @@ import { exigirRol } from "@/lib/supabase/guardia";
 import { textoONulo } from "@/lib/validacion";
 import { diaMX, horaMX } from "@/lib/fecha";
 import { obtenerModeloMaquila } from "@/lib/catalogos";
-import { clasificarPago } from "@/lib/maquila/reglas";
+import { arranqueDePedido, clasificarPago } from "@/lib/maquila/reglas";
 import { cargarCalendarioMaquila } from "@/lib/maquila/consultas";
 import type { TablesInsert, TablesUpdate } from "@/lib/supabase/tipos-bd";
 import type {
@@ -236,7 +236,9 @@ export async function editarPedidoMaquila(
 
   const { data: actual, error: errActual } = await cx.supabase
     .from("maquila_pedidos")
-    .select("acabado, subestado, pagado_en, modelo")
+    /* En un literal de una pieza: partirlo con `+` deja a PostgREST sin poder
+       inferir el tipo de la fila y todo lo de abajo pasa a ser `any`. */
+    .select("acabado, subestado, pagado_en, modelo, personalizado_id, diseno_id, diseno_listo_en")
     .eq("id", id)
     .single();
   if (errActual || !actual) return { error: errActual?.message ?? "Ese pedido ya no existe." };
@@ -246,14 +248,13 @@ export async function editarPedidoMaquila(
     /* El subestado es de la ruta por lote; si el acabado sale de esa familia,
        se limpia aquí para no chocar con el CHECK compuesto. */
     if (input.acabado === "prensado" && actual.subestado) cambio.subestado = null;
-    if (actual.pagado_en) {
+    /* Se reclasifica desde el ARRANQUE, no desde el pago: en un personalizado
+       ya soltado el reloj corre desde el arte (lib/maquila/arranque.ts), y
+       contar de nuevo desde el pago le devolvería los días del diseño. */
+    const arranque = arranqueDePedido(actual);
+    if (arranque) {
       const { cal } = await cargarCalendarioMaquila(cx.supabase);
-      const cls = clasificarPago(
-        diaMX(actual.pagado_en),
-        horaMX(actual.pagado_en),
-        input.acabado,
-        cal,
-      );
+      const cls = clasificarPago(diaMX(arranque), horaMX(arranque), input.acabado, cal);
       cambio.ruta = cls.ruta;
       cambio.corte_fecha = cls.corteFecha;
       cambio.fecha_prometida = cls.fechaPrometida;

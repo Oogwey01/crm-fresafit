@@ -46,6 +46,44 @@ export const COLUMNAS_PEDIDO_MAQUILA =
   " paqueteria, num_guia, url_rastreo," +
   " envio_nombre, envio_telefono, envio_direccion, notas, created_at";
 
+/* El ARTE de cada pedido: pedido_id → ruta en el bucket `personalizados`.
+   Es lo que hace que el tablero enseñe el cinturón que se va a producir y no la
+   portada del catálogo, que en los personalizados es la misma foto genérica
+   para todos.
+
+   Va aparte y no como join del pedido por dos razones: `COLUMNAS_PEDIDO_MAQUILA`
+   la comparten la ficha imprimible y las acciones, que no necesitan esto; y
+   Eduardo llega a estas filas por una policy propia (20261011000000), así que
+   un embed le devolvería null y ensuciaría el tipo del pedido con un campo que
+   a veces está y a veces no.
+
+   Degrada sin romper: sin la policy aplicada el mapa sale vacío para el
+   maquilero y el tablero cae a la portada del producto, que es lo que pintaba
+   antes. */
+export async function cargarDisenosDePedidos(
+  cliente: Cliente,
+  pedidos: { id: string; personalizado_id: string | null }[],
+): Promise<Record<string, string>> {
+  const ligados = pedidos.filter((p) => p.personalizado_id);
+  if (ligados.length === 0) return {};
+
+  const ids = [...new Set(ligados.map((p) => p.personalizado_id as string))];
+  const fichas = await traerPorLotes<string, { id: string; foto_path: string | null }>(
+    ids,
+    (lote) => cliente.from("personalizados").select("id, foto_path").in("id", lote),
+  );
+
+  const rutaPorFicha = new Map<string, string>();
+  for (const f of fichas) if (f.foto_path) rutaPorFicha.set(f.id, f.foto_path);
+
+  const salida: Record<string, string> = {};
+  for (const p of ligados) {
+    const ruta = rutaPorFicha.get(p.personalizado_id as string);
+    if (ruta) salida[p.id] = ruta;
+  }
+  return salida;
+}
+
 /* El costo NO viaja con el pedido: vive en `maquila_pedido_costos`, cerrada a
    administración (ver 20260930000000). Se pide aparte y solo cuando quien mira
    ve egresos — así un coordinador nunca lo tiene ni en el payload.

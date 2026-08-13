@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
-  }
   public: {
     Tables: {
       actividad_empresas: {
@@ -1168,56 +1163,6 @@ export type Database = {
           },
         ]
       }
-      finanzas_personales: {
-        Row: {
-          activo: boolean
-          categoria: string
-          concepto: string
-          created_at: string
-          dia_pago: number | null
-          id: string
-          monto: number
-          notas: string | null
-          owner_id: string
-          periodicidad: string
-          updated_at: string
-        }
-        Insert: {
-          activo?: boolean
-          categoria?: string
-          concepto: string
-          created_at?: string
-          dia_pago?: number | null
-          id?: string
-          monto?: number
-          notas?: string | null
-          owner_id?: string
-          periodicidad?: string
-          updated_at?: string
-        }
-        Update: {
-          activo?: boolean
-          categoria?: string
-          concepto?: string
-          created_at?: string
-          dia_pago?: number | null
-          id?: string
-          monto?: number
-          notas?: string | null
-          owner_id?: string
-          periodicidad?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "finanzas_personales_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       envios_full: {
         Row: {
           created_at: string
@@ -1365,6 +1310,56 @@ export type Database = {
           {
             foreignKeyName: "expenses_created_by_fkey"
             columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finanzas_personales: {
+        Row: {
+          activo: boolean
+          categoria: string
+          concepto: string
+          created_at: string
+          dia_pago: number | null
+          id: string
+          monto: number
+          notas: string | null
+          owner_id: string
+          periodicidad: string
+          updated_at: string
+        }
+        Insert: {
+          activo?: boolean
+          categoria?: string
+          concepto: string
+          created_at?: string
+          dia_pago?: number | null
+          id?: string
+          monto?: number
+          notas?: string | null
+          owner_id?: string
+          periodicidad?: string
+          updated_at?: string
+        }
+        Update: {
+          activo?: boolean
+          categoria?: string
+          concepto?: string
+          created_at?: string
+          dia_pago?: number | null
+          id?: string
+          monto?: number
+          notas?: string | null
+          owner_id?: string
+          periodicidad?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finanzas_personales_owner_id_fkey"
+            columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2611,7 +2606,6 @@ export type Database = {
           combo: string
           combo_diseno: string | null
           corte_fecha: string | null
-          costo_maquila: number | null
           created_at: string
           created_by: string | null
           diseno: string | null
@@ -2657,7 +2651,6 @@ export type Database = {
           combo?: string
           combo_diseno?: string | null
           corte_fecha?: string | null
-          costo_maquila?: number | null
           created_at?: string
           created_by?: string | null
           diseno?: string | null
@@ -2703,7 +2696,6 @@ export type Database = {
           combo?: string
           combo_diseno?: string | null
           corte_fecha?: string | null
-          costo_maquila?: number | null
           created_at?: string
           created_by?: string | null
           diseno?: string | null
@@ -3166,6 +3158,13 @@ export type Database = {
             columns: ["responsable_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "personalizados_sale_order_id_fkey"
+            columns: ["sale_order_id"]
+            isOneToOne: false
+            referencedRelation: "sale_orders"
             referencedColumns: ["id"]
           },
         ]
@@ -5077,3 +5076,4 @@ export const Constants = {
     Enums: {},
   },
 } as const
+

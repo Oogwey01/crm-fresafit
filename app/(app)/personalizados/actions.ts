@@ -79,6 +79,13 @@ export async function guardarPersonalizado(
         .single();
 
   if (error || !data) return { error: error?.message ?? "No se pudo guardar." };
+
+  /* El diálogo también puede dejar la ficha en «En producción» de una sentada:
+     mismo efecto que moverla con el selector del tablero. */
+  if (input.estado === "produccion") {
+    await soltarAMaquila(cx.supabase, data.id as string, cx.user.id);
+  }
+
   revalidar();
   return { ok: true, datos: { id: data.id as string } };
 }
@@ -104,8 +111,36 @@ export async function cambiarEstadoPersonalizado(
 
   const { error } = await cx.supabase.from("personalizados").update(cambio).eq("id", id);
   if (error) return { error: error.message };
+
+  if (estado === "produccion") await soltarAMaquila(cx.supabase, id, cx.user.id);
+
   revalidar();
   return { ok: true };
+}
+
+/* «En producción» es el momento en que el pedido deja de ser de diseño y pasa a
+   ser de Eduardo: hasta entonces su tablero no lo enseña (components/maquila/
+   tablero.tsx). Es exactamente lo que ya hacía subir el arte, así que va por la
+   misma función — liga el pedido si hace falta, marca el arte entregado y
+   recalcula la promesa desde hoy.
+
+   No lanza ni bloquea el cambio de estado: la ficha ya se guardó, y si la liga
+   no se pudo hacer (dos pedidos candidatos en la misma orden) se resuelve desde
+   el detalle del pedido en /maquila. */
+async function soltarAMaquila(
+  supabase: Parameters<typeof propagarArteDePersonalizado>[0],
+  id: string,
+  usuarioId: string,
+): Promise<void> {
+  try {
+    const arte = await propagarArteDePersonalizado(supabase, id, usuarioId);
+    if (arte.ligados || arte.marcados) revalidatePath("/maquila");
+  } catch (e) {
+    console.error(
+      "[personalizados] soltar a maquila:",
+      mensajeDeError(e, "no se pudo avisarle al tablero de maquila"),
+    );
+  }
 }
 
 export async function borrarPersonalizado(id: string, fotoPath: string | null): Promise<Resultado> {

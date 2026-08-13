@@ -29,6 +29,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/tipos-bd";
 import { ESTADOS_MAQUILA_ACTIVOS } from "@/lib/catalogos";
+import { recalcularArranqueMaquila } from "@/lib/maquila/arranque";
 
 type Cliente = SupabaseClient<Database>;
 
@@ -139,7 +140,12 @@ export async function propagarArteDePersonalizado(
       .from("maquila_pedidos")
       .update({ diseno_listo_en: new Date().toISOString(), diseno_listo_por: usuarioId })
       .in("id", nuevos);
-    if (!error) salida.marcados = nuevos.length;
+    if (!error) {
+      salida.marcados = nuevos.length;
+      /* Y desde aquí corre el plazo: la promesa que nació del pago habría
+         llegado con los días del diseño ya gastados (lib/maquila/arranque.ts). */
+      await recalcularArranqueMaquila(supabase, nuevos);
+    }
   }
   return salida;
 }

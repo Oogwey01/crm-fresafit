@@ -11,6 +11,7 @@ import {
   cargarConsignacionMaquila,
   cargarCortesMaquila,
   cargarCostosDePedidos,
+  cargarDisenosDePedidos,
   cargarDisenosMaquila,
   cargarGuiasMaquila,
   cargarMovsConsignacion,
@@ -49,8 +50,12 @@ export default async function MaquilaPage() {
   ]);
 
   /* La consignación se calcula CON los pedidos ya cargados: el "comprometido"
-     sale de lo que sigue vivo y aún no ha salido. */
-  const insumos = await cargarConsignacionMaquila(supabase, pedidos);
+     sale de lo que sigue vivo y aún no ha salido. Y el arte, igual: se pide por
+     los pedidos que ya están en mano, no por toda la tabla. */
+  const [insumos, disenos] = await Promise.all([
+    cargarConsignacionMaquila(supabase, pedidos),
+    cargarDisenosDePedidos(supabase, pedidos),
+  ]);
 
   if (esMaquilero(rol)) {
     return (
@@ -58,6 +63,7 @@ export default async function MaquilaPage() {
         pedidos={pedidos}
         guias={guias}
         insumos={insumos}
+        disenosPorPedido={disenos}
         hoy={hoy}
         nombre={perfil?.nombre ?? "Eduardo"}
       />
@@ -80,7 +86,7 @@ export default async function MaquilaPage() {
     costosPedido,
     cortes,
     anticipos,
-    disenos,
+    disenosBiblioteca,
   ] = await Promise.all([
       traerTodo<MaquilaProductoConFicha>((desde, hasta) =>
         supabase
@@ -123,7 +129,8 @@ export default async function MaquilaPage() {
       guias={guias}
       insumos={insumos}
       movimientos={movimientos}
-      disenos={disenos}
+      disenosPorPedido={disenos}
+      disenos={disenosBiblioteca}
       fichas={fichas}
       productos={productos}
       config={calendario.config}

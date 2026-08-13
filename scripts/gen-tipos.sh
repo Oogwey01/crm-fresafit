@@ -32,9 +32,35 @@ TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
 if ! supabase gen types typescript --linked --schema public >"$TMP" 2>/dev/null; then
-  echo "· tipos: no se pudo consultar Supabase (¿sin red, o falta 'supabase link'?)."
-  echo "  Se usa el $DESTINO que ya está en el repo."
-  exit 0
+  # `--linked` habla con la API de Supabase y necesita el token de
+  # `supabase login`, que caduca y no existe en una máquina recién clonada. La
+  # contraseña de la base sí está en .env.local, así que se reintenta por
+  # conexión directa antes de darse por vencido: sin esto el archivo se queda
+  # describiendo el esquema de ayer y el compilador deja pasar columnas que ya
+  # no existen.
+  CLAVE="${SUPABASE_DB_PASSWORD:-}"
+  if [ -z "$CLAVE" ] && [ -f .env.local ]; then
+    CLAVE="$(node --env-file=.env.local -p 'process.env.SUPABASE_DB_PASSWORD || ""' 2>/dev/null)"
+  fi
+
+  # El host del pooler (con su región) lo deja `supabase link` en .temp.
+  POOLER="supabase/.temp/pooler-url"
+
+  if [ -n "$CLAVE" ] && [ -f "$POOLER" ]; then
+    DB_URL="$(CLAVE="$CLAVE" node -e '
+      const fs = require("fs");
+      const url = new URL(fs.readFileSync(process.argv[1], "utf8").trim());
+      url.password = process.env.CLAVE;
+      console.log(url.toString());
+    ' "$POOLER" 2>/dev/null)"
+  fi
+
+  if [ -z "${DB_URL:-}" ] || ! supabase gen types typescript --db-url "$DB_URL" --schema public >"$TMP" 2>/dev/null; then
+    echo "· tipos: no se pudo consultar Supabase (¿sin red, sin 'supabase login'"
+    echo "  y sin SUPABASE_DB_PASSWORD en .env.local?)."
+    echo "  Se usa el $DESTINO que ya está en el repo."
+    exit 0
+  fi
 fi
 
 # Un archivo sin el tipo raíz es un archivo inservible, venga como venga.

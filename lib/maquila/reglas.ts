@@ -185,19 +185,111 @@ export function grupoDePedido(p: { referencia_orden: string | null; id: string }
   return p.referencia_orden?.trim() || p.id;
 }
 
+/* ---- El arte: qué pedidos puede tocar el taller ---------------------------
+   Un personalizado no se puede empezar sin el diseño, y eso lo entrega otra
+   persona. La gamuza PRO y lo demás del catálogo no cuelgan de nadie: no tienen
+   personalizado ni diseño de biblioteca, así que entran derecho al tablero. */
+
+/* Lo que hay que saber de un pedido para decidir si el arte ya llegó. Campos
+   opcionales porque los pedidos de catálogo no traen ninguno. */
+export type ArtePedido = {
+  personalizado_id?: string | null;
+  diseno_id?: string | null;
+  diseno_listo_en?: string | null;
+};
+
+/* ¿Este pedido depende de un arte que alguien más tiene que entregar? */
+export function esperaArte(p: ArtePedido): boolean {
+  return Boolean((p.personalizado_id || p.diseno_id) && !p.diseno_listo_en);
+}
+
+/* Desde cuándo corre el reloj del taller: el pago para lo de catálogo, y el
+   arte para lo que lo espera. Se toma el MAYOR de los dos porque el arte puede
+   quedar listo antes de que entre el pago (una ficha capturada por adelantado)
+   y ahí manda el pago. `null` = todavía no arranca: falta el arte, o el pago.
+
+   Los dos son INSTANTES, y se comparan como tales: la base devuelve
+   "…+00:00" y toISOString() escribe "…Z", así que compararlos como texto
+   diría que cualquier pago es posterior a cualquier arte. */
+export function arranqueDePedido(p: ArtePedido & { pagado_en: string | null }): string | null {
+  if (!p.personalizado_id && !p.diseno_id) return p.pagado_en;
+  if (!p.diseno_listo_en) return null; // el arte todavía no llega
+  if (!p.pagado_en) return p.diseno_listo_en;
+  return Date.parse(p.diseno_listo_en) > Date.parse(p.pagado_en)
+    ? p.diseno_listo_en
+    : p.pagado_en;
+}
+
+/* ---- La partición del tablero ---------------------------------------------
+   Los mismos cortes los necesitan tres pantallas: el panel del equipo (sus
+   StatCards), el tablero compartido (sus vistas) y la vista del maquilero (las
+   suyas). Antes cada una filtraba por su cuenta —copia literal tres veces— y
+   cualquier ajuste al criterio había que acordarse de hacerlo en las tres.
+   Aquí se parte UNA vez y cada pantalla toma lo que pinta. */
+
+/* Lo que hay que saber de un pedido para repartirlo en las vistas. `ruta`
+   admite null porque un pedido manual puede nacer sin clasificar todavía. */
+export type PedidoTablero = ArtePedido & {
+  estado: string;
+  fecha_prometida: string | null;
+  ruta: string | null;
+  acabado: string;
+  corte_fecha: string | null;
+};
+
+export type ParticionMaquila<T> = {
+  /* La bandeja del sistema: llegó la orden pero el pago no. No es trabajo de
+     nadie todavía y a Eduardo ni le llega (RLS). */
+  esperandoPago: T[];
+  /* Activos trabados en diseño: pendiente NUESTRO, no del taller. */
+  esperandoArte: T[];
+  /* Activos que ya se pueden producir. Todo lo de abajo parte de aquí. */
+  listos: T[];
+  paraHoy: T[];    // promesa hoy o vencida (contiene a `atrasados`)
+  atrasados: T[];  // promesa ya vencida
+  prensados: T[];  // ruta directa: salen manual, fuera de corte
+  /* El lote pendiente más viejo: si quedó uno atrás, ese es el que urge, no el
+     del calendario de esta semana. */
+  loteActual: T[];
+  corteActual: string | null;
+  /* Lo que ya salió del juego: enviado, entregado, cancelado, devuelto. */
+  historial: T[];
+};
+
+export function particionarPedidos<T extends PedidoTablero>(
+  pedidos: T[],
+  activos: readonly string[],
+  hoy: string,
+): ParticionMaquila<T> {
+  const enJuego = pedidos.filter((p) => p.estado !== "esperando_pago");
+  const vivos = enJuego.filter((p) => activos.includes(p.estado));
+  const listos = vivos.filter((p) => !esperaArte(p));
+  const enCorte = listos.filter((p) => p.ruta === "corte");
+  const corteActual = enCorte.reduce<string | null>(
+    (min, p) => (p.corte_fecha && (!min || p.corte_fecha < min) ? p.corte_fecha : min),
+    null,
+  );
+  return {
+    esperandoPago: pedidos.filter((p) => p.estado === "esperando_pago"),
+    esperandoArte: vivos.filter(esperaArte),
+    listos,
+    paraHoy: listos.filter((p) => p.fecha_prometida && p.fecha_prometida <= hoy),
+    atrasados: listos.filter((p) => p.fecha_prometida && p.fecha_prometida < hoy),
+    prensados: listos.filter((p) => p.ruta === "directa" || p.acabado === "prensado"),
+    loteActual: enCorte.filter((p) => p.corte_fecha === corteActual),
+    corteActual,
+    historial: enJuego.filter((p) => !activos.includes(p.estado)),
+  };
+}
+
 /* ---- Indicadores de un pedido (los emojis del tablero) -------------------- */
 
 export type IndicadorMaquila = { icono: string; titulo: string };
 
-export function indicadoresDePedido(p: {
+export function indicadoresDePedido(p: ArtePedido & {
   acabado: string;
   combo: string;
   requiere_palanca: boolean;
-  /* Opcionales: los pedidos sin arte propio (una colección de catálogo) no
-     tienen nada que esperar y no pintan nada. */
-  personalizado_id?: string | null;
-  diseno_id?: string | null;
-  diseno_listo_en?: string | null;
 }): IndicadorMaquila[] {
   const out: IndicadorMaquila[] = [];
   if (p.acabado === "prensado") {
@@ -212,9 +304,9 @@ export function indicadoresDePedido(p: {
      la biblioteca—, porque es ahí donde «todavía no llega» significa algo. */
   if (p.personalizado_id || p.diseno_id) {
     out.push(
-      p.diseno_listo_en
-        ? { icono: "🎨", titulo: "Diseño entregado: se puede producir" }
-        : { icono: "⏳", titulo: "Falta que diseño entregue el arte" },
+      esperaArte(p)
+        ? { icono: "⏳", titulo: "Falta que diseño entregue el arte" }
+        : { icono: "🎨", titulo: "Diseño entregado: se puede producir" },
     );
   }
   return out;

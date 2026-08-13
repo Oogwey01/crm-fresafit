@@ -6,6 +6,7 @@ import { StatCard } from "@/components/compartido/stat-card";
 import { TableroMaquila } from "@/components/maquila/tablero";
 import { PedidoMaquilaDialog } from "@/components/maquila/pedido-dialog";
 import { ESTADOS_MAQUILA_ACTIVOS } from "@/lib/catalogos";
+import { particionarPedidos } from "@/lib/maquila/reglas";
 import { insumosDePedido } from "@/lib/maquila/consignacion";
 import { formatearFecha } from "@/lib/fecha";
 import type { GuiaMaquila, InsumoMaquilaConSaldo, PedidoMaquila } from "@/lib/types";
@@ -19,26 +20,24 @@ export function VistaMaquilero({
   pedidos,
   guias,
   insumos,
+  disenosPorPedido,
   hoy,
   nombre,
 }: {
   pedidos: PedidoMaquila[];
   guias: GuiaMaquila[];
   insumos: InsumoMaquilaConSaldo[];
+  disenosPorPedido: Record<string, string>;
   hoy: string;
   nombre: string;
 }) {
   const [abierto, setAbierto] = useState<PedidoMaquila | null>(null);
 
-  const activos = pedidos.filter((p) => ACTIVOS.includes(p.estado));
-  const paraHoy = activos.filter((p) => p.fecha_prometida && p.fecha_prometida <= hoy);
-  const atrasados = activos.filter((p) => p.fecha_prometida && p.fecha_prometida < hoy);
-  const prensados = activos.filter((p) => p.ruta === "directa" || p.acabado === "prensado");
-  const enCorte = activos.filter((p) => p.ruta === "corte");
-  const corteActual = enCorte.reduce<string | null>(
-    (min, p) => (p.corte_fecha && (!min || p.corte_fecha < min) ? p.corte_fecha : min),
-    null,
-  );
+  /* Mismo corte que las vistas del tablero: la partición compartida de
+     lib/maquila/reglas.ts, para que sus tarjetas cuadren con la lista de
+     abajo (lo que espera arte no es trabajo suyo todavía). */
+  const { paraHoy, atrasados, prensados, esperandoArte, loteActual, corteActual } =
+    particionarPedidos(pedidos, ACTIVOS, hoy);
   /* Las guías las surte logística: a él le importa cuántas puede imprimir ya y
      cuántas siguen esperando del otro lado. */
   const guiasListas = guias.filter((g) => g.archivo_path).length;
@@ -69,7 +68,7 @@ export function VistaMaquilero({
         />
         <StatCard
           etiqueta="Corte actual"
-          valor={String(enCorte.filter((p) => p.corte_fecha === corteActual).length)}
+          valor={String(loteActual.length)}
           icono={Scissors}
           nota={corteActual ? `lote del ${formatearFecha(corteActual)}` : "sin lote pendiente"}
         />
@@ -92,6 +91,13 @@ export function VistaMaquilero({
             ? `${prensados.length} son prensados: salen fuera de corte, en cuanto los tengas.`
             : "Nada de prensado pendiente ahora mismo."}
         </span>
+        {/* Lo que se vendió pero todavía no tiene arte: no es trabajo suyo aún,
+            pero le sirve saber lo que viene detrás. */}
+        {esperandoArte.length > 0 && (
+          <span className="whitespace-nowrap">
+            <strong className="text-foreground">{esperandoArte.length}</strong> esperan el diseño
+          </span>
+        )}
         {/* Su material en resguardo: no es dinero, es saber si le alcanzan las
             palancas para lo que tiene enfrente. */}
         {insumos
@@ -110,6 +116,7 @@ export function VistaMaquilero({
       <TableroMaquila
         pedidos={pedidos}
         guias={guias}
+        disenosPorPedido={disenosPorPedido}
         hoy={hoy}
         esEquipo={false}
         onAbrir={setAbierto}
