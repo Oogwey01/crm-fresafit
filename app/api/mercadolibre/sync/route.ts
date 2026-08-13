@@ -21,15 +21,19 @@ export async function GET(request: Request) {
   if (!cx) return NextResponse.json({ error: "Mercado Libre no está conectado." }, { status: 409 });
 
   try {
-    const resumen = await conActorDePeticion(request, () => importacionCompletaML(cx));
-    // Red de seguridad de ventas: reimporta la ventana reciente por si algún
-    // webhook de orden se perdió. Su fallo no tira la sync de catálogo.
+    /* Las VENTAS van primero: son la red de seguridad que cuadra el dinero
+       (reimporta la ventana reciente y marca las órdenes canceladas por si
+       algún webhook se perdió). La reconciliación de catálogo llegó a comerse
+       los 300s de Vercel ella sola, y con el orden invertido la mitad de
+       ventas llevaba días sin ejecutarse (sello del 10/08 un 13/08). Un fallo
+       de ventas tampoco tira la sync de catálogo. */
     let ventas = null;
     try {
       ventas = await importarVentasML(cx, opcionesReimportacion(request));
     } catch (e) {
       console.error("[mercadolibre] importación de ventas:", e);
     }
+    const resumen = await conActorDePeticion(request, () => importacionCompletaML(cx));
     return NextResponse.json({ ok: true, ...resumen, ventas });
   } catch (e) {
     return respuestaError(e, "mercadolibre sync", "Falló la sincronización.");
