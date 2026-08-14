@@ -138,6 +138,8 @@ export default async function InventarioPage({
     reconSnapRes,
     canales,
     piloto,
+    categoriasTNRes,
+    relacionesTNRes,
   ] = await Promise.all([
     /* Paginado con traerTodo: PostgREST corta las respuestas en ~1000 filas SIN
        error, así que un `select` sin rango sobre un catálogo que crece devuelve
@@ -221,6 +223,19 @@ export default async function InventarioPage({
     // Monitor del piloto: sale de la foto horaria y del ledger, sin llamar a
     // las APIs de los canales.
     estadoPiloto(),
+    /* Las categorías de Tienda Nube, espejadas por la sync (junta 13/08): el
+       árbol completo (son decenas, no hace falta paginar) y la pertenencia por
+       renglón, que sí se pagina —una relación por variante y por categoría
+       rebasa el corte de PostgREST con gusto. */
+    supabase.from("tn_categorias").select("id, nombre, parent_id").order("nombre"),
+    traerTodo<{ product_id: string; categoria_id: number }>((desde, hasta) =>
+      supabase
+        .from("product_tn_categorias")
+        .select("product_id, categoria_id")
+        .order("product_id")
+        .order("categoria_id")
+        .range(desde, hasta),
+    ),
   ]);
 
   const dinero = await dineroP;
@@ -245,9 +260,21 @@ export default async function InventarioPage({
     enCamino[f.producto_id] = Number(f.unidades);
   }
 
+  const categoriasTN = (categoriasTNRes.data ?? []) as {
+    id: number;
+    nombre: string;
+    parent_id: number | null;
+  }[];
+  const categoriasPorProducto: Record<string, number[]> = {};
+  for (const r of relacionesTNRes) {
+    (categoriasPorProducto[r.product_id] ??= []).push(r.categoria_id);
+  }
+
   return (
     <PanelInventario
       productos={productos}
+      categoriasTN={categoriasTN}
+      categoriasPorProducto={categoriasPorProducto}
       proveedores={proveedores}
       movimientos={movimientos}
       ventas={ventas}

@@ -44,9 +44,24 @@ function coincide(p: ProductConProveedor, q: string) {
   );
 }
 
-/* Búsqueda + los 4 filtros del catálogo, con la lista filtrada y el resumen de
-   filtros activos que la tabla usa para explicar por qué salió vacía. */
-export function useFiltrosProductos(productos: ProductConProveedor[]) {
+/* Una categoría de la tienda, espejada por la sync (tabla tn_categorias). */
+export type CategoriaTNFila = { id: number; nombre: string; parent_id: number | null };
+
+/* Búsqueda + los filtros del catálogo, con la lista filtrada y el resumen de
+   filtros activos que la tabla usa para explicar por qué salió vacía.
+
+   `categoriasTN`/`categoriasPorProducto` (opcionales) encienden el filtro por
+   categoría de Tienda Nube (junta 13/08): elegir «Cinturones» incluye sus
+   subcategorías, igual que en la tienda. */
+export function useFiltrosProductos(
+  productos: ProductConProveedor[],
+  opciones?: {
+    categoriasTN?: CategoriaTNFila[];
+    categoriasPorProducto?: Record<string, number[]>;
+  },
+) {
+  const categoriasTN = opciones?.categoriasTN;
+  const categoriasPorProducto = opciones?.categoriasPorProducto;
   /* Búsqueda y filtro de tipo — aplican a "Productos" y a "Qué pedir". */
   const [busqueda, setBusqueda] = useState("");
   const [filtroTipo, setFiltroTipo] = useState("todos");
@@ -56,6 +71,30 @@ export function useFiltrosProductos(productos: ProductConProveedor[]) {
   const [filtroLogistica, setFiltroLogistica] = useState("todos");
   /* Filtro de ciclo de vida: por defecto solo los vigentes. */
   const [filtroVigencia, setFiltroVigencia] = useState("vigentes");
+  /* Categoría de Tienda Nube: "todas" | "sin" | el id (en texto, para el Select). */
+  const [filtroCategoriaTN, setFiltroCategoriaTN] = useState("todas");
+
+  /* La categoría elegida MÁS sus descendientes: en la tienda, «Cinturones»
+     envuelve a Powerlift, Pro y Liquidación, y aquí debe filtrar igual. */
+  const categoriasAceptadas = useMemo(() => {
+    if (filtroCategoriaTN === "todas" || filtroCategoriaTN === "sin" || !categoriasTN) return null;
+    const hijos = new Map<number, number[]>();
+    for (const c of categoriasTN) {
+      if (c.parent_id == null) continue;
+      const lista = hijos.get(c.parent_id);
+      if (lista) lista.push(c.id);
+      else hijos.set(c.parent_id, [c.id]);
+    }
+    const set = new Set<number>();
+    const pila = [Number(filtroCategoriaTN)];
+    while (pila.length) {
+      const id = pila.pop()!;
+      if (set.has(id)) continue;
+      set.add(id);
+      pila.push(...(hijos.get(id) ?? []));
+    }
+    return set;
+  }, [filtroCategoriaTN, categoriasTN]);
 
   /* Los CINCO recortes se aplican aquí, no en la tabla. Antes el hook solo hacía
      almacén y vigencia, y búsqueda/tipo/stock estaban copiados igual en la tabla
@@ -78,10 +117,29 @@ export function useFiltrosProductos(productos: ProductConProveedor[]) {
         if (filtroVigencia === "descontinuados" && !p.descontinuado) return false;
         if (filtroTipo !== "todos" && p.tipo !== filtroTipo) return false;
         if (filtroStock !== "todos" && estadoStock(p) !== filtroStock) return false;
+        /* Categoría de la tienda: «sin» = lo que TN no tiene categorizado (o no
+           está en TN); una categoría concreta incluye sus subcategorías. */
+        if (filtroCategoriaTN === "sin" && (categoriasPorProducto?.[p.id]?.length ?? 0) > 0)
+          return false;
+        if (
+          categoriasAceptadas &&
+          !(categoriasPorProducto?.[p.id] ?? []).some((id) => categoriasAceptadas.has(id))
+        )
+          return false;
         if (q && !coincide(p, q)) return false;
         return true;
       }),
-    [productos, filtroLogistica, filtroVigencia, filtroTipo, filtroStock, q],
+    [
+      productos,
+      filtroLogistica,
+      filtroVigencia,
+      filtroTipo,
+      filtroStock,
+      filtroCategoriaTN,
+      categoriasAceptadas,
+      categoriasPorProducto,
+      q,
+    ],
   );
 
   /* Los filtros se acumulan, así que una combinación inocente («Solo Mercado
@@ -97,6 +155,12 @@ export function useFiltrosProductos(productos: ProductConProveedor[]) {
       `Almacén: ${LOGISTICAS.find(([id]) => id === filtroLogistica)?.[1] ?? filtroLogistica}`,
     filtroVigencia !== "todos" &&
       `Vigencia: ${VIGENCIAS.find(([id]) => id === filtroVigencia)?.[1] ?? filtroVigencia}`,
+    filtroCategoriaTN !== "todas" &&
+      `Categoría TN: ${
+        filtroCategoriaTN === "sin"
+          ? "Sin categoría"
+          : (categoriasTN?.find((c) => String(c.id) === filtroCategoriaTN)?.nombre ?? filtroCategoriaTN)
+      }`,
   ].filter(Boolean) as string[];
 
   /* Deja ver TODO el catálogo: incluye la vigencia, que si no seguiría
@@ -107,6 +171,7 @@ export function useFiltrosProductos(productos: ProductConProveedor[]) {
     setFiltroStock("todos");
     setFiltroLogistica("todos");
     setFiltroVigencia("todos");
+    setFiltroCategoriaTN("todas");
   }
 
   return {
@@ -120,6 +185,8 @@ export function useFiltrosProductos(productos: ProductConProveedor[]) {
     setFiltroLogistica,
     filtroVigencia,
     setFiltroVigencia,
+    filtroCategoriaTN,
+    setFiltroCategoriaTN,
     productosVisibles,
     filtrosActivos,
     limpiarFiltros,

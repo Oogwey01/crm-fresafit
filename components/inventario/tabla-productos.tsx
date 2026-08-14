@@ -15,10 +15,13 @@ import {
 import type { ProductConProveedor } from "@/lib/types";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 
-/* Dos rejillas literales: Tailwind lee las clases del código fuente, así que un
-   `grid-cols-[…]` armado por concatenación no llegaría a la hoja de estilos. */
+/* Rejillas literales: Tailwind lee las clases del código fuente, así que un
+   `grid-cols-[…]` armado por concatenación no llegaría a la hoja de estilos.
+   Las variantes _SEL llevan la columna del checkbox de la limpia masiva. */
 const COLS = "grid-cols-[minmax(288px,1fr)_130px_120px_100px_215px]";
 const COLS_SIN_PRECIO = "grid-cols-[minmax(288px,1fr)_130px_120px_215px]";
+const COLS_SEL = "grid-cols-[40px_minmax(288px,1fr)_130px_120px_100px_215px]";
+const COLS_SEL_SIN_PRECIO = "grid-cols-[40px_minmax(288px,1fr)_130px_120px_215px]";
 
 export function TablaProductos({
   productos,
@@ -29,6 +32,8 @@ export function TablaProductos({
   escrituraCanales,
   verPrecio,
   onAbrir,
+  seleccion,
+  onToggleSeleccion,
 }: {
   /* Ya viene recortada por TODOS los filtros del panel —búsqueda incluida—:
      aquí solo se ordena y se pinta. El recorte vive en useFiltrosProductos
@@ -52,6 +57,10 @@ export function TablaProductos({
      tampoco llegó del servidor—. Vacía se leería como un producto sin precio. */
   verPrecio: boolean;
   onAbrir: (p: ProductConProveedor) => void;
+  /* Modo limpia masiva (vista «Descontinuados» con permiso de gestor): ids
+     marcados y el toggle. Sin estas dos props no hay checkboxes. */
+  seleccion?: Set<string>;
+  onToggleSeleccion?: (id: string) => void;
 }) {
   const { cambiarStock, tituloAjuste } = useAjusteStock(escrituraCanales);
 
@@ -99,7 +108,28 @@ export function TablaProductos({
     );
   }
 
+  const conSeleccion = seleccion !== undefined && onToggleSeleccion !== undefined;
+
   const columnas: Columna<ProductConProveedor>[] = [
+    ...(conSeleccion
+      ? ([
+          {
+            clave: "sel",
+            label: "",
+            celda: (p) => (
+              <input
+                type="checkbox"
+                checked={seleccion.has(p.id)}
+                onChange={() => onToggleSeleccion(p.id)}
+                /* Que marcar no navegue a la ficha (el renglón entero abre). */
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Seleccionar ${p.nombre}`}
+                className="size-4 accent-primary"
+              />
+            ),
+          },
+        ] satisfies Columna<ProductConProveedor>[])
+      : []),
     {
       clave: "producto",
       label: "Producto",
@@ -162,7 +192,15 @@ export function TablaProductos({
   return (
     <div className="flex flex-col gap-2">
       <TablaSimple
-        cols={verPrecio ? COLS : COLS_SIN_PRECIO}
+        cols={
+          conSeleccion
+            ? verPrecio
+              ? COLS_SEL
+              : COLS_SEL_SIN_PRECIO
+            : verPrecio
+              ? COLS
+              : COLS_SIN_PRECIO
+        }
         columnas={columnas}
         datos={visibles}
         filaKey={(p) => p.id}

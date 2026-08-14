@@ -25,12 +25,18 @@ import { formatearMXNCorto } from "@/lib/moneda";
 import type { AvisoConexion } from "@/lib/canales/tipos";
 import { formatearFechaHora } from "@/lib/fecha";
 import { LIMITE_MOVIMIENTOS } from "@/lib/inventario/origenes";
-import { movimientosStock } from "@/app/(app)/inventario/actions";
+import {
+  borrarProductosMasivo,
+  marcarDescontinuadosMasivo,
+  movimientosStock,
+} from "@/app/(app)/inventario/actions";
+import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
 import {
   LOGISTICAS,
   VIGENCIAS,
   useFiltrosProductos,
+  type CategoriaTNFila,
 } from "@/components/inventario/usar-filtros-productos";
 import type { VistaDinero } from "@/lib/permisos-dinero";
 import type { ProductConProveedor, Supplier, StockLog, RolId } from "@/lib/types";
@@ -127,6 +133,8 @@ const CANALES_MOV = [
 
 export function PanelInventario({
   productos,
+  categoriasTN = [],
+  categoriasPorProducto = {},
   proveedores,
   movimientos,
   ventas,
@@ -144,6 +152,10 @@ export function PanelInventario({
   avisosConexion,
 }: {
   productos: ProductConProveedor[];
+  /* Las categorías de Tienda Nube espejadas por la sync (junta 13/08), con la
+     pertenencia por renglón. Vacías mientras la migración no corra. */
+  categoriasTN?: CategoriaTNFila[];
+  categoriasPorProducto?: Record<string, number[]>;
   proveedores: Supplier[];
   movimientos: StockLog[];
   /* Ventas de los últimos 90 días: la velocidad de salida de cada producto. */
@@ -206,10 +218,60 @@ export function PanelInventario({
     setFiltroLogistica,
     filtroVigencia,
     setFiltroVigencia,
+    filtroCategoriaTN,
+    setFiltroCategoriaTN,
     productosVisibles,
     filtrosActivos,
     limpiarFiltros,
-  } = useFiltrosProductos(productos);
+  } = useFiltrosProductos(productos, { categoriasTN, categoriasPorProducto });
+
+  /* El árbol de categorías TN aplanado para el Select: raíces en orden
+     alfabético y sus hijas debajo, sangradas. */
+  const opcionesCategoriaTN = useMemo(() => {
+    const porPadre = new Map<number | null, CategoriaTNFila[]>();
+    for (const c of categoriasTN) {
+      const lista = porPadre.get(c.parent_id ?? null);
+      if (lista) lista.push(c);
+      else porPadre.set(c.parent_id ?? null, [c]);
+    }
+    const resultado: { id: string; etiqueta: string }[] = [];
+    const recorrer = (padre: number | null, nivel: number) => {
+      for (const c of porPadre.get(padre) ?? []) {
+        resultado.push({ id: String(c.id), etiqueta: `${"— ".repeat(nivel)}${c.nombre}` });
+        recorrer(c.id, nivel + 1);
+      }
+    };
+    recorrer(null, 0);
+    return resultado;
+  }, [categoriasTN]);
+
+  /* Limpia masiva de descontinuados (junta 13/08): en la vista «Descontinuados»
+     un gestor marca en bloque y los regresa a vigentes o los borra del CRM.
+     Solo en la tabla desglosada: la agrupada junta tallas y marcar "el grupo"
+     escondería qué variantes exactas se van. */
+  const { pending: pendingMasivo, ejecutar: ejecutarMasivo } = useAccionServidor();
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
+  const modoLimpia =
+    gestor && pestana === "productos" && vistaCatalogo === "desglosado" && filtroVigencia === "descontinuados";
+  /* Cambiar de vista o de filtro invalida lo marcado: lo que ya no se ve no se
+     puede borrar "de memoria". Patrón «ajustar estado durante el render» (y no
+     un efecto): el reseteo ocurre en el mismo render del cambio, sin pintar
+     una vez con la selección vieja. */
+  const claveLimpia = `${filtroVigencia}|${pestana}|${vistaCatalogo}`;
+  const [claveSeleccion, setClaveSeleccion] = useState(claveLimpia);
+  if (claveSeleccion !== claveLimpia) {
+    setClaveSeleccion(claveLimpia);
+    setSeleccion(new Set());
+  }
+
+  function alternarSeleccion(id: string) {
+    setSeleccion((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   /* Filtros del historial (solo aplican a la pestaña de movimientos): por dónde
      impactó el cambio y por quién lo hizo. */
@@ -306,7 +368,9 @@ export function PanelInventario({
      tapaba el catálogo—, así que ahí el contador tiene que contarlos: un filtro
      escondido y sin avisar es un filtro que se queda puesto para siempre. */
   const filtrosPlegadosActivos =
-    (filtroLogistica !== "todos" ? 1 : 0) + (filtroVigencia !== "vigentes" ? 1 : 0);
+    (filtroLogistica !== "todos" ? 1 : 0) +
+    (filtroVigencia !== "vigentes" ? 1 : 0) +
+    (filtroCategoriaTN !== "todas" ? 1 : 0);
   const filtrosPlegadosMovil =
     filtrosPlegadosActivos + (filtroTipo !== "todos" ? 1 : 0) + (filtroStock !== "todos" ? 1 : 0);
 
@@ -659,6 +723,35 @@ export function PanelInventario({
                   ))}
                 </SelectContent>
               </Select>
+              {/* Las categorías de la tienda (junta 13/08): elegir «Cinturones»
+                  incluye a sus subcategorías, igual que en Tienda Nube. Solo
+                  aparece cuando la sync ya las espejó. */}
+              {opcionesCategoriaTN.length > 0 && (
+                <Select
+                  value={filtroCategoriaTN}
+                  onValueChange={(v) => setFiltroCategoriaTN(v ?? "todas")}
+                >
+                  <SelectTrigger className="w-[205px] bg-background">
+                    <SelectValue>
+                      {(v: string) =>
+                        v === "todas"
+                          ? "Categoría TN: todas"
+                          : v === "sin"
+                            ? "Sin categoría TN"
+                            : (categoriasTN.find((c) => String(c.id) === v)?.nombre ?? "Categoría")}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todas">Categoría TN: todas</SelectItem>
+                    {opcionesCategoriaTN.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>
+                        {o.etiqueta}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="sin">Sin categoría TN</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
               <div className="flex-1" />
               <Button variant="ghost" size="sm" onClick={limpiarFiltros} className="text-[12.5px]">
                 Limpiar filtros
@@ -677,6 +770,76 @@ export function PanelInventario({
         onVerPorStock={verProductosPorStock}
         onGenerarPedido={esDireccion ? irAProveedores : undefined}
       />
+
+      {/* Barra de la limpia masiva: aparece solo en la vista «Descontinuados»
+          (tabla desglosada, gestor). Borrar es SOLO en el CRM: el candado de
+          escritura a canales sigue puesto. */}
+      {modoLimpia && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-500/10 px-4 py-2.5 dark:border-amber-900">
+          <span className="text-[13px] font-semibold">
+            {seleccion.size > 0
+              ? `${seleccion.size} ${seleccion.size === 1 ? "seleccionado" : "seleccionados"}`
+              : "Marca los productos que ya no se van a maquilar"}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pendingMasivo || productosVisibles.length === 0}
+            onClick={() =>
+              setSeleccion((prev) =>
+                prev.size === productosVisibles.length
+                  ? new Set()
+                  : new Set(productosVisibles.map((p) => p.id)),
+              )
+            }
+          >
+            {seleccion.size === productosVisibles.length && productosVisibles.length > 0
+              ? "Quitar todos"
+              : `Seleccionar los ${productosVisibles.length}`}
+          </Button>
+          <div className="flex-1" />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pendingMasivo || seleccion.size === 0}
+            onClick={() =>
+              ejecutarMasivo(() => marcarDescontinuadosMasivo([...seleccion], false), {
+                confirmar: `¿Regresar ${seleccion.size} ${seleccion.size === 1 ? "producto" : "productos"} a vigentes?`,
+                ok: "De vuelta en el catálogo vigente.",
+                alExito: () => setSeleccion(new Set()),
+              })
+            }
+          >
+            Regresar a vigentes
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={pendingMasivo || seleccion.size === 0}
+            onClick={() => {
+              const conStock = productosVisibles.filter(
+                (p) => seleccion.has(p.id) && p.stock > 0,
+              ).length;
+              ejecutarMasivo(() => borrarProductosMasivo([...seleccion]), {
+                confirmar:
+                  `Vas a BORRAR ${seleccion.size} ${seleccion.size === 1 ? "producto" : "productos"} del CRM. ` +
+                  (conStock > 0 ? `${conStock} todavía ${conStock === 1 ? "tiene" : "tienen"} stock. ` : "") +
+                  "Esto no se puede deshacer (en Tienda Nube, Mercado Libre y TikTok no se toca nada). ¿Seguir?",
+                error: "No se pudo borrar. Revisa tu conexión.",
+                alExito: (r) => {
+                  const datos = "datos" in r ? r.datos : { borrados: 0 };
+                  toast.success(
+                    `${datos.borrados} ${datos.borrados === 1 ? "producto borrado" : "productos borrados"} del CRM.`,
+                  );
+                  setSeleccion(new Set());
+                },
+              });
+            }}
+          >
+            Borrar del CRM
+          </Button>
+        </div>
+      )}
 
       {pestana === "productos" &&
         (vistaCatalogo === "agrupado" ? (
@@ -700,6 +863,8 @@ export function PanelInventario({
             escrituraCanales={escrituraCanales}
             verPrecio={dinero.ingresos}
             onAbrir={(p) => router.push(`/inventario/producto/${p.id}`)}
+            seleccion={modoLimpia ? seleccion : undefined}
+            onToggleSeleccion={modoLimpia ? alternarSeleccion : undefined}
           />
         ))}
       {verHistorial && pestana === "movimientos" && (

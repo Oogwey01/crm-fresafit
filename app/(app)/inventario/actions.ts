@@ -325,6 +325,72 @@ export async function borrarProducto(id: string): Promise<Resultado> {
   return { ok: true };
 }
 
+/* ============== Limpia masiva de descontinuados (junta 13/08) ==============
+   El flujo que pidió Armando: marca a mano lo que ya no se va a maquilar
+   (producto-dialog), filtra «Descontinuados» y ahí selecciona en bloque para
+   regresarlos a vigentes o borrarlos del CRM.
+
+   OJO: borra SOLO en el CRM. El candado de solo lectura sigue puesto
+   (lib/inventario/escritura-canales.ts): nada viaja a Tienda Nube, Mercado
+   Libre ni TikTok. Borrar allá será un paso aparte el día que se decida abrir
+   la escritura. Los cascades ya están definidos en la BD: fotos, stock_canal y
+   publicaciones se van con la ficha; stock_log y sales conservan el histórico
+   con producto_id en null (igual que borrarProducto, de uno en uno).
+
+   Los ids van en lotes: un `.in()` con cientos de uuids revienta el largo de
+   la URL de PostgREST. */
+const LOTE_MASIVO = 100;
+
+export async function marcarDescontinuadosMasivo(
+  ids: string[],
+  descontinuado: boolean,
+): Promise<Resultado<{ afectados: number }>> {
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede cambiar la vigencia.");
+  if ("error" in cx) return cx;
+  const limpios = [...new Set(ids)].filter(Boolean);
+  if (!limpios.length) return { error: "No hay productos seleccionados." };
+
+  let afectados = 0;
+  for (let i = 0; i < limpios.length; i += LOTE_MASIVO) {
+    const lote = limpios.slice(i, i + LOTE_MASIVO);
+    const { data, error } = await cx.supabase
+      .from("products")
+      .update({ descontinuado })
+      .in("id", lote)
+      .select("id");
+    if (error) return { error: error.message };
+    afectados += data?.length ?? 0;
+  }
+  revalidatePath("/inventario");
+  return { ok: true, datos: { afectados } };
+}
+
+export async function borrarProductosMasivo(
+  ids: string[],
+): Promise<Resultado<{ borrados: number }>> {
+  const cx = await exigirRol("gestor", "Solo dirección o coordinación puede borrar productos.");
+  if ("error" in cx) return cx;
+  const limpios = [...new Set(ids)].filter(Boolean);
+  if (!limpios.length) return { error: "No hay productos seleccionados." };
+
+  /* Solo lo ya marcado como descontinuado: es el candado que evita que un id
+     colado (o una pantalla desactualizada) borre catálogo vigente en bloque. */
+  let borrados = 0;
+  for (let i = 0; i < limpios.length; i += LOTE_MASIVO) {
+    const lote = limpios.slice(i, i + LOTE_MASIVO);
+    const { data, error } = await cx.supabase
+      .from("products")
+      .delete()
+      .in("id", lote)
+      .eq("descontinuado", true)
+      .select("id");
+    if (error) return { error: error.message };
+    borrados += data?.length ?? 0;
+  }
+  revalidatePath("/inventario");
+  return { ok: true, datos: { borrados } };
+}
+
 /* Historial de UN producto, para el pop-up. Va aparte del que carga la página
    (los movimientos más recientes de todo el catálogo): filtrar esos por producto
    dejaría casi todas las fichas en blanco.

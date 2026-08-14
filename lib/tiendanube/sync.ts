@@ -259,6 +259,89 @@ export async function desactivarProductoTN(productId: number): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/* Espeja las categorías de Tienda Nube (junta 13/08): el árbol en
+   `tn_categorias` y la pertenencia por renglón en `product_tn_categorias`.
+   Solo lectura para el CRM — la tienda decide, esto refleja.
+
+   Corre tras el upsert de productos (las filas ya existen) y con el catálogo
+   COMPLETO en mano: así podar lo que un producto dejó de tener es seguro. Las
+   relaciones se insertan primero y se poda después, la regla de la casa. */
+export async function sincronizarCategoriasTN(productos: ProductoTN[]): Promise<void> {
+  const admin = createAdminClient();
+
+  /* 1. El árbol: únicas por id, con nombre y padre tal como los manda TN. */
+  const categorias = new Map<number, { id: number; nombre: string; parent_id: number | null }>();
+  for (const p of productos) {
+    for (const c of p.categories ?? []) {
+      categorias.set(c.id, {
+        id: c.id,
+        nombre: texto(c.name) || `Categoría ${c.id}`,
+        parent_id: c.parent ?? null,
+      });
+    }
+  }
+  if (categorias.size > 0) {
+    const { error } = await admin
+      .from("tn_categorias")
+      .upsert([...categorias.values()].map((c) => ({ ...c, actualizado_en: new Date().toISOString() })));
+    if (error) throw new Error(error.message);
+  }
+
+  /* 2. La pertenencia: cada variante hereda las categorías de su producto. */
+  const categoriasPorProductoTN = new Map<number, number[]>();
+  for (const p of productos) {
+    categoriasPorProductoTN.set(p.id, (p.categories ?? []).map((c) => c.id));
+  }
+  const idsProductoTN = [...categoriasPorProductoTN.keys()];
+  if (idsProductoTN.length === 0) return;
+
+  const filas = await traerPorLotes<number, { id: string; tiendanube_product_id: number }>(
+    idsProductoTN,
+    (lote) =>
+      admin
+        .from("products")
+        .select("id, tiendanube_product_id")
+        .in("tiendanube_product_id", lote),
+  );
+
+  const deseadas: { product_id: string; categoria_id: number }[] = [];
+  const deseadasPorFila = new Map<string, Set<number>>();
+  for (const f of filas) {
+    const ids = categoriasPorProductoTN.get(f.tiendanube_product_id) ?? [];
+    deseadasPorFila.set(f.id, new Set(ids));
+    for (const cid of ids) deseadas.push({ product_id: f.id, categoria_id: cid });
+  }
+
+  /* Insertar (ignorando las que ya están: PK compuesta) y DESPUÉS podar. */
+  const LOTE = 500;
+  for (let i = 0; i < deseadas.length; i += LOTE) {
+    const { error } = await admin
+      .from("product_tn_categorias")
+      .upsert(deseadas.slice(i, i + LOTE), { ignoreDuplicates: true });
+    if (error) throw new Error(error.message);
+  }
+
+  const existentes = await traerPorLotes<string, { product_id: string; categoria_id: number }>(
+    [...deseadasPorFila.keys()],
+    (lote) =>
+      admin
+        .from("product_tn_categorias")
+        .select("product_id, categoria_id")
+        .in("product_id", lote),
+  );
+  const sobrantes = existentes.filter(
+    (r) => !(deseadasPorFila.get(r.product_id)?.has(r.categoria_id) ?? false),
+  );
+  for (const r of sobrantes) {
+    const { error } = await admin
+      .from("product_tn_categorias")
+      .delete()
+      .eq("product_id", r.product_id)
+      .eq("categoria_id", r.categoria_id);
+    if (error) throw new Error(error.message);
+  }
+}
+
 /* Importación inicial y reconciliación (cron diario / botón manual): trae el
    catálogo completo, upserta y desactiva variantes que ya no existen. */
 export async function sincronizacionCompleta(cx?: ConexionTN): Promise<ResumenSync> {
@@ -267,6 +350,13 @@ export async function sincronizacionCompleta(cx?: ConexionTN): Promise<ResumenSy
 
   const productos = await listarProductosTN(conexion);
   const { creados, actualizados } = await sincronizarProductosTN(productos);
+  /* Las categorías de la tienda, espejadas. Que su fallo no tire la sync de
+     stock: son organización, no inventario. */
+  try {
+    await sincronizarCategoriasTN(productos);
+  } catch (e) {
+    console.error("[tiendanube] categorías no sincronizadas:", e);
+  }
 
   const admin = createAdminClient();
   const vivos = new Set(productos.flatMap((p) => p.variants.map((v) => v.id)));

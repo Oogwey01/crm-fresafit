@@ -36,12 +36,22 @@ export type ImagenTN = {
   position: number;
 };
 
+/* Categoría tal como viaja EMBEBIDA en el producto: id, nombre i18n y padre.
+   Con eso alcanza para espejear el árbol sin otra llamada a /categories. */
+export type CategoriaTN = {
+  id: number;
+  name: Record<string, string>;
+  parent?: number | null;
+};
+
 export type ProductoTN = {
   id: number;
   name: Record<string, string>;
   published: boolean;
   variants: VarianteTN[];
   images?: ImagenTN[];
+  /* Las categorías del producto (con sus padres asignados por la tienda). */
+  categories?: CategoriaTN[];
   /* URL pública del producto en la tienda (dominio real + slug). Es la única
      forma de enlazar la vista de comprador: el slug no se puede armar desde el
      id. */
