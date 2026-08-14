@@ -94,17 +94,19 @@ export function ProveedorDialog({
         valido={Boolean(nombre.trim())}
         motivoInvalido="El proveedor necesita un nombre."
       >
+        {/* «Nancy Muñequeras» y no «Nancy» a secas: en la lista el nombre es lo
+            único grande, y Armando pidió que de un vistazo se sepa qué surte. */}
         <CampoHero
           id="prov-nombre"
-          etiqueta="Nombre"
-          placeholder="Nancy"
+          etiqueta="Nombre (y qué surte)"
+          placeholder="Nancy Muñequeras"
           valor={nombre}
           onCambio={setNombre}
         />
         <DescripcionHero
           id="prov-notas"
-          etiqueta="Notas (opcional)"
-          placeholder="Qué surte, tiempos de entrega, condiciones… (opcional)"
+          etiqueta="Qué surte y condiciones (opcional)"
+          placeholder="Muñequeras y straps · pide 90 días · paga 50/50…"
           valor={notas}
           onCambio={setNotas}
         />

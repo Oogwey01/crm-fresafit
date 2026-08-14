@@ -28,8 +28,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { useDetalleRemoto } from "@/components/compartido/use-detalle-remoto";
+import { TrackingsPedido } from "@/components/proveedores/pedido-prov-trackings";
+import { ArchivosPedido } from "@/components/proveedores/pedido-prov-archivos";
 import { aNumero } from "@/lib/validacion";
-import { ESTADOS_PEDIDO_PROVEEDOR } from "@/lib/catalogos";
+import { ESTADOS_PEDIDO_PROVEEDOR, TIPOS_ENVIO_PROVEEDOR } from "@/lib/catalogos";
 import { hoyISO, formatearFecha, sumarDias } from "@/lib/fecha";
 import { formatearMXN } from "@/lib/moneda";
 import {
@@ -49,6 +51,7 @@ import type {
   PedidoProvDetalle,
   Supplier,
   SupplierOrderConDetalle,
+  TipoEnvioProveedorId,
 } from "@/lib/types";
 import { DatePicker } from "@/components/compartido/date-picker";
 import type { ProductoProveedor } from "@/lib/proveedores/tipos";
@@ -66,6 +69,13 @@ type Renglon = {
 function renglonVacio(): Renglon {
   return { producto_id: null, descripcion: "", cantidad: "1", costo_unitario: "" };
 }
+
+/* El tipo de envío con su «sin definir»: los pedidos viejos no lo traen y no
+   hay por qué inventárselos. */
+const OPCIONES_ENVIO = [
+  { id: "" as const, nombre: "Sin definir", color: "#94a3b8" },
+  ...TIPOS_ENVIO_PROVEEDOR,
+] as const;
 
 /* Renglones con los que arranca un pedido nuevo. Los manda «Qué pedir» (solo
    producto y cantidad) o el pegado desde Excel, que además trae el costo de la
@@ -86,6 +96,7 @@ export function PedidoProvDialog({
   diasEntregaDefault,
   itemsIniciales,
   notasIniciales,
+  proveedorInicial,
   onClose,
 }: {
   pedido: SupplierOrderConDetalle | null; // null = alta
@@ -99,12 +110,15 @@ export function PedidoProvDialog({
   /* Notas con las que abre un pedido nuevo (p. ej. el folio y la moneda de la
      factura que se leyó). */
   notasIniciales?: string;
+  /* Proveedor con el que abre un pedido nuevo (lo liga «Leer factura»). */
+  proveedorInicial?: string;
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
   /* Al pedir desde «Qué pedir» ya se sabe quién surte ese producto. */
   const proveedorSugerido =
-    itemsIniciales?.map((i) => productos.find((p) => p.id === i.producto_id)?.proveedor_id).find(Boolean) ?? "";
+    proveedorInicial ??
+    (itemsIniciales?.map((i) => productos.find((p) => p.id === i.producto_id)?.proveedor_id).find(Boolean) ?? "");
   const [proveedorId, setProveedorId] = useState(pedido?.proveedor_id ?? proveedorSugerido);
   const [fechaPedido, setFechaPedido] = useState(pedido?.fecha_pedido ?? hoyISO());
   /* ETA: se autocalcula (fecha del pedido + días de entrega del proveedor). Si el
@@ -118,6 +132,14 @@ export function PedidoProvDialog({
   const fechaEstimada = etaOverride ?? etaAuto;
   const [estado, setEstado] = useState<EstadoPedidoProvId>(pedido?.estado ?? "pedido");
   const [notas, setNotas] = useState(pedido?.notas ?? notasIniciales ?? "");
+  /* Cómo viaja y en qué moneda cobra el proveedor (junta 13/08). */
+  const [tipoEnvio, setTipoEnvio] = useState<TipoEnvioProveedorId | "">(pedido?.tipo_envio ?? "");
+  const [divisaOrigen, setDivisaOrigen] = useState(pedido?.divisa_origen ?? "USD");
+  /* El texto largo de la transferencia internacional. */
+  const [pagoIntlNota, setPagoIntlNota] = useState(pedido?.pago_intl_nota ?? "");
+  /* Lo que cuesta pagar desde México (conversión, comisiones): manual. */
+  const [costoExtraPct, setCostoExtraPct] = useState(pedido?.costo_extra_pct?.toString() ?? "");
+  const [costoExtraNota, setCostoExtraNota] = useState(pedido?.costo_extra_nota ?? "");
   const [renglones, setRenglones] = useState<Renglon[]>(() => {
     if (pedido && pedido.items.length > 0) {
       return pedido.items.map((i) => ({
@@ -144,16 +166,6 @@ export function PedidoProvDialog({
   /* Total: se sugiere la suma de renglones, pero se puede escribir a mano. */
   const [totalManual, setTotalManual] = useState(pedido?.costo_total?.toString() ?? "");
 
-  /* Rastreo del envío (una guía principal). */
-  const [paqueteria, setPaqueteria] = useState(pedido?.paqueteria ?? "");
-  const [numGuia, setNumGuia] = useState(pedido?.num_guia ?? "");
-  const [urlRastreo, setUrlRastreo] = useState(pedido?.url_rastreo ?? "");
-  /* Si el pedido YA traía datos de rastreo, la sección nace abierta (se captura
-     al montar: que teclear una guía no ande abriendo secciones solo). */
-  const [rastreoConDatos] = useState(
-    Boolean(pedido && (pedido.paqueteria || pedido.num_guia || pedido.url_rastreo)),
-  );
-
   /* Pagos + incidencias: solo se gestionan sobre un pedido ya guardado (necesitan
      su id). Se cargan al abrir en modo edición. */
   const { datos: detalle, recargar } = useDetalleRemoto<PedidoProvDetalle | null>(
@@ -162,11 +174,13 @@ export function PedidoProvDialog({
   );
 
   const [pagoMonto, setPagoMonto] = useState("");
+  const [pagoMontoOrigen, setPagoMontoOrigen] = useState("");
   const [pagoFecha, setPagoFecha] = useState(hoyISO());
   const [pagoNota, setPagoNota] = useState("");
   const pagoFileRef = useRef<HTMLInputElement>(null);
   const [incidenciaTexto, setIncidenciaTexto] = useState("");
 
+  /* El costo REAL del pedido: lo que salió de la cuenta mexicana, en pesos. */
   const totalPagado = (detalle?.pagos ?? []).reduce((a, p) => a + Number(p.monto), 0);
 
   function agregarPago() {
@@ -180,10 +194,16 @@ export function PedidoProvDialog({
     fd.append("monto", String(monto));
     fd.append("fecha", pagoFecha);
     fd.append("nota", pagoNota);
+    /* Cuánto fue en la moneda del proveedor (opcional, informativo). */
+    if (pagoMontoOrigen.trim()) {
+      fd.append("monto_origen", pagoMontoOrigen);
+      fd.append("divisa", divisaOrigen);
+    }
     const file = pagoFileRef.current?.files?.[0];
     if (file) fd.append("file", file);
     ejecutar(() => registrarPagoPedido(pedido.id, fd), { ok: "Pago registrado.", alExito: recargar });
     setPagoMonto("");
+    setPagoMontoOrigen("");
     setPagoNota("");
     if (pagoFileRef.current) pagoFileRef.current.value = "";
   }
@@ -210,6 +230,11 @@ export function PedidoProvDialog({
   }, 0);
   const total = totalManual.trim() !== "" ? aNumero(totalManual) : sumaRenglones > 0 ? sumaRenglones : null;
 
+  /* Los renglones vienen en la moneda del proveedor: un total de factura china
+     pintado como "$" mexicano es justo la confusión que Armando señaló. */
+  const enDivisa = (n: number) =>
+    divisaOrigen === "MXN" ? formatearMXN(n) : `${n.toFixed(2)} ${divisaOrigen}`;
+
   function editarRenglon(idx: number, cambio: Partial<Renglon>) {
     setRenglones((prev) => prev.map((r, i) => (i === idx ? { ...r, ...cambio } : r)));
   }
@@ -221,9 +246,11 @@ export function PedidoProvDialog({
       fecha_estimada: fechaEstimada || null,
       estado,
       costo_total: total,
-      paqueteria,
-      num_guia: numGuia,
-      url_rastreo: urlRastreo,
+      tipo_envio: tipoEnvio || null,
+      divisa_origen: divisaOrigen,
+      pago_intl_nota: pagoIntlNota,
+      costo_extra_pct: aNumero(costoExtraPct),
+      costo_extra_nota: costoExtraNota,
       notas,
       items: renglones.map((r) => ({
         producto_id: r.producto_id,
@@ -308,6 +335,15 @@ export function PedidoProvDialog({
           valor={estado}
           onCambio={setEstado}
         />
+        {/* Aéreo llega en días; marítimo express en semanas; normal en meses.
+            Informa la ETA pero no la calcula: eso sigue siendo manual. */}
+        <PastillaOpcion
+          etiqueta="Envío"
+          opciones={OPCIONES_ENVIO}
+          valor={tipoEnvio}
+          onCambio={setTipoEnvio}
+          ayuda="Cómo viaja el pedido: aéreo, marítimo express o marítimo normal."
+        />
       </Propiedades>
 
       {/* Renglones del pedido: sin renglones no hay pedido, así que la sección
@@ -359,7 +395,7 @@ export function PedidoProvDialog({
                   />
                 )}
               </div>
-              {/* Cantidad · costo · quitar: fila propia en móvil, inline en escritorio */}
+              {/* Cantidad · costo · total del renglón · quitar */}
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
@@ -382,6 +418,12 @@ export function PedidoProvDialog({
                   value={r.costo_unitario}
                   onChange={(e) => editarRenglon(idx, { costo_unitario: e.target.value })}
                 />
+                {/* 300 × 17.5 a la vista, no solo el unitario (junta 13/08). */}
+                {(Number(r.cantidad) || 0) * (Number(r.costo_unitario) || 0) > 0 && (
+                  <span className="min-w-0 flex-1 truncate text-right text-[13px] font-semibold tabular-nums text-muted-foreground">
+                    = {enDivisa((Number(r.cantidad) || 0) * (Number(r.costo_unitario) || 0))}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => setRenglones((prev) => prev.filter((_, i) => i !== idx))}
@@ -405,53 +447,123 @@ export function PedidoProvDialog({
           </div>
         </div>
 
-        <div className="flex flex-col gap-1.5 sm:max-w-56">
-          <Label htmlFor="ped-total">
-            Costo total{" "}
-            {sumaRenglones > 0 && totalManual.trim() === "" && (
-              <span className="font-normal text-muted-foreground">
-                (sugerido: {formatearMXN(sumaRenglones)})
-              </span>
-            )}
-          </Label>
-          <Input
-            id="ped-total"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder={sumaRenglones > 0 ? sumaRenglones.toFixed(2) : "0.00"}
-            value={totalManual}
-            onChange={(e) => setTotalManual(e.target.value)}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1.5 sm:max-w-56">
+            <Label htmlFor="ped-total">
+              Costo total ({divisaOrigen}){" "}
+              {sumaRenglones > 0 && totalManual.trim() === "" && (
+                <span className="font-normal text-muted-foreground">
+                  (sugerido: {enDivisa(sumaRenglones)})
+                </span>
+              )}
+            </Label>
+            <Input
+              id="ped-total"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={sumaRenglones > 0 ? sumaRenglones.toFixed(2) : "0.00"}
+              value={totalManual}
+              onChange={(e) => setTotalManual(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ped-divisa">Moneda del proveedor</Label>
+            <Input
+              id="ped-divisa"
+              list="divisas-pedido"
+              className="w-24 uppercase"
+              value={divisaOrigen}
+              onChange={(e) => setDivisaOrigen(e.target.value.toUpperCase())}
+            />
+            <datalist id="divisas-pedido">
+              <option value="USD" />
+              <option value="MXN" />
+              <option value="CNY" />
+            </datalist>
+          </div>
+        </div>
+      </SeccionFormulario>
+
+      {/* Costos y pago internacional (junta 13/08): costo China vs costo real
+          desde México, lado a lado y SIN conversión automática. */}
+      <SeccionFormulario
+        titulo="Costos y pago internacional"
+        pasoTitulo="Costos y pago internacional"
+        pasoAyuda="Lo que cobra el proveedor vs lo que de verdad sale de la cuenta mexicana."
+        abiertaPorDefecto={Boolean(pedido && (pagoIntlNota || costoExtraPct || costoExtraNota))}
+      >
+        {pedido && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border bg-muted/30 px-3 py-2">
+              <p className="text-[11.5px] uppercase tracking-wide text-muted-foreground">
+                Costo China ({divisaOrigen})
+              </p>
+              <p className="text-[15px] font-bold tabular-nums">
+                {total != null && total > 0 ? enDivisa(total) : "—"}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 px-3 py-2">
+              <p className="text-[11.5px] uppercase tracking-wide text-muted-foreground">
+                Pagado real (MXN)
+              </p>
+              <p className="text-[15px] font-bold tabular-nums">
+                {totalPagado > 0 ? formatearMXN(totalPagado) : "—"}
+              </p>
+              <p className="text-[11.5px] text-muted-foreground">suma de los pagos de abajo</p>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ped-extra-pct">Costo extra por pagar desde México (%)</Label>
+            <Input
+              id="ped-extra-pct"
+              type="number"
+              min="0"
+              step="0.1"
+              placeholder="7"
+              className="w-28"
+              value={costoExtraPct}
+              onChange={(e) => setCostoExtraPct(e.target.value)}
+            />
+          </div>
+          <div className="flex min-w-[200px] flex-1 flex-col gap-1.5">
+            <Label htmlFor="ped-extra-nota">Nota del costo extra</Label>
+            <Input
+              id="ped-extra-nota"
+              placeholder="Comisión de la transferencia, tipo de cambio del día…"
+              value={costoExtraNota}
+              onChange={(e) => setCostoExtraNota(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ped-pago-intl">Datos del pago internacional</Label>
+          <textarea
+            id="ped-pago-intl"
+            rows={3}
+            placeholder="El texto largo de la transferencia internacional: banco, beneficiario, SWIFT, referencia…"
+            value={pagoIntlNota}
+            onChange={(e) => setPagoIntlNota(e.target.value)}
+            className="w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/60 focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
       </SeccionFormulario>
 
-      {/* Rastreo del envío */}
-      <SeccionFormulario
-        titulo="Rastreo del envío"
-        pasoTitulo="Rastreo del envío"
-        pasoAyuda="Opcional: la paquetería y la guía cuando ya viene en camino."
-        abiertaPorDefecto={rastreoConDatos}
-      >
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Input
-            placeholder="Paquetería"
-            value={paqueteria}
-            onChange={(e) => setPaqueteria(e.target.value)}
-          />
-          <Input
-            placeholder="Nº de guía"
-            value={numGuia}
-            onChange={(e) => setNumGuia(e.target.value)}
-          />
-          <Input
-            placeholder="Link de rastreo (https://…)"
-            value={urlRastreo}
-            onChange={(e) => setUrlRastreo(e.target.value)}
-            className="col-span-2 sm:col-span-1"
-          />
-        </div>
-      </SeccionFormulario>
+      {/* Guías y archivos: solo sobre un pedido ya guardado (necesitan su id). */}
+      {pedido && detalle && (
+        <TrackingsPedido pedidoId={pedido.id} trackings={detalle.trackings} onCambio={recargar} />
+      )}
+      {pedido && detalle && (
+        <ArchivosPedido pedidoId={pedido.id} archivos={detalle.archivos} onCambio={recargar} />
+      )}
+      {!pedido && (
+        <p className="rounded-lg bg-muted/40 px-3 py-2 text-[12.5px] text-muted-foreground">
+          Las guías de rastreo, la factura y las fotos del proveedor se cargan al pedido ya
+          guardado: registra el pedido y vuélvelo a abrir.
+        </p>
+      )}
 
       {/* Pagos e incidencias: solo sobre un pedido ya guardado. */}
       {pedido && (
@@ -462,13 +574,20 @@ export function PedidoProvDialog({
           abiertaPorDefecto={(detalle?.pagos.length ?? 0) > 0}
         >
           <p className="text-[12.5px] text-muted-foreground">
-            Pagado <b className="text-foreground">{formatearMXN(totalPagado)}</b>
-            {total != null && total > 0 && ` de ${formatearMXN(total)}`}
+            Pagado <b className="text-foreground">{formatearMXN(totalPagado)}</b> desde México
+            {total != null && total > 0 && (
+              <> · el proveedor cobra {enDivisa(total)}</>
+            )}
           </p>
           <div className="flex flex-col gap-1">
             {(detalle?.pagos ?? []).map((p) => (
               <div key={p.id} className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm">
                 <span className="tabular-nums font-semibold">{formatearMXN(Number(p.monto))}</span>
+                {p.monto_origen != null && (
+                  <span className="tabular-nums text-[12px] text-muted-foreground">
+                    ({Number(p.monto_origen).toFixed(2)} {p.divisa ?? divisaOrigen})
+                  </span>
+                )}
                 <span className="text-muted-foreground">{formatearFecha(p.fecha)}</span>
                 {p.nota && <span className="truncate text-muted-foreground">· {p.nota}</span>}
                 {p.comprobante_path && (
@@ -500,16 +619,28 @@ export function PedidoProvDialog({
               <p className="text-[13px] text-muted-foreground">Sin pagos registrados.</p>
             )}
           </div>
-          {/* Alta de pago */}
+          {/* Alta de pago: el monto es el MXN real que salió de la cuenta; lo
+              de la divisa del proveedor es referencia. */}
           <div className="flex flex-wrap items-center gap-2">
             <Input
               type="number"
               min="0"
               step="0.01"
-              placeholder="$ monto"
-              className="w-28"
+              placeholder="$ MXN reales"
+              title="Lo que salió de la cuenta mexicana, en pesos"
+              className="w-32"
               value={pagoMonto}
               onChange={(e) => setPagoMonto(e.target.value)}
+            />
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder={`${divisaOrigen} (opcional)`}
+              title={`Cuánto fue en ${divisaOrigen} (referencia)`}
+              className="w-32"
+              value={pagoMontoOrigen}
+              onChange={(e) => setPagoMontoOrigen(e.target.value)}
             />
             <div className="w-40">
               <DatePicker value={pagoFecha} onChange={setPagoFecha} />

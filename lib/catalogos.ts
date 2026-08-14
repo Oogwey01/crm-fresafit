@@ -277,6 +277,31 @@ export const ESTADOS_PEDIDO_PROVEEDOR = [
   { id: "cancelado", nombre: "Cancelado", color: "#d63031" },
 ] as const;
 
+/* --- Cómo viaja un pedido a proveedor (junta 13/08): el aéreo llega en días,
+   el marítimo express en semanas y el normal en meses. Informa la ETA y el
+   costo, pero no los calcula: eso sigue siendo manual a propósito. --- */
+export const TIPOS_ENVIO_PROVEEDOR = [
+  { id: "aereo", nombre: "Aéreo", color: "#0984e3" },
+  { id: "maritimo_express", nombre: "Marítimo express", color: "#00b894" },
+  { id: "maritimo_normal", nombre: "Marítimo normal", color: "#6c5ce7" },
+] as const;
+
+export function obtenerTipoEnvioProveedor(id: string | null) {
+  return TIPOS_ENVIO_PROVEEDOR.find((t) => t.id === id) ?? null;
+}
+
+/* --- Qué es cada archivo colgado a un pedido a proveedor. --- */
+export const TIPOS_ARCHIVO_PEDIDO = [
+  { id: "factura", nombre: "Factura del proveedor" },
+  { id: "pago_internacional", nombre: "Pago internacional" },
+  { id: "foto_proveedor", nombre: "Foto del proveedor" },
+  { id: "otro", nombre: "Otro" },
+] as const;
+
+export function obtenerTipoArchivoPedido(id: string) {
+  return TIPOS_ARCHIVO_PEDIDO.find((t) => t.id === id) ?? null;
+}
+
 /* --- Estados de un pedido/envío (Fase 5). El orden = avance del flujo. --- */
 export const ESTADOS_PEDIDO = [
   { id: "nuevo", nombre: "Nuevo", color: "#0984e3" },
@@ -654,18 +679,21 @@ export const CATEGORIAS_PERSONALES = [
   { id: "otro", nombre: "Otro", color: "#94a3b8" },
 ] as const;
 
-/* Cada cuánto llega el cobro. `mesesQueCubre` es EL dato del catálogo: con él
-   se contestan las dos preguntas de la pantalla —cuánto cuesta el mes (monto ÷
-   meses) y cuándo vuelve a tocar (+meses)— sin que puedan desincronizarse. Se
-   guarda como entero y no como un factor 0.5 / 0.333… a propósito: dividir una
-   vez al final redondea mejor que multiplicar por un decimal recortado. */
+/* Cada cuánto llega el cobro. `pagosAlAno` es EL dato del catálogo: con él se
+   contesta cuánto cuesta el mes (monto × pagos ÷ 12) con una sola división al
+   final —igual de estable que el viejo `mesesQueCubre`, pero además le cabe lo
+   SEMANAL (52 pagos al año no son "0.23 meses")—. `unico` es el pago de una
+   sola vez que pidió Armando: 0 pagos al año = no suma al mensualizado, y su
+   fecha exacta vive en `fecha_unica`. */
 export const PERIODICIDADES_PERSONALES = [
-  { id: "mensual", nombre: "Mensual", color: "#0984e3", mesesQueCubre: 1 },
+  { id: "unico", nombre: "Una sola vez", color: "#94a3b8", pagosAlAno: 0 },
+  { id: "semanal", nombre: "Semanal", color: "#00cec9", pagosAlAno: 52 },
+  { id: "mensual", nombre: "Mensual", color: "#0984e3", pagosAlAno: 12 },
   /* La luz en México llega cada dos meses: es el caso que obliga a normalizar. */
-  { id: "bimestral", nombre: "Bimestral", color: "#6c5ce7", mesesQueCubre: 2 },
-  { id: "trimestral", nombre: "Trimestral", color: "#00b894", mesesQueCubre: 3 },
-  { id: "semestral", nombre: "Semestral", color: "#fdcb6e", mesesQueCubre: 6 },
-  { id: "anual", nombre: "Anual", color: "#e17055", mesesQueCubre: 12 },
+  { id: "bimestral", nombre: "Bimestral", color: "#6c5ce7", pagosAlAno: 6 },
+  { id: "trimestral", nombre: "Trimestral", color: "#00b894", pagosAlAno: 4 },
+  { id: "semestral", nombre: "Semestral", color: "#fdcb6e", pagosAlAno: 2 },
+  { id: "anual", nombre: "Anual", color: "#e17055", pagosAlAno: 1 },
 ] as const;
 
 /* --- Menú lateral: los 6 módulos del CRM, en el orden de prioridad de Armando.

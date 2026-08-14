@@ -46,9 +46,14 @@ export function TablaProveedores({
           >
             {p.nombre}
           </button>
+          {/* Con la etiqueta puesta: el renglón «Nancy / suerte» sin contexto
+              fue justo lo que confundió en la junta. */}
           {p.contacto && (
-            <span className="truncate text-[12px] text-muted-foreground" title={p.contacto}>
-              {p.contacto}
+            <span
+              className="truncate text-[12px] text-muted-foreground"
+              title={`Contacto: ${p.contacto}`}
+            >
+              Contacto: {p.contacto}
             </span>
           )}
         </div>

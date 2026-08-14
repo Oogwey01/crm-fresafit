@@ -86,6 +86,8 @@ export function PanelProveedores({
     producto ? [{ producto_id: producto, cantidad: Math.max(1, Number(cantidad) || 1) }] : undefined,
   );
   const [notasIniciales, setNotasIniciales] = useState<string | undefined>(undefined);
+  /* Proveedor con el que abre un pedido nuevo (lo asigna «Leer factura»). */
+  const [proveedorInicial, setProveedorInicial] = useState<string | undefined>(undefined);
 
   /* La URL se limpia para que un refresh no vuelva a abrir el mismo alta. Toca
      el historial del navegador, no el estado de React: aquí sí va un efecto. */
@@ -109,6 +111,7 @@ export function PanelProveedores({
     else {
       setItemsIniciales(undefined);
       setNotasIniciales(undefined);
+      setProveedorInicial(undefined);
       setPedidoDialog("nuevo");
     }
   }
@@ -153,11 +156,17 @@ export function PanelProveedores({
                   mano: leerla evita ese trabajo (se revisa antes de guardar). */}
               <ImportarFactura
                 productos={productos}
+                proveedores={proveedores}
                 onListo={(items, contexto) => {
                   setItemsIniciales(items);
+                  /* Con el proveedor ya ligado, su nombre no se repite en las
+                     notas; sin ligar, se conserva para no perder el dato. */
                   setNotasIniciales(
-                    [contexto.proveedor, contexto.notas].filter(Boolean).join(" · ") || undefined,
+                    [contexto.proveedorId ? null : contexto.proveedor, contexto.notas]
+                      .filter(Boolean)
+                      .join(" · ") || undefined,
                   );
+                  setProveedorInicial(contexto.proveedorId ?? undefined);
                   setPedidoDialog("nuevo");
                 }}
               />
@@ -245,10 +254,12 @@ export function PanelProveedores({
           diasEntregaDefault={diasEntregaDefault}
           itemsIniciales={pedidoDialog === "nuevo" ? itemsIniciales : undefined}
           notasIniciales={pedidoDialog === "nuevo" ? notasIniciales : undefined}
+          proveedorInicial={pedidoDialog === "nuevo" ? proveedorInicial : undefined}
           onClose={() => {
             setPedidoDialog(null);
             setItemsIniciales(undefined);
             setNotasIniciales(undefined);
+            setProveedorInicial(undefined);
           }}
         />
       )}

@@ -13,7 +13,12 @@ import {
 import { textoONulo } from "@/lib/validacion";
 import type { Resultado } from "@/lib/acciones";
 import { extraerFacturaConIA, type FacturaExtraida } from "@/lib/facturas/extraer";
-import type { EstadoPedidoProvId, PedidoProvDetalle } from "@/lib/types";
+import type {
+  EstadoPedidoProvId,
+  PedidoProvDetalle,
+  TipoArchivoPedidoId,
+  TipoEnvioProveedorId,
+} from "@/lib/types";
 
 /* A quién le compramos y qué le pedimos.
 
@@ -58,11 +63,19 @@ export type PedidoProvInput = {
   fecha_estimada: string | null;
   estado: EstadoPedidoProvId;
   costo_total: number | null;
-  paqueteria: string;
-  num_guia: string;
-  url_rastreo: string;
+  /* Aéreo / marítimo express / marítimo normal (junta 13/08). */
+  tipo_envio: TipoEnvioProveedorId | null;
+  /* En qué moneda cobra el proveedor (los renglones van en esa moneda). */
+  divisa_origen: string;
+  /* El texto largo de la transferencia internacional. */
+  pago_intl_nota: string;
+  /* Lo que cuesta pagar desde México: % manual y/o nota, sin conversión. */
+  costo_extra_pct: number | null;
+  costo_extra_nota: string;
   notas: string;
   items: PedidoProvItemInput[];
+  /* La guía única vieja ya no viaja: los trackings viven en su propia tabla
+     (varios por pedido) con sus propias acciones. */
 };
 
 
@@ -131,10 +144,17 @@ export async function guardarPedidoProv(id: string | null, input: PedidoProvInpu
     fecha_estimada: input.fecha_estimada || null,
     estado: input.estado,
     costo_total: input.costo_total,
-    paqueteria: textoONulo(input.paqueteria),
-    num_guia: textoONulo(input.num_guia),
-    url_rastreo: textoONulo(input.url_rastreo),
+    tipo_envio: input.tipo_envio,
+    divisa_origen: input.divisa_origen.trim().toUpperCase() || "USD",
+    pago_intl_nota: textoONulo(input.pago_intl_nota),
+    costo_extra_pct:
+      input.costo_extra_pct !== null && Number.isFinite(input.costo_extra_pct) && input.costo_extra_pct >= 0
+        ? input.costo_extra_pct
+        : null,
+    costo_extra_nota: textoONulo(input.costo_extra_nota),
     notas: textoONulo(input.notas),
+    /* paqueteria/num_guia/url_rastreo NO se tocan: son las columnas viejas,
+       ya respaldadas en supplier_order_trackings por la migración. */
   };
 
   /* El id del pedido, ya sea el que se editó o el que acaba de nacer. Se
@@ -239,13 +259,20 @@ const BUCKET_PEDIDOS = "pedidos-proveedor";
 export async function cargarDetallePedido(pedidoId: string): Promise<PedidoProvDetalle> {
   const cx = await exigirRol("direccion", NO_AUTORIZADO);
   if ("error" in cx) throw new Error(cx.error);
-  const [pagos, incidencias] = await Promise.all([
+  const [pagos, incidencias, trackings, archivos] = await Promise.all([
     cx.supabase.from("supplier_order_payments").select("*").eq("pedido_id", pedidoId).order("fecha", { ascending: true }),
     cx.supabase.from("supplier_order_incidents").select("*").eq("pedido_id", pedidoId).order("created_at", { ascending: false }),
+    cx.supabase.from("supplier_order_trackings").select("*").eq("pedido_id", pedidoId).order("created_at", { ascending: true }),
+    cx.supabase.from("supplier_order_files").select("*").eq("pedido_id", pedidoId).order("created_at", { ascending: true }),
   ]);
-  const fallo = [pagos, incidencias].find((r) => r.error);
+  const fallo = [pagos, incidencias, trackings, archivos].find((r) => r.error);
   if (fallo?.error) throw new Error(fallo.error.message);
-  return { pagos: pagos.data ?? [], incidencias: incidencias.data ?? [] };
+  return {
+    pagos: pagos.data ?? [],
+    incidencias: incidencias.data ?? [],
+    trackings: (trackings.data ?? []) as PedidoProvDetalle["trackings"],
+    archivos: (archivos.data ?? []) as PedidoProvDetalle["archivos"],
+  };
 }
 
 /* Registra un pago del pedido, con comprobante opcional (imagen/PDF). */
@@ -263,6 +290,12 @@ export async function registrarPagoPedido(
      ponga hoy — mandarle null reventaba el insert con violación de NOT NULL. */
   const fecha = textoONulo(String(formData.get("fecha") || "")) ?? undefined;
   const nota = textoONulo(String(formData.get("nota") || ""));
+  /* Cuánto fue en la moneda del proveedor (opcional, informativo): el costo
+     real sigue siendo el MXN de `monto`. */
+  const montoOrigenCrudo = Number(formData.get("monto_origen"));
+  const montoOrigen =
+    Number.isFinite(montoOrigenCrudo) && montoOrigenCrudo > 0 ? montoOrigenCrudo : null;
+  const divisa = textoONulo(String(formData.get("divisa") || "").toUpperCase());
 
   // Comprobante opcional: se sube primero; si falla el insert, se limpia.
   const file = formData.get("file");
@@ -285,6 +318,8 @@ export async function registrarPagoPedido(
             pedido_id: pedidoId,
             fecha,
             monto,
+            monto_origen: montoOrigen,
+            divisa,
             nota,
             comprobante_path: path,
             comprobante_nombre: archivo.file.name,
@@ -301,6 +336,8 @@ export async function registrarPagoPedido(
       pedido_id: pedidoId,
       fecha,
       monto,
+      monto_origen: montoOrigen,
+      divisa,
       nota,
       comprobante_path: null,
       comprobante_nombre: null,
@@ -340,6 +377,109 @@ export async function urlComprobantePedido(
   const cx = await exigirRol("direccion", NO_AUTORIZADO);
   if ("error" in cx) return cx;
   return urlFirmada(cx.supabase, BUCKET_PEDIDOS, storagePath);
+}
+
+/* ========== Trackings: varias guías por pedido (junta 13/08) ============== */
+
+export type TrackingPedidoInput = {
+  paqueteria: string;
+  num_guia: string;
+  url_rastreo: string;
+  /* Qué viene en esta guía («los straps y 20 cinturones»). */
+  contenido: string;
+};
+
+export async function agregarTrackingPedido(
+  pedidoId: string,
+  input: TrackingPedidoInput,
+): Promise<Resultado> {
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
+  const guia = input.num_guia.trim();
+  if (!guia) return { error: "La guía necesita su número de rastreo." };
+  const { error } = await cx.supabase.from("supplier_order_trackings").insert({
+    pedido_id: pedidoId,
+    paqueteria: textoONulo(input.paqueteria),
+    num_guia: guia,
+    url_rastreo: textoONulo(input.url_rastreo),
+    contenido: textoONulo(input.contenido),
+    created_by: cx.user.id,
+  });
+  if (error) return { error: error.message };
+  revalidar();
+  return { ok: true };
+}
+
+export async function borrarTrackingPedido(id: string): Promise<Resultado> {
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase.from("supplier_order_trackings").delete().eq("id", id);
+  if (error) return { error: error.message };
+  revalidar();
+  return { ok: true };
+}
+
+/* ========== Archivos del pedido: factura, pago intl, fotos =============== */
+
+/* Sube UN archivo. Las fotos del proveedor pueden ser decenas: la pantalla las
+   manda de una en una (límite de payload de server actions), y esta acción es
+   la misma para todas. */
+export async function subirArchivoPedido(
+  pedidoId: string,
+  tipo: TipoArchivoPedidoId,
+  formData: FormData,
+): Promise<Resultado> {
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
+
+  const archivo = archivoDeFormData(formData, {
+    maxMB: 20,
+    mensajeExcedido: "El archivo supera 20 MB.",
+  });
+  if ("error" in archivo) return archivo;
+  const { file } = archivo;
+  const path = rutaParaArchivo(pedidoId, file.name);
+  const nota = textoONulo(String(formData.get("nota") || ""));
+
+  const r = await subirYRegistrar({
+    supabase: cx.supabase,
+    bucket: BUCKET_PEDIDOS,
+    path,
+    file,
+    insertar: () =>
+      cx.supabase
+        .from("supplier_order_files")
+        .insert({
+          pedido_id: pedidoId,
+          tipo,
+          storage_path: path,
+          nombre: file.name,
+          mime: file.type || null,
+          nota,
+          created_by: cx.user.id,
+        })
+        .select("id")
+        .single(),
+    errorRegistro: "No se pudo registrar el archivo.",
+  });
+  if ("error" in r) return r;
+  revalidar();
+  return { ok: true };
+}
+
+export async function borrarArchivoPedido(id: string, storagePath: string): Promise<Resultado> {
+  const cx = await exigirRol("direccion", NO_AUTORIZADO);
+  if ("error" in cx) return cx;
+  const r = await borrarArchivoYFila({
+    supabase: cx.supabase,
+    bucket: BUCKET_PEDIDOS,
+    path: storagePath,
+    tabla: "supplier_order_files",
+    id,
+  });
+  if ("error" in r) return r;
+  revalidar();
+  return { ok: true };
 }
 
 export async function agregarIncidenciaPedido(pedidoId: string, texto: string): Promise<Resultado> {

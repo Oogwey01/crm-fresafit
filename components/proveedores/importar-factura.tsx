@@ -13,6 +13,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { extraerFactura } from "@/app/(app)/proveedores/actions";
 import { matchProductoPorSku, normalizarSku } from "@/lib/importar/tsv";
 import { aNumero } from "@/lib/validacion";
@@ -21,6 +28,9 @@ import type { FacturaExtraida } from "@/lib/facturas/extraer";
 import type { ItemInicialPedido } from "@/components/proveedores/pedido-prov-dialog";
 import { cn } from "@/lib/utils";
 import type { ProductoProveedor } from "@/lib/proveedores/tipos";
+import type { Supplier } from "@/lib/types";
+
+const SIN_PROVEEDOR = "sin";
 
 /* Renglón ya leído, editable antes de pasar al pedido. */
 type Renglon = {
@@ -36,16 +46,24 @@ type Renglon = {
    pedido, que es donde se elige proveedor y se confirma. */
 export function ImportarFactura({
   productos,
+  proveedores,
   onListo,
 }: {
   productos: ProductoProveedor[];
-  onListo: (items: ItemInicialPedido[], contexto: { proveedor: string | null; notas: string }) => void;
+  proveedores: Supplier[];
+  onListo: (
+    items: ItemInicialPedido[],
+    contexto: { proveedor: string | null; proveedorId: string | null; notas: string },
+  ) => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
   const [abierto, setAbierto] = useState(false);
   const [archivo, setArchivo] = useState<File | null>(null);
   const [factura, setFactura] = useState<FacturaExtraida | null>(null);
   const [renglones, setRenglones] = useState<Renglon[]>([]);
+  /* Proveedor del pedido que va a nacer de esta factura. Antes el nombre que
+     leía la IA solo acababa en las notas; ahora se liga a la ficha real. */
+  const [proveedorId, setProveedorId] = useState<string>(SIN_PROVEEDOR);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function cerrar() {
@@ -53,7 +71,30 @@ export function ImportarFactura({
     setArchivo(null);
     setFactura(null);
     setRenglones([]);
+    setProveedorId(SIN_PROVEEDOR);
     if (inputRef.current) inputRef.current.value = "";
+  }
+
+  /* Cruce por nombre entre lo que dice la factura y los proveedores dados de
+     alta: «NANCY TRADING CO.» debe encontrar a «Nancy Muñequeras». Se queda en
+     sugerencia editable — la IA puede leer mal el membrete. */
+  function sugerirProveedor(nombreFactura: string | null): string {
+    if (!nombreFactura) return SIN_PROVEEDOR;
+    const plano = (s: string) =>
+      s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "");
+    const objetivo = plano(nombreFactura);
+    const hallado = proveedores.find((p) => {
+      const nombre = plano(p.nombre);
+      return (
+        objetivo.includes(nombre) ||
+        nombre.includes(objetivo) ||
+        nombre.split(/\s+/).some((palabra) => palabra.length >= 4 && objetivo.includes(palabra))
+      );
+    });
+    return hallado?.id ?? SIN_PROVEEDOR;
   }
 
   function leer() {
@@ -69,6 +110,7 @@ export function ImportarFactura({
         if (!("datos" in r)) return;
         const datos = r.datos;
         setFactura(datos);
+        setProveedorId(sugerirProveedor(datos.proveedor));
         setRenglones(
           datos.renglones.map((x) => ({
             descripcion: x.descripcion,
@@ -115,7 +157,11 @@ export function ImportarFactura({
           .filter(Boolean)
           .join(" · ")
       : "";
-    onListo(items, { proveedor: factura?.proveedor ?? null, notas });
+    onListo(items, {
+      proveedor: factura?.proveedor ?? null,
+      proveedorId: proveedorId === SIN_PROVEEDOR ? null : proveedorId,
+      notas,
+    });
     cerrar();
   }
 
@@ -187,6 +233,32 @@ export function ImportarFactura({
                 </div>
               )}
 
+              {/* De quién es la factura, ligado a la ficha real: el pedido nace
+                  ya con su proveedor puesto en vez de traerlo solo en notas. */}
+              {factura && proveedores.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] font-medium">Proveedor del pedido:</span>
+                  <Select value={proveedorId} onValueChange={(v) => v && setProveedorId(v)}>
+                    <SelectTrigger className="w-full max-w-xs bg-card">
+                      <SelectValue>
+                        {(v: string) =>
+                          v === SIN_PROVEEDOR
+                            ? "Elegirlo en el pedido"
+                            : (proveedores.find((p) => p.id === v)?.nombre ?? "Proveedor")}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SIN_PROVEEDOR}>Elegirlo en el pedido</SelectItem>
+                      {proveedores.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               {renglones.length > 0 && (
                 <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full min-w-[720px] text-sm">
@@ -196,12 +268,16 @@ export function ImportarFactura({
                         <th className="px-3 py-2 font-semibold">SKU</th>
                         <th className="px-3 py-2 font-semibold">Cantidad</th>
                         <th className="px-3 py-2 font-semibold">Costo c/u</th>
+                        <th className="px-3 py-2 text-right font-semibold">Total</th>
                         <th className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody>
                       {renglones.map((r, i) => {
                         const producto = productos.find((p) => p.id === r.productoId);
+                        /* Lo que pidió Armando: 300 × 17.5 a la vista, no solo
+                           el unitario. */
+                        const totalRenglon = (Number(r.cantidad) || 0) * (Number(r.costo) || 0);
                         return (
                           <tr key={i} className="border-t">
                             <td className="px-3 py-1.5">
@@ -250,6 +326,13 @@ export function ImportarFactura({
                                 onChange={(e) => editar(i, { costo: e.target.value })}
                                 className={cn("h-8 w-28", !r.costo && "text-amber-600")}
                               />
+                            </td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-[13px] font-semibold">
+                              {totalRenglon > 0
+                                ? enDolares
+                                  ? `${totalRenglon.toFixed(2)} ${factura?.moneda}`
+                                  : formatearMXN(totalRenglon)
+                                : "—"}
                             </td>
                             <td className="px-3 py-1.5 text-right">
                               <button
