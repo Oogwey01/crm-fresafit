@@ -129,6 +129,21 @@ export async function guardarCajaFull(
   return { ok: true };
 }
 
+/* La nota de la caja: distinguirla («esta lleva muñequeras») y registrar
+   incidencias («no entró a bodega: venía rota»). Aparte de las medidas para que
+   escribir texto no dispare la validación numérica. */
+export async function guardarNotaCajaFull(id: string, nota: string): Promise<Resultado> {
+  const cx = await exigirRol("interno");
+  if ("error" in cx) return cx;
+  const { error } = await cx.supabase
+    .from("envio_full_cajas")
+    .update({ nota: textoONulo(nota) })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidar();
+  return { ok: true };
+}
+
 export async function borrarCajaFull(id: string): Promise<Resultado> {
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;

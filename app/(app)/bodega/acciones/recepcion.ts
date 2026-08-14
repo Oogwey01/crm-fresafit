@@ -81,6 +81,10 @@ export type RecepcionItemInput = {
   categoria: string | null;
   producto_nombre: string | null;
   talla: string | null;
+  /* Lo que TENÍA que llegar según el pedido al proveedor; null = sin dato. */
+  esperado: number | null;
+  /* «2 llegaron maltratados»: la nota del renglón. */
+  nota: string | null;
 };
 
 /* La fila tal como la guarda la tabla. La comparten el pegado en bloque y el
@@ -96,6 +100,9 @@ function filaRecepcion(recepcionId: string, f: RecepcionItemInput) {
     categoria: textoONulo(f.categoria ?? ""),
     producto_nombre: textoONulo(f.producto_nombre ?? ""),
     talla: textoONulo(f.talla ?? ""),
+    esperado:
+      f.esperado !== null && Number.isFinite(f.esperado) ? Math.max(0, Math.trunc(f.esperado)) : null,
+    nota: textoONulo(f.nota ?? ""),
   };
 }
 

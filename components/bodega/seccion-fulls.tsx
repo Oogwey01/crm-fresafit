@@ -33,6 +33,7 @@ import {
   borrarItemFull,
   guardarCajaFull,
   guardarEnvioFull,
+  guardarNotaCajaFull,
   marcarChecklistFull,
 } from "@/app/(app)/bodega/actions";
 import {
@@ -471,6 +472,8 @@ function Caja({
     peso: caja.peso_kg?.toString() ?? "",
   };
   const [medidas, setMedidas] = useState(guardadas);
+  /* La nota de la caja: distinguirla y registrar sus incidencias. */
+  const [nota, setNota] = useState(caja.nota ?? "");
   const [sku, setSku] = useState("");
   const [asin, setAsin] = useState("");
   const [cantidad, setCantidad] = useState("1");
@@ -549,6 +552,20 @@ function Caja({
           <Trash2 className="size-4" />
         </button>
       </div>
+
+      {/* Nota de la caja: qué la distingue («van muñequeras») y qué le pasó
+          («no entró a bodega: venía rota»). Pedido en la junta del 13/08. */}
+      <Input
+        placeholder="Nota de la caja: qué lleva, incidencias… (opcional)"
+        aria-label={`Nota de la caja ${caja.numero}`}
+        className="mb-2 h-8"
+        value={nota}
+        onChange={(e) => setNota(e.target.value)}
+        onBlur={() => {
+          if (nota.trim() === (caja.nota ?? "").trim()) return;
+          ejecutar(() => guardarNotaCajaFull(caja.id, nota), { ok: "Nota guardada." });
+        }}
+      />
 
       {caja.items.length > 0 && (
         <div className="overflow-x-auto">

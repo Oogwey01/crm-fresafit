@@ -114,7 +114,7 @@ export default async function BodegaPage() {
     supabase
       .from("envios_full")
       .select(
-        "id, destino, nombre, estado, fecha_envio, id_plataforma, paqueteria, tipo_envio, num_guia, fecha_llegada_estimada, notas, created_by, created_at, updated_at, cajas:envio_full_cajas(id, envio_id, numero, largo_cm, ancho_cm, alto_cm, peso_kg, items:envio_full_items(id, caja_id, producto_id, sku, asin, cantidad, empaquetado, cancelado, descontado))",
+        "id, destino, nombre, estado, fecha_envio, id_plataforma, paqueteria, tipo_envio, num_guia, fecha_llegada_estimada, notas, created_by, created_at, updated_at, cajas:envio_full_cajas(id, envio_id, numero, largo_cm, ancho_cm, alto_cm, peso_kg, nota, items:envio_full_items(id, caja_id, producto_id, sku, asin, cantidad, empaquetado, cancelado, descontado))",
       )
       .order("created_at", { ascending: false })
       .limit(50),
@@ -176,7 +176,7 @@ export default async function BodegaPage() {
           supabase
             .from("recepcion_items")
             .select(
-              "id, recepcion_id, sku, producto_id, unidades_no_procesadas, sku_consolidado, categoria, producto_nombre, talla, estado, descontado_en, created_at, updated_at",
+              "id, recepcion_id, sku, producto_id, unidades_no_procesadas, sku_consolidado, categoria, producto_nombre, talla, esperado, nota, estado, descontado_en, created_at, updated_at",
             )
             .in("recepcion_id", idsCargas)
             .order("created_at")

@@ -10,6 +10,8 @@ import type {
   ETIQUETAS,
   TIPOS_PRODUCTO,
   ESTADOS_PEDIDO_PROVEEDOR,
+  TIPOS_ENVIO_PROVEEDOR,
+  TIPOS_ARCHIVO_PEDIDO,
   ESTADOS_PEDIDO,
   CANALES,
   CATEGORIAS_GASTO,
@@ -80,6 +82,8 @@ export type RolId = (typeof ROLES)[number]["id"];
 export type EtiquetaId = (typeof ETIQUETAS)[number]["id"];
 export type TipoProductoId = (typeof TIPOS_PRODUCTO)[number]["id"];
 export type EstadoPedidoProvId = (typeof ESTADOS_PEDIDO_PROVEEDOR)[number]["id"];
+export type TipoEnvioProveedorId = (typeof TIPOS_ENVIO_PROVEEDOR)[number]["id"];
+export type TipoArchivoPedidoId = (typeof TIPOS_ARCHIVO_PEDIDO)[number]["id"];
 export type CanalId = (typeof CANALES)[number]["id"];
 export type CategoriaGastoId = (typeof CATEGORIAS_GASTO)[number]["id"];
 export type CategoriaPersonalId = (typeof CATEGORIAS_PERSONALES)[number]["id"];
@@ -418,7 +422,19 @@ export type SupplierOrder = {
   fecha_estimada: string | null;
   estado: EstadoPedidoProvId;
   costo_total: number | null;
-  /* Rastreo del envío (una guía principal). */
+  /* Cómo viaja: aéreo / marítimo express / marítimo normal (junta 13/08). */
+  tipo_envio: TipoEnvioProveedorId | null;
+  /* El texto largo de la transferencia internacional con que se paga. */
+  pago_intl_nota: string | null;
+  /* Lo que cuesta pagar desde México (conversión, comisiones): % manual y/o
+     nota. Nada de tipo de cambio adivinado. */
+  costo_extra_pct: number | null;
+  costo_extra_nota: string | null;
+  /* En qué moneda cobra el proveedor (los renglones van en ésta). */
+  divisa_origen: string;
+  /* Rastreo del envío. DEPRECADAS: la guía vive ahora en
+     `supplier_order_trackings` (varias por pedido); estas tres se conservan
+     por compatibilidad y la UI ya no las escribe. */
   paqueteria: string | null;
   num_guia: string | null;
   url_rastreo: string | null;
@@ -426,6 +442,34 @@ export type SupplierOrder = {
   created_by: string | null;
   created_at: string;
   updated_at: string | null;
+};
+
+/* Una guía del pedido (tabla `supplier_order_trackings`): el proveedor puede
+   partir un pedido en varios envíos, cada uno con su tracking y su contenido. */
+export type SupplierOrderTracking = {
+  id: string;
+  pedido_id: string;
+  paqueteria: string | null;
+  num_guia: string;
+  url_rastreo: string | null;
+  contenido: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/* Un archivo del pedido (tabla `supplier_order_files`, bucket
+   `pedidos-proveedor`): la factura de China, el screenshot del pago
+   internacional o las fotos que manda el proveedor. */
+export type SupplierOrderFile = {
+  id: string;
+  pedido_id: string;
+  tipo: TipoArchivoPedidoId;
+  storage_path: string;
+  nombre: string | null;
+  mime: string | null;
+  nota: string | null;
+  created_by: string | null;
+  created_at: string;
 };
 
 export type SupplierOrderConDetalle = SupplierOrder & {
@@ -439,7 +483,12 @@ export type SupplierOrderPayment = {
   id: string;
   pedido_id: string;
   fecha: string; // "AAAA-MM-DD"
+  /* Lo que salió de la cuenta MEXICANA, en pesos: la suma de estos montos es
+     el costo real del pedido. */
   monto: number;
+  /* Cuánto fue en la moneda del proveedor (opcional, informativo). */
+  monto_origen: number | null;
+  divisa: string | null;
   nota: string | null;
   comprobante_path: string | null;
   comprobante_nombre: string | null;
@@ -459,10 +508,12 @@ export type SupplierOrderIncident = {
   created_at: string;
 };
 
-/* Pagos + incidencias de un pedido (para el diálogo de pedido). */
+/* Pagos + incidencias + guías + archivos de un pedido (diálogo de pedido). */
 export type PedidoProvDetalle = {
   pagos: SupplierOrderPayment[];
   incidencias: SupplierOrderIncident[];
+  trackings: SupplierOrderTracking[];
+  archivos: SupplierOrderFile[];
 };
 
 /* Conteo físico de inventario (tabla `conteos_fisicos`): quién contó qué y quién
@@ -806,6 +857,8 @@ export type CompromisoPersonal = {
   periodicidad: PeriodicidadPersonalId;
   /* Día del mes (1-31). Null = todavía no se sabe. */
   dia_pago: number | null;
+  /* Solo para periodicidad `unico`: la fecha exacta del pago. */
+  fecha_unica: string | null;
   categoria: CategoriaPersonalId;
   /* false = dado de baja: se conserva, pero deja de contar en el total. */
   activo: boolean;
@@ -1182,6 +1235,11 @@ export type RecepcionItem = {
   categoria: string | null;
   producto_nombre: string | null;
   talla: string | null;
+  /* Cuántas TENÍAN que llegar según el pedido al proveedor («pedí 50, llegaron
+     48»). Null = no se capturó lo esperado y la UI no pinta diferencia. */
+  esperado: number | null;
+  /* La nota del renglón («2 llegaron maltratados»). */
+  nota: string | null;
   estado: EstadoRecepcionId;
   descontado_en: string | null;
   created_at: string;
@@ -1313,6 +1371,9 @@ export type EnvioFullCaja = {
   ancho_cm: number | null;
   alto_cm: number | null;
   peso_kg: number | null;
+  /* Qué distingue a ESTA caja («van muñequeras») y sus incidencias («no entró
+     a bodega: venía rota»). Pedido en la junta del 13/08/2026. */
+  nota: string | null;
 };
 
 export type EnvioFullItem = {
@@ -1491,7 +1552,13 @@ export type MaquilaProducto = {
 /* La ficha junto a los datos de la ficha de producto que la pantalla de
    "Productos de maquila" necesita para listar y buscar. */
 export type MaquilaProductoConFicha = MaquilaProducto & {
-  producto: { id: string; nombre: string; variante: string | null; sku: string | null } | null;
+  producto: {
+    id: string;
+    nombre: string;
+    variante: string | null;
+    sku: string | null;
+    imagen_url: string | null;
+  } | null;
 };
 
 /* Una tarifa de la tabla `maquila_costos` (sin IVA, con vigencia). */
@@ -1702,6 +1769,9 @@ export type MovConsignacionMaquila = {
   cantidad: number;
   saldo_resultante: number;
   pedido_id: string | null;
+  /* De qué diseño eran las piezas («10 de Akatsuki Pro»); null = sin
+     especificar (los movimientos históricos y los que no distinguen). */
+  diseno_id: string | null;
   lote: string | null;
   motivo: string | null;
   created_by: string | null;
@@ -1709,4 +1779,5 @@ export type MovConsignacionMaquila = {
   /* Resueltos aparte para la tabla; null cuando fue el sistema o se borró. */
   autor_nombre?: string | null;
   insumo_nombre?: string | null;
+  diseno_nombre?: string | null;
 };

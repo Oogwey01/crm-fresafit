@@ -384,13 +384,14 @@ function DetalleCarga({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[860px] text-sm">
+          <table className="w-full min-w-[940px] text-sm">
             <thead className="bg-muted/40 text-left text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-5 py-2.5 font-semibold">SKU</th>
                 <th className="px-3 py-2.5 font-semibold">Producto</th>
                 <th className="px-3 py-2.5 font-semibold">Talla</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Unidades</th>
+                <th className="px-3 py-2.5 text-right font-semibold">Esperado</th>
                 <th className="px-3 py-2.5 text-right font-semibold">Consolidado</th>
                 <th className="px-3 py-2.5 font-semibold">Estado</th>
                 <th className="px-3 py-2.5" />
@@ -409,11 +410,45 @@ function DetalleCarga({
                     </td>
                     <td className="px-3 py-2">
                       <Resaltado texto={nombreProducto(i)} busca={busqueda} />
+                      {/* La nota del renglón («2 llegaron maltratados») pegada
+                          al producto, que es donde el ojo la busca. */}
+                      {i.nota && (
+                        <span
+                          className="mt-0.5 block max-w-[260px] truncate text-[11.5px] italic text-amber-700 dark:text-amber-400"
+                          title={i.nota}
+                        >
+                          {i.nota}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       <Resaltado texto={i.talla ?? "—"} busca={busqueda} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{i.unidades_no_procesadas}</td>
+                    {/* Esperado vs recibido: «pedí 50, llegaron 48» → 50 y −2 en
+                        rojo. Sin dato no se pinta diferencia. */}
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {i.esperado === null ? (
+                        <span className="text-muted-foreground/50">—</span>
+                      ) : (
+                        <>
+                          <span className="text-muted-foreground">{i.esperado}</span>
+                          {i.esperado !== i.unidades_no_procesadas && (
+                            <span
+                              className={cn(
+                                "ml-1.5 font-semibold",
+                                i.unidades_no_procesadas < i.esperado
+                                  ? "text-red-600"
+                                  : "text-amber-600",
+                              )}
+                            >
+                              {i.unidades_no_procesadas < i.esperado ? "" : "+"}
+                              {i.unidades_no_procesadas - i.esperado}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {consolidado.get(i.sku_consolidado || i.sku) ?? 0}
                     </td>
@@ -504,7 +539,16 @@ function DetalleCarga({
 function derivarRenglon(
   carga: RecepcionConItems,
   productos: ProductoLigeroFila[],
-  campos: { sku: string; productoId: string | null; talla: string; unidades: number },
+  campos: {
+    sku: string;
+    productoId: string | null;
+    talla: string;
+    unidades: number;
+    /* Lo esperado del pedido y la nota del renglón: opcionales, los captura la
+       corrección (el alta rápida del piso no los pide). */
+    esperado?: number | null;
+    nota?: string;
+  },
 ): RecepcionItemInput {
   const limpio = campos.sku.trim().toUpperCase();
   const t = campos.talla.trim().toUpperCase();
@@ -532,6 +576,8 @@ function derivarRenglon(
     categoria: hermano?.categoria ?? null,
     producto_nombre: producto?.nombre ?? hermano?.producto_nombre ?? null,
     talla: t || null,
+    esperado: campos.esperado ?? null,
+    nota: campos.nota?.trim() || null,
   };
 }
 
@@ -667,6 +713,10 @@ function DialogoRenglon({
   const [productoId, setProductoId] = useState<string | null>(item.producto_id);
   const [talla, setTalla] = useState(item.talla ?? "");
   const [unidades, setUnidades] = useState(String(item.unidades_no_procesadas));
+  /* Esperado y nota son descriptivos: se corrigen aunque el renglón ya se haya
+     descontado (no mueven inventario). */
+  const [esperado, setEsperado] = useState(item.esperado?.toString() ?? "");
+  const [nota, setNota] = useState(item.nota ?? "");
 
   /* Ya descontado = sus unidades YA se sumaron a products.stock y quedaron
      firmadas en el ledger. Cambiarlas aquí no deshace esa suma, así que los dos
@@ -678,11 +728,19 @@ function DialogoRenglon({
 
   function guardar() {
     if (!listo) return;
+    const esperadoNum = esperado.trim() === "" ? null : Math.trunc(Number(esperado));
     ejecutar(
       () =>
         actualizarItemRecepcion(
           item.id,
-          derivarRenglon(carga, productos, { sku, productoId, talla, unidades: cantidad }),
+          derivarRenglon(carga, productos, {
+            sku,
+            productoId,
+            talla,
+            unidades: cantidad,
+            esperado: esperadoNum !== null && Number.isFinite(esperadoNum) ? esperadoNum : null,
+            nota,
+          }),
         ),
       {
         ok: "Renglón corregido.",
@@ -768,7 +826,31 @@ function DialogoRenglon({
                 onChange={(e) => setUnidades(e.target.value)}
               />
             </Campo>
+            <Campo
+              etiqueta="Esperado"
+              htmlFor="renglon-esperado"
+              className="flex-1"
+              ayuda="Cuántas tenían que llegar según el pedido; si difiere de las unidades, la tabla marca la diferencia."
+            >
+              <Input
+                id="renglon-esperado"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="—"
+                value={esperado}
+                onChange={(e) => setEsperado(e.target.value)}
+              />
+            </Campo>
           </div>
+          <Campo etiqueta="Nota del renglón" htmlFor="renglon-nota">
+            <Input
+              id="renglon-nota"
+              placeholder="«2 llegaron maltratados»… (opcional)"
+              value={nota}
+              onChange={(e) => setNota(e.target.value)}
+            />
+          </Campo>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={pending}>
@@ -913,6 +995,10 @@ function DialogoImportarRenglones({
           categoria: categoria.trim() || null,
           producto_nombre: producto.trim() || match.producto?.nombre || null,
           talla: talla.trim() || null,
+          /* La plantilla de la hoja no trae lo esperado ni notas: se capturan
+             después con «Corregir renglón». */
+          esperado: null,
+          nota: null,
         };
         return { input, tipo: match.tipo };
       })
