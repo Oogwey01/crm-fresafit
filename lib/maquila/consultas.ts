@@ -168,8 +168,9 @@ export async function cargarMovsConsignacion(
   const { data, error } = await cliente
     .from("maquila_consignacion_movs")
     .select(
-      "id, insumo_id, tipo, cantidad, saldo_resultante, pedido_id, lote, motivo, created_by, created_at," +
-        " autor_perfil:profiles!created_by(nombre), insumo:maquila_insumos!insumo_id(nombre)",
+      "id, insumo_id, tipo, cantidad, saldo_resultante, pedido_id, diseno_id, lote, motivo, created_by, created_at," +
+        " autor_perfil:profiles!created_by(nombre), insumo:maquila_insumos!insumo_id(nombre)," +
+        " diseno:maquila_disenos!diseno_id(nombre)",
     )
     .order("created_at", { ascending: false })
     .order("id", { ascending: false })
@@ -179,11 +180,13 @@ export async function cargarMovsConsignacion(
   type Fila = MovConsignacionMaquila & {
     autor_perfil: { nombre: string } | null;
     insumo: { nombre: string } | null;
+    diseno: { nombre: string } | null;
   };
-  return ((data ?? []) as unknown as Fila[]).map(({ autor_perfil, insumo, ...m }) => ({
+  return ((data ?? []) as unknown as Fila[]).map(({ autor_perfil, insumo, diseno, ...m }) => ({
     ...m,
     autor_nombre: autor_perfil?.nombre ?? null,
     insumo_nombre: insumo?.nombre ?? null,
+    diseno_nombre: diseno?.nombre ?? null,
   }));
 }
 

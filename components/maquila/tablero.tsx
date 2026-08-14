@@ -59,10 +59,14 @@ const ACTIVOS: readonly string[] = ESTADOS_MAQUILA_ACTIVOS;
    se pintan en rojo en cualquier vista — la pastilla roja de la barra filtra.
    `espera` solo existe para el equipo: a Eduardo la RLS ni le entrega esas
    filas y el segmento no se le pinta. */
-export type Vista = "espera" | "hoy" | "corte" | "prensados" | "esperando" | "historial";
+export type Vista = "espera" | "hoy" | "salidas" | "corte" | "prensados" | "esperando" | "historial";
 
+/* «Salidas»: lo que pidió Armando — TODOS los pedidos que han caído al
+   tablero, ordenados por el día en que salieron (se pagaron), el más nuevo
+   arriba. «Hoy» sigue siendo lo que VENCE hoy; son preguntas distintas. */
 const VISTAS_TALLER = [
   ["hoy", "Hoy"],
+  ["salidas", "Salidas"],
   ["corte", "Corte actual"],
   ["prensados", "Prensados"],
   ["esperando", "Esperando diseño"],
@@ -159,9 +163,19 @@ export function TableroMaquila({
   const parte = particionarPedidos(pedidos, ACTIVOS, hoy);
   const { atrasados, corteActual } = parte;
 
+  /* «Salidas»: todo lo que ya cayó al tablero (pagado), del más reciente al
+     más viejo. La lista llega ordenada por promesa; aquí manda cuándo salió. */
+  const salidas = pedidos
+    .filter((p) => p.estado !== "esperando_pago")
+    .slice()
+    .sort((a, b) =>
+      (b.pagado_en ?? b.created_at).localeCompare(a.pagado_en ?? a.created_at),
+    );
+
   const porVista: Record<Vista, PedidoMaquila[]> = {
     espera: esEquipo ? parte.esperandoPago : [],
     hoy: parte.paraHoy,
+    salidas,
     corte: parte.loteActual,
     prensados: parte.prensados,
     esperando: parte.esperandoArte,
@@ -254,8 +268,21 @@ export function TableroMaquila({
     },
     {
       clave: "promesa",
-      label: "Promesa",
+      /* En «Salidas» lo que importa es CUÁNDO salió el pedido, no cuándo vence. */
+      label: vista === "salidas" ? "Salió" : "Promesa",
       celda: (p) => {
+        if (vista === "salidas") {
+          return (
+            <div className="min-w-0">
+              <div className="font-medium">
+                {formatearFechaHora(p.pagado_en ?? p.created_at)}
+              </div>
+              <div className="text-[11.5px] text-muted-foreground">
+                {p.fecha_prometida ? `promesa ${formatearFecha(p.fecha_prometida)}` : ""}
+              </div>
+            </div>
+          );
+        }
         const sem = ACTIVOS.includes(p.estado) ? semaforoMaquila(p.fecha_prometida, hoy) : null;
         return (
           <div className="min-w-0">

@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Miniatura } from "@/components/compartido/miniatura";
 import { Pastilla } from "@/components/compartido/pastilla";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { SelectorProducto, type ProductoElegible } from "@/components/compartido/selector-producto";
@@ -55,10 +56,19 @@ export function ProductosMaquila({
       label: "Producto",
       esTitulo: true,
       celda: (f) => (
-        <div className="min-w-0">
-          <div className="truncate font-semibold">{f.producto?.nombre ?? f.producto_id}</div>
-          <div className="truncate text-[12px] text-muted-foreground">
-            {[f.producto?.sku, f.producto?.variante].filter(Boolean).join(" · ") || "—"}
+        <div className="flex min-w-0 items-center gap-3">
+          {/* La foto que pidió Armando: con puro texto, dos cintos de la misma
+              línea solo se distinguen por el SKU. */}
+          <Miniatura
+            src={f.producto?.imagen_url ?? null}
+            alt={f.producto?.nombre ?? "Producto"}
+            tam="size-12"
+          />
+          <div className="min-w-0">
+            <div className="truncate font-semibold">{f.producto?.nombre ?? f.producto_id}</div>
+            <div className="truncate text-[12px] text-muted-foreground">
+              {[f.producto?.sku, f.producto?.variante].filter(Boolean).join(" · ") || "—"}
+            </div>
           </div>
         </div>
       ),

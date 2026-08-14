@@ -93,7 +93,7 @@ export default async function MaquilaPage() {
           .from("maquila_productos")
           .select(
             "producto_id, modelo, acabado, combo, activo, created_by, created_at, updated_at," +
-              " producto:products!producto_id(id, nombre, variante, sku)",
+              " producto:products!producto_id(id, nombre, variante, sku, imagen_url)",
           )
           .order("created_at", { ascending: false })
           .order("producto_id")
@@ -123,8 +123,23 @@ export default async function MaquilaPage() {
       cargarDisenosMaquila(supabase),
     ]);
 
+  /* Vigía del caso «orden #599»: un producto PERSONALIZADO (bajo_pedido) sin
+     ficha activa en maquila_productos vende sin que su pedido caiga jamás al
+     tablero de Eduardo — la ingesta descarta el renglón en silencio. Aquí se
+     detectan para avisar ANTES de que se pierda el siguiente. */
+  const conFichaActiva = new Set(fichas.filter((f) => f.activo).map((f) => f.producto_id));
+  const { data: personalizados } = await supabase
+    .from("products")
+    .select("id, nombre, variante, sku")
+    .eq("bajo_pedido", true)
+    .eq("activo", true)
+    .order("nombre")
+    .limit(500);
+  const sinFichaMaquila = (personalizados ?? []).filter((p) => !conFichaActiva.has(p.id));
+
   return (
     <PanelMaquila
+      sinFichaMaquila={sinFichaMaquila}
       pedidos={pedidos}
       guias={guias}
       insumos={insumos}

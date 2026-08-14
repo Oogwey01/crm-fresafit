@@ -5,6 +5,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PieDialogoCRUD } from "@/components/compartido/pie-dialogo-crud";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import {
@@ -12,7 +19,9 @@ import {
   devolverInsumoMaquila,
   enviarInsumoMaquila,
 } from "@/app/(app)/maquila/actions";
-import type { InsumoMaquilaConSaldo } from "@/lib/types";
+import type { DisenoMaquila, InsumoMaquilaConSaldo } from "@/lib/types";
+
+const SIN_DISENO = "sin";
 
 type Modo = "envio" | "devolucion" | "ajuste";
 
@@ -44,25 +53,34 @@ const TEXTOS: Record<Modo, { titulo: string; campo: string; guardar: string; ayu
 export function MovimientoInsumoDialog({
   insumo,
   modo,
+  disenos = [],
   onClose,
 }: {
   insumo: InsumoMaquilaConSaldo;
   modo: Modo;
+  /* La biblioteca de diseños activos: al mandar muñequeras/straps se registra
+     de QUÉ diseño eran («10 de Akatsuki Pro», junta 13/08). Vacía = no se
+     ofrece el selector. */
+  disenos?: Pick<DisenoMaquila, "id" | "nombre" | "coleccion">[];
   onClose: () => void;
 }) {
   const { pending, ejecutar } = useAccionServidor();
   const [cantidad, setCantidad] = useState(modo === "ajuste" ? String(insumo.saldo) : "");
   const [motivo, setMotivo] = useState("");
+  const [disenoId, setDisenoId] = useState<string>(SIN_DISENO);
 
   const t = TEXTOS[modo];
+  /* El diseño aplica al material que entra y sale, no al conteo. */
+  const conDiseno = modo !== "ajuste" && disenos.length > 0;
 
   function guardar() {
     const n = Number(cantidad);
+    const diseno = conDiseno && disenoId !== SIN_DISENO ? disenoId : null;
     const accion =
       modo === "envio"
-        ? () => enviarInsumoMaquila(insumo.id, n, motivo)
+        ? () => enviarInsumoMaquila(insumo.id, n, motivo, diseno)
         : modo === "devolucion"
-          ? () => devolverInsumoMaquila(insumo.id, n, motivo)
+          ? () => devolverInsumoMaquila(insumo.id, n, motivo, diseno)
           : () => ajustarConsignacionMaquila(insumo.id, n, motivo);
 
     ejecutar(accion, {
@@ -97,6 +115,33 @@ export function MovimientoInsumoDialog({
             />
             <p className="text-[12px] text-muted-foreground">{t.ayuda}</p>
           </div>
+          {conDiseno && (
+            <div className="grid gap-1.5">
+              <Label>¿De qué diseño? (opcional)</Label>
+              <Select value={disenoId} onValueChange={(v) => v && setDisenoId(v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue>
+                    {(v: string) =>
+                      v === SIN_DISENO
+                        ? "Sin especificar"
+                        : (disenos.find((d) => d.id === v)?.nombre ?? "Diseño")}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SIN_DISENO}>Sin especificar</SelectItem>
+                  {disenos.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.nombre}
+                      {d.coleccion ? ` · ${d.coleccion}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[12px] text-muted-foreground">
+                Para llevar el control por diseño («10 de Akatsuki Pro»): un movimiento por diseño.
+              </p>
+            </div>
+          )}
           <div className="grid gap-1.5">
             <Label htmlFor="mov-motivo">
               {modo === "ajuste" ? "Por qué se ajusta" : "Nota (opcional)"}

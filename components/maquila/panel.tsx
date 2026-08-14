@@ -70,6 +70,7 @@ export function PanelMaquila({
   esAdmin,
   esDireccion,
   veDinero,
+  sinFichaMaquila = [],
 }: {
   pedidos: PedidoMaquila[];
   guias: GuiaMaquila[];
@@ -92,6 +93,9 @@ export function PanelMaquila({
   esAdmin: boolean;
   esDireccion: boolean;
   veDinero: boolean;
+  /* Personalizados activos SIN ficha de maquila: sus ventas no caen al tablero
+     (el caso de la orden #599). Se avisa antes de que se pierda la siguiente. */
+  sinFichaMaquila?: { id: string; nombre: string; variante: string | null; sku: string | null }[];
 }) {
   const [seccion, setSeccion] = useState<Seccion>("tablero");
   /* La vista del tablero y su filtro de atrasados viven aquí (y no dentro del
@@ -150,6 +154,35 @@ export function PanelMaquila({
           Pedido manual
         </Button>
       </div>
+
+      {/* Personalizados sin ficha: sus ventas NO caen al tablero de Eduardo y
+          nadie se entera (la ingesta descarta el renglón). Este aviso existe
+          por la orden #599 que apareció semanas tarde. */}
+      {sinFichaMaquila.length > 0 && (
+        <button
+          type="button"
+          onClick={() => {
+            setSeccion("ajustes");
+            setVistaAjustes("productos");
+          }}
+          className="mb-4 block w-full rounded-xl border border-amber-300 bg-amber-500/10 px-4 py-3 text-left text-[13.5px] transition-colors hover:bg-amber-500/20 dark:border-amber-900"
+        >
+          <b className="font-semibold">
+            {sinFichaMaquila.length}{" "}
+            {sinFichaMaquila.length === 1
+              ? "producto personalizado no tiene ficha de maquila"
+              : "productos personalizados no tienen ficha de maquila"}
+          </b>
+          : sus ventas no le caen a Eduardo hasta que se marquen en Ajustes → Productos de maquila.{" "}
+          <span className="text-muted-foreground">
+            {sinFichaMaquila
+              .slice(0, 3)
+              .map((p) => [p.nombre, p.variante].filter(Boolean).join(" · "))
+              .join(", ")}
+            {sinFichaMaquila.length > 3 ? "…" : ""}
+          </span>
+        </button>
+      )}
 
       {/* Las dos tarjetas con destino claro también navegan: son el atajo que
           reemplaza a las pestañas viejas de Esperando pago y Atrasados. */}
@@ -257,6 +290,7 @@ export function PanelMaquila({
         <InsumosMaquila
           insumos={insumos}
           movimientos={movimientos}
+          disenos={disenos.filter((d) => d.activo)}
           puedeMover
           puedeAjustar={esAdmin}
         />

@@ -15,6 +15,8 @@ export async function enviarInsumoMaquila(
   insumoId: string,
   cantidad: number,
   motivo: string,
+  /* De qué diseño eran las piezas («10 de Akatsuki Pro»), opcional. */
+  disenoId: string | null = null,
 ): Promise<Resultado<{ saldo: number }>> {
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;
@@ -25,9 +27,10 @@ export async function enviarInsumoMaquila(
   const { data, error } = await cx.supabase.rpc("maquila_enviar_insumo", {
     iid: insumoId,
     n,
-    /* La RPC lo declara con default, así que el tipo generado pide
+    /* La RPC los declara con default, así que el tipo generado pide
        `string | undefined`: un null explícito no le vale. */
     p_motivo: textoONulo(motivo) ?? undefined,
+    p_diseno_id: disenoId ?? undefined,
   });
   if (error) return { error: error.message };
   revalidarConStock();
@@ -38,6 +41,8 @@ export async function devolverInsumoMaquila(
   insumoId: string,
   cantidad: number,
   motivo: string,
+  /* De qué diseño eran las piezas, opcional. */
+  disenoId: string | null = null,
 ): Promise<Resultado<{ saldo: number }>> {
   const cx = await exigirRol("interno");
   if ("error" in cx) return cx;
@@ -48,9 +53,10 @@ export async function devolverInsumoMaquila(
   const { data, error } = await cx.supabase.rpc("maquila_devolver_insumo", {
     iid: insumoId,
     n,
-    /* La RPC lo declara con default, así que el tipo generado pide
+    /* La RPC los declara con default, así que el tipo generado pide
        `string | undefined`: un null explícito no le vale. */
     p_motivo: textoONulo(motivo) ?? undefined,
+    p_diseno_id: disenoId ?? undefined,
   });
   if (error) return { error: error.message };
   revalidarConStock();

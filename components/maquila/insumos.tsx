@@ -10,7 +10,7 @@ import { MovimientoInsumoDialog } from "@/components/maquila/movimiento-insumo-d
 import { obtenerTipoMovConsignacion } from "@/lib/catalogos";
 import { formatearFechaHora } from "@/lib/fecha";
 import { cn } from "@/lib/utils";
-import type { InsumoMaquilaConSaldo, MovConsignacionMaquila } from "@/lib/types";
+import type { DisenoMaquila, InsumoMaquilaConSaldo, MovConsignacionMaquila } from "@/lib/types";
 
 /* Lo que Fresa Fit le tiene a Eduardo en su bodega. Arriba, el saldo de cada
    insumo con lo que ya está comprometido por los pedidos que no han salido;
@@ -22,11 +22,14 @@ import type { InsumoMaquilaConSaldo, MovConsignacionMaquila } from "@/lib/types"
 export function InsumosMaquila({
   insumos,
   movimientos,
+  disenos = [],
   puedeMover,
   puedeAjustar,
 }: {
   insumos: InsumoMaquilaConSaldo[];
   movimientos: MovConsignacionMaquila[];
+  /* La biblioteca de diseños activos, para registrar los envíos por diseño. */
+  disenos?: Pick<DisenoMaquila, "id" | "nombre" | "coleccion">[];
   puedeMover: boolean;
   puedeAjustar: boolean;
 }) {
@@ -40,7 +43,15 @@ export function InsumosMaquila({
       clave: "insumo",
       label: "Insumo",
       esTitulo: true,
-      celda: (m) => <span className="font-medium">{m.insumo_nombre ?? "—"}</span>,
+      celda: (m) => (
+        <div className="min-w-0">
+          <span className="font-medium">{m.insumo_nombre ?? "—"}</span>
+          {/* De qué diseño era el material («10 de Akatsuki Pro»). */}
+          {m.diseno_nombre && (
+            <div className="truncate text-[11.5px] text-muted-foreground">{m.diseno_nombre}</div>
+          )}
+        </div>
+      ),
     },
     {
       clave: "tipo",
@@ -190,6 +201,7 @@ export function InsumosMaquila({
         <MovimientoInsumoDialog
           insumo={mover.insumo}
           modo={mover.modo}
+          disenos={disenos}
           onClose={() => setMover(null)}
         />
       )}
