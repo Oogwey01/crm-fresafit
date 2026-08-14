@@ -1,6 +1,6 @@
 import { usuarioActual } from "@/lib/supabase/usuario-actual";
 import { traerTodo } from "@/lib/canales/paginacion";
-import { saludML } from "@/lib/canales/salud";
+import { mediacionesML, saludML } from "@/lib/canales/salud";
 import { estadoMercadolibre } from "@/lib/mercadolibre/api";
 import { agruparDespachos, instanteDeCorte, resumirDespachos } from "@/lib/mercadolibre/desempeno";
 import { diasDesdeHoy } from "@/lib/fecha";
@@ -35,7 +35,7 @@ export default async function MercadoLibrePage() {
     costo_envio: number;
   } | null;
 
-  const [ventas, salud, estado, costosRes] = await Promise.all([
+  const [ventas, salud, mediaciones, estado, costosRes] = await Promise.all([
     /* Solo lo que puede terminar en el tablero: renglones CON plazo y SIN
        despachar. Antes bajaban los 30 días completos —miles de renglones—
        para que `agruparDespachos` tirara casi todos: los sin plazo se saltan
@@ -63,6 +63,9 @@ export default async function MercadoLibrePage() {
     ),
     /* Si Mercado Libre no contesta, el resto de la página sigue en pie. */
     saludML(),
+    /* Las mediaciones (reclamos ya escalados a un representante de ML): lo
+       pidió Armando en la junta del 13/08. Falla por su cuenta. */
+    mediacionesML(),
     estadoMercadolibre(),
     supabase.rpc("costos_canal", {
       canal_f: "mercado_libre",
@@ -95,6 +98,7 @@ export default async function MercadoLibrePage() {
   return (
     <PanelMercadoLibre
       salud={salud}
+      mediaciones={mediaciones}
       conectada={estado.conectada}
       ultimaSync={estado.ultimaSync}
       resumen={resumirDespachos(despachos)}

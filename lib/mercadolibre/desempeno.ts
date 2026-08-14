@@ -155,7 +155,10 @@ export type Desempeno = {
    poder enseñar la brecha en vez de esconderla. */
 export function desempenoML(salud: SaludML): Desempeno {
   const metricas = [
-    evaluar("demoras", "Demora en el despacho", salud.demoras),
+    /* En la API se llama delayed_handling_time; el panel de ML la rotula
+       «Envíos incorrectos». Van los dos nombres para que Armando la cuadre
+       contra su panel sin adivinar (junta 13/08). */
+    evaluar("demoras", "Envíos incorrectos (demora en el despacho)", salud.demoras),
     evaluar("reclamos", "Reclamos", salud.reclamos),
     evaluar("cancelaciones", "Cancelaciones", salud.cancelaciones),
   ];

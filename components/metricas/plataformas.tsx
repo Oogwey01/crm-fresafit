@@ -221,18 +221,18 @@ export function BloquesCanales({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Dato
               etiqueta="Reclamos"
-              valor={`${(salud.reclamos.realRate * 100).toFixed(1)}%`}
+              valor={`${(salud.reclamos.realRate * 100).toFixed(2)}%`}
               detalle={casos(salud.reclamos.real)}
             />
             <Dato
               etiqueta="Envíos con demora"
-              valor={`${(salud.demoras.realRate * 100).toFixed(1)}%`}
+              valor={`${(salud.demoras.realRate * 100).toFixed(2)}%`}
               detalle={casos(salud.demoras.real)}
               className={salud.demoras.real > 10 ? "text-amber-600" : undefined}
             />
             <Dato
               etiqueta="Cancelaciones"
-              valor={`${(salud.cancelaciones.realRate * 100).toFixed(1)}%`}
+              valor={`${(salud.cancelaciones.realRate * 100).toFixed(2)}%`}
               detalle={casos(salud.cancelaciones.real)}
             />
           </div>

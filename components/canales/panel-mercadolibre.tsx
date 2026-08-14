@@ -14,7 +14,7 @@ import {
   type MetricaEvaluada,
   type ResumenDespacho,
 } from "@/lib/mercadolibre/desempeno";
-import type { SaludML } from "@/lib/canales/salud";
+import type { MediacionesML, SaludML } from "@/lib/canales/salud";
 import { cn } from "@/lib/utils";
 
 /* ============================================================================
@@ -30,8 +30,9 @@ import { cn } from "@/lib/utils";
    segundo, con el plazo de cada pedido.
    ============================================================================ */
 
-/* Lo que cobra la plataforma por vender, ya sumado. */
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+/* Dos decimales y no uno: Armando cuadra estos números contra el panel de ML,
+   que enseña 0.88% — un 0.9% redondeado parece otro número. */
+const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 
 /* "en 3 h", "hace 2 d": lo que queda (o lo que ya se pasó) para el plazo. */
 function faltante(limite: string, ahora: number): string {
@@ -121,6 +122,7 @@ function FilaDespacho({ d, ahora }: { d: DespachoOrden; ahora: number }) {
 
 export function PanelMercadoLibre({
   salud,
+  mediaciones,
   conectada,
   ultimaSync,
   resumen,
@@ -129,6 +131,8 @@ export function PanelMercadoLibre({
   ahora,
 }: {
   salud: SaludML | null;
+  /* Reclamos escalados a un representante de ML. Null = la API no contestó. */
+  mediaciones: MediacionesML | null;
   conectada: boolean;
   ultimaSync: string | null;
   resumen: ResumenDespacho;
@@ -182,11 +186,29 @@ export function PanelMercadoLibre({
           <p className="mt-2 max-w-2xl text-[13.5px] leading-relaxed text-muted-foreground">
             {d.mensaje}
           </p>
+          {/* Exposición ACTUAL vs la que VIENE (junta 13/08): mientras la
+              cuenta está protegida, el panel de ML enseña un color mejor que
+              el real; al vencer la protección, la exposición cae al real. */}
           {d.protegidaHasta && (
-            <p className="mt-1.5 max-w-2xl text-[13px] font-medium text-amber-700 dark:text-amber-500">
-              La protección de Mercado Libre vence el {formatearFechaHora(d.protegidaHasta)}: a
-              partir de ahí el color de su panel pasa a ser el de arriba.
-            </p>
+            <div className="mt-2.5 grid max-w-2xl gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border bg-muted/30 px-3 py-2">
+                <p className="text-[11.5px] uppercase tracking-wide text-muted-foreground">
+                  Exposición actual (protegida)
+                </p>
+                <p className="text-[13.5px] font-semibold">
+                  {d.nivelPublicado ? NOMBRE_NIVEL[d.nivelPublicado] : NOMBRE_NIVEL[d.nivel]} en su
+                  panel
+                </p>
+              </div>
+              <div className="rounded-lg border border-amber-300 bg-amber-500/10 px-3 py-2 dark:border-amber-900">
+                <p className="text-[11.5px] uppercase tracking-wide text-muted-foreground">
+                  Al vencer la protección ({formatearFechaHora(d.protegidaHasta)})
+                </p>
+                <p className="text-[13.5px] font-semibold" style={{ color: COLOR_NIVEL[d.nivel] }}>
+                  {NOMBRE_NIVEL[d.nivel]} — el color real de arriba
+                </p>
+              </div>
+            </div>
           )}
 
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -194,6 +216,26 @@ export function PanelMercadoLibre({
               <Metrica key={m.clave} m={m} />
             ))}
           </div>
+
+          {/* Mediaciones (junta 13/08): reclamos que ya tienen a un
+              representante de ML en medio. Con cero también se pinta — saber
+              que no hay es el dato. */}
+          {mediaciones && (
+            <p
+              className={cn(
+                "mt-3 text-[13px] font-medium",
+                mediaciones.abiertas > 0 ? "text-red-600" : "text-muted-foreground",
+              )}
+            >
+              {mediaciones.abiertas === 0
+                ? "Sin mediaciones abiertas"
+                : `${mediaciones.abiertas} ${mediaciones.abiertas === 1 ? "mediación abierta" : "mediaciones abiertas"} con representante de ML`}
+              {" · "}
+              {mediaciones.reclamosAbiertos}{" "}
+              {mediaciones.reclamosAbiertos === 1 ? "reclamo abierto" : "reclamos abiertos"} en
+              total
+            </p>
+          )}
           <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
             Porcentajes de los últimos 60 días. El número grande es el REAL, contando todos los
             casos; cuando Mercado Libre excluye algunos, su cifra aparece al lado. Los niveles

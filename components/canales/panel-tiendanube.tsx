@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { CreditCard, Info, ShoppingCart, Store, Ticket } from "lucide-react";
 import { Bloque, Dato } from "@/components/compartido/bloque-dato";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { SinConexion, UltimaSync } from "@/components/canales/estado-canal";
 import { formatearMXN } from "@/lib/moneda";
@@ -103,6 +105,7 @@ export function PanelTiendaNube({
   slotCarritos,
   pagos,
   dias,
+  opcionesDias = [],
 }: {
   conectada: boolean;
   ultimaSync: string | null;
@@ -113,13 +116,37 @@ export function PanelTiendaNube({
      simplemente no se pintan. */
   pagos: ResumenPagos | null;
   dias: number;
+  /* Ventanas elegibles (?dias=): la pidió Armando para no vivir clavado en 30. */
+  opcionesDias?: number[];
 }) {
   if (!conectada) return <SinConexion nombre="Tienda Nube" />;
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[13.5px] text-muted-foreground">Últimos {dias} días</p>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <p className="text-[13.5px] text-muted-foreground">Últimos {dias} días</p>
+          {/* Selector por enlaces (la página es de servidor): cada ventana
+              recalcula carritos, pagos y cupones. */}
+          {opcionesDias.length > 1 && (
+            <span className="inline-flex items-center gap-1">
+              {opcionesDias.map((n) => (
+                <Link
+                  key={n}
+                  href={n === 30 ? "/canales/tiendanube" : `/canales/tiendanube?dias=${n}`}
+                  className={cn(
+                    "rounded-md px-2 py-0.5 text-[12px] font-semibold transition-colors",
+                    n === dias
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  {n}d
+                </Link>
+              ))}
+            </span>
+          )}
+        </div>
         <UltimaSync ultimaSync={ultimaSync} />
       </div>
 

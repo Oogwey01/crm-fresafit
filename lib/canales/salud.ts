@@ -176,6 +176,43 @@ async function saludMLSinCache(): Promise<SaludML | null> {
   }
 }
 
+/* Mediaciones del vendedor (junta 13/08): los reclamos que YA escalaron a un
+   representante de Mercado Libre. La API los sirve en
+   /post-purchase/v1/claims/search con stage=dispute (la ruta vieja /v1/claims
+   está deprecada desde 2024). Solo lectura, con el token normal del vendedor. */
+export type MediacionesML = {
+  abiertas: number;
+  /* Reclamos abiertos en cualquier etapa (mediación incluida), para contexto. */
+  reclamosAbiertos: number;
+};
+
+export const mediacionesML = unstable_cache(mediacionesMLSinCache, ["canales-mediaciones-ml"], {
+  revalidate: VIGENCIA_SEG,
+  tags: ["canales"],
+});
+
+async function mediacionesMLSinCache(): Promise<MediacionesML | null> {
+  const cx = await conexionMercadolibre();
+  if (!cx) return null;
+  try {
+    /* Solo se necesita el total: limit=1 y a leer paging.total. */
+    const [disputas, reclamos] = await Promise.all([
+      mlFetch(cx, `/post-purchase/v1/claims/search?stage=dispute&status=opened&limit=1`),
+      mlFetch(cx, `/post-purchase/v1/claims/search?status=opened&limit=1`),
+    ]);
+    if (!disputas.ok || !reclamos.ok) return null;
+    type Busqueda = { paging?: { total?: number } };
+    const d = (await disputas.json()) as Busqueda;
+    const r = (await reclamos.json()) as Busqueda;
+    return {
+      abiertas: Number(d.paging?.total ?? 0),
+      reclamosAbiertos: Number(r.paging?.total ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /* ---------------------------- Tienda Nube --------------------------------- */
 
 export type CarritosTN = {

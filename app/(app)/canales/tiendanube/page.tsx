@@ -14,19 +14,30 @@ import type { ResumenPagos } from "@/lib/canales/pagos";
 
 export const metadata = { title: "Tienda Nube · Fresafit" };
 
-/* Misma ventana que usa Métricas para los datos en vivo: 30 días bastan para
-   leer una tendencia y es lo que la API de carritos devuelve sin paginar de más. */
-const DIAS = 30;
+/* Ventana por defecto (la misma que usa Métricas para los datos en vivo); con
+   ?dias=7|15|30|60|90 se cambia — lo pidió Armando en la junta del 13/08. */
+const DIAS_DEFAULT = 30;
+const DIAS_VALIDOS = [7, 15, 30, 60, 90] as const;
 
 /* Los carritos se piden a Tienda Nube, que los entrega de 200 en 200 con un
    tope de 2 peticiones por segundo: eso tardaba y bloqueaba TODA la página.
    Ahora va en su propio <Suspense>, así que el resto se manda de inmediato y
-   este trozo aterriza cuando conteste (y ya cacheado 15 min, ver salud.ts). */
-async function Carritos({ verDinero }: { verDinero: boolean }) {
-  return <BloqueCarritos carritos={await carritosAbandonadosTN(DIAS)} verDinero={verDinero} />;
+   este trozo aterriza cuando conteste (cacheado 15 min por ventana: los
+   argumentos entran a la clave de unstable_cache, ver salud.ts). */
+async function Carritos({ dias, verDinero }: { dias: number; verDinero: boolean }) {
+  return <BloqueCarritos carritos={await carritosAbandonadosTN(dias)} verDinero={verDinero} />;
 }
 
-export default async function TiendaNubePage() {
+export default async function TiendaNubePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ dias?: string }>;
+}) {
+  const { dias: diasCrudo } = await searchParams;
+  const dias = DIAS_VALIDOS.includes(Number(diasCrudo) as (typeof DIAS_VALIDOS)[number])
+    ? Number(diasCrudo)
+    : DIAS_DEFAULT;
+
   /* Cacheado por request: comparte getUser() y perfil con el layout. */
   const { supabase } = await usuarioActual();
   const verDinero = veDineroDeCanal(await vistaDinero(), "tienda_nube");
@@ -36,7 +47,7 @@ export default async function TiendaNubePage() {
        `sale_orders` y hoy solo Tienda Nube los reporta. La suma la hace la base
        —`sale_orders` quedó cerrada a dirección y a los encargados de canal—, así
        que aquí ya no se baja una orden por fila para sumarlas a mano. */
-    supabase.rpc("pagos_canal", { canal_f: "tienda_nube", desde: diasDesdeHoy(-DIAS) }),
+    supabase.rpc("pagos_canal", { canal_f: "tienda_nube", desde: diasDesdeHoy(-dias) }),
     estadoTiendanube(),
   ]);
 
@@ -55,11 +66,12 @@ export default async function TiendaNubePage() {
       ultimaSync={estado.ultimaSync}
       slotCarritos={
         <Suspense fallback={<CarritosCargando />}>
-          <Carritos verDinero={verDinero} />
+          <Carritos dias={dias} verDinero={verDinero} />
         </Suspense>
       }
       pagos={pagos}
-      dias={DIAS}
+      dias={dias}
+      opcionesDias={[...DIAS_VALIDOS]}
     />
   );
 }

@@ -216,6 +216,10 @@ export const PRESETS_RANGO = [
   { id: "hoy", nombre: "Hoy" },
   { id: "ayer", nombre: "Ayer" },
   { id: "ultimos_7", nombre: "Últimos 7 días" },
+  /* La ventana con la que Mercado Libre pinta SUS "últimos 7 días": 7 días
+     completos MÁS hoy (8 en total). Existe para cuadrar contra su panel sin
+     andar restando de cabeza (junta 13/08). */
+  { id: "ml_7_mas_hoy", nombre: "7 días + hoy (como ML)" },
   { id: "ultimos_15", nombre: "Últimos 15 días" },
   { id: "ultimos_30", nombre: "Últimos 30 días" },
   { id: "semana", nombre: "Semana actual" },
@@ -249,12 +253,19 @@ export function rangosDePeriodo(id: PresetRangoId): {
     };
   }
   if (id === "ultimos_7" || id === "ultimos_15" || id === "ultimos_30") {
-    /* Ventana móvil que INCLUYE hoy: "últimos 7" = hoy y los 6 anteriores, que
-       es como lo cuentan los paneles de los canales. */
+    /* Ventana móvil que INCLUYE hoy: "últimos 7" = hoy y los 6 anteriores. */
     const n = id === "ultimos_7" ? 7 : id === "ultimos_15" ? 15 : 30;
     return {
       actual: { desde: diasDesdeHoy(-(n - 1)), hasta: hoyISO() },
       anterior: { desde: diasDesdeHoy(-(2 * n - 1)), hasta: diasDesdeHoy(-n) },
+    };
+  }
+  if (id === "ml_7_mas_hoy") {
+    /* Como cuenta Mercado Libre: 7 días completos + lo que va de hoy (8 días).
+       Comparado contra los 8 inmediatamente previos. */
+    return {
+      actual: { desde: diasDesdeHoy(-7), hasta: hoyISO() },
+      anterior: { desde: diasDesdeHoy(-15), hasta: diasDesdeHoy(-8) },
     };
   }
   if (id === "semana") {
