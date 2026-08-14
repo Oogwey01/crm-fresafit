@@ -104,11 +104,16 @@ export function PanelPersonales({ compromisos }: { compromisos: CompromisoPerson
       /* La columna que justifica la pantalla: todo en la misma moneda. */
       clave: "mensual",
       label: "Al mes",
-      celda: (c) => (
-        <div className="font-semibold tabular-nums">
-          {formatearMXN(costoMensual(c.monto, c.periodicidad))}
-        </div>
-      ),
+      celda: (c) =>
+        c.periodicidad === "unico" ? (
+          /* Un pago de una sola vez no cuesta nada AL MES; ponerle $0.00 se
+             leería como error de captura. */
+          <span className="text-[12px] text-muted-foreground">no suma</span>
+        ) : (
+          <div className="font-semibold tabular-nums">
+            {formatearMXN(costoMensual(c.monto, c.periodicidad))}
+          </div>
+        ),
     },
     {
       /* Fecha solo cuando de verdad se sabe (ver proximoPago): para lo que no es
@@ -116,7 +121,7 @@ export function PanelPersonales({ compromisos }: { compromisos: CompromisoPerson
       clave: "toca",
       label: "Toca el",
       celda: (c) => {
-        const fecha = proximoPago(c.dia_pago, c.periodicidad);
+        const fecha = proximoPago(c.dia_pago, c.periodicidad, undefined, c.fecha_unica);
         if (fecha) {
           return (
             <span className={esInminente(fecha) ? "font-medium text-amber-600" : undefined}>
@@ -124,11 +129,22 @@ export function PanelPersonales({ compromisos }: { compromisos: CompromisoPerson
             </span>
           );
         }
+        /* El pago único ya pagado enseña SU fecha, atenuada: es historia. */
+        if (c.periodicidad === "unico") {
+          return c.fecha_unica ? (
+            <span className="text-[12px] text-muted-foreground">
+              se pagó el {formatearFecha(c.fecha_unica)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/50">—</span>
+          );
+        }
         if (!c.dia_pago) return <span className="text-muted-foreground/50">—</span>;
-        const meses = obtenerPeriodicidadPersonal(c.periodicidad)?.mesesQueCubre ?? 1;
+        const nombre =
+          obtenerPeriodicidadPersonal(c.periodicidad)?.nombre.toLowerCase() ?? c.periodicidad;
         return (
           <span className="text-[12px] text-muted-foreground">
-            día {c.dia_pago} · cada {meses} meses
+            día {c.dia_pago} · {nombre}
           </span>
         );
       },

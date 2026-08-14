@@ -16,5 +16,5 @@ export const COLUMNAS_GASTO =
    explica —a quien depure— por qué esta lista está vacía; el resto es lo que
    pinta la tabla. */
 export const COLUMNAS_PERSONAL =
-  "id, owner_id, concepto, monto, periodicidad, dia_pago, categoria," +
+  "id, owner_id, concepto, monto, periodicidad, dia_pago, fecha_unica, categoria," +
   " activo, notas, created_at, updated_at";

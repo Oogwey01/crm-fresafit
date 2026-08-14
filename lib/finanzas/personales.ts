@@ -23,9 +23,11 @@ import type { CompromisoPersonal, PeriodicidadPersonalId } from "@/lib/types";
    exacto» que no cuadra con la pantalla, y un total que no cuadra con sus
    renglones no se vuelve a creer nunca. */
 export function costoMensual(monto: number, periodicidad: PeriodicidadPersonalId): number {
-  const meses = obtenerPeriodicidadPersonal(periodicidad)?.mesesQueCubre ?? 1;
+  const pagosAlAno = obtenerPeriodicidadPersonal(periodicidad)?.pagosAlAno ?? 12;
   if (!Number.isFinite(monto) || monto <= 0) return 0;
-  return Math.round((monto / meses) * 100) / 100;
+  /* «Una sola vez» no cuesta nada AL MES: es un pago, no un ritmo. */
+  if (pagosAlAno === 0) return 0;
+  return Math.round(((monto * pagosAlAno) / 12) * 100) / 100;
 }
 
 /* El total del mes: solo lo que sigue activo. Lo dado de baja se conserva en la
@@ -59,7 +61,12 @@ export function proximoPago(
   diaPago: number | null,
   periodicidad: PeriodicidadPersonalId,
   hoy: string = hoyISO(),
+  /* Solo para `unico`: la fecha exacta del pago. */
+  fechaUnica: string | null = null,
 ): string | null {
+  /* El pago único tiene fecha completa, no día del mes: se promete si todavía
+     no pasa; ya pagado, no hay "próximo". */
+  if (periodicidad === "unico") return fechaUnica && fechaUnica >= hoy ? fechaUnica : null;
   if (!diaPago || periodicidad !== "mensual") return null;
 
   /* El día 31 no existe en febrero: se recorta al último del mes. Es el mismo
@@ -92,7 +99,10 @@ export function siguienteCompromiso(
   return (
     compromisos
       .filter((c) => c.activo)
-      .map((c) => ({ compromiso: c, fecha: proximoPago(c.dia_pago, c.periodicidad, hoy) }))
+      .map((c) => ({
+        compromiso: c,
+        fecha: proximoPago(c.dia_pago, c.periodicidad, hoy, c.fecha_unica),
+      }))
       .filter((x): x is { compromiso: CompromisoPersonal; fecha: string } => x.fecha !== null)
       .sort((a, b) => a.fecha.localeCompare(b.fecha))[0] ?? null
   );

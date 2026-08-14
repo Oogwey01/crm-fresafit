@@ -14,6 +14,8 @@ export type CompromisoPersonalInput = {
   monto: number;
   periodicidad: PeriodicidadPersonalId;
   dia_pago: number | null;
+  /* Solo para `unico`: la fecha exacta del pago. */
+  fecha_unica: string | null;
   categoria: CategoriaPersonalId;
   activo: boolean;
   notas: string;
@@ -54,11 +56,16 @@ export async function guardarCompromisoPersonal(
     return { error: "El día de pago va del 1 al 31." };
   }
 
+  /* El día del mes es de los recurrentes; la fecha completa, del pago único.
+     Se limpia el que no aplica para que un cambio de periodicidad no deje un
+     dato zombi contradiciendo al otro. */
+  const esUnico = input.periodicidad === "unico";
   const fila = {
     concepto,
     monto: input.monto,
     periodicidad: input.periodicidad,
-    dia_pago: input.dia_pago,
+    dia_pago: esUnico ? null : input.dia_pago,
+    fecha_unica: esUnico ? input.fecha_unica : null,
     categoria: input.categoria,
     activo: input.activo,
     notas: textoONulo(input.notas),

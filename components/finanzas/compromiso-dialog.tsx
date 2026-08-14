@@ -8,6 +8,7 @@ import { CampoHero, DescripcionHero } from "@/components/compartido/campo-hero";
 import {
   PastillaDato,
   PastillaEntrada,
+  PastillaFecha,
   PastillaInterruptor,
   PastillaOpcion,
 } from "@/components/compartido/pastillas-campo";
@@ -50,6 +51,8 @@ export function CompromisoDialog({
     compromiso?.periodicidad ?? plantilla?.periodicidad ?? "mensual",
   );
   const [diaPago, setDiaPago] = useState(compromiso?.dia_pago?.toString() ?? "");
+  /* Solo para «Una sola vez»: la fecha completa del pago. */
+  const [fechaUnica, setFechaUnica] = useState<string | null>(compromiso?.fecha_unica ?? null);
   const [categoria, setCategoria] = useState<CategoriaPersonalId>(
     compromiso?.categoria ?? plantilla?.categoria ?? "servicios",
   );
@@ -57,6 +60,7 @@ export function CompromisoDialog({
   const [notas, setNotas] = useState(compromiso?.notas ?? "");
 
   const montoNumero = Math.round((Number(monto) || 0) * 100) / 100;
+  const esUnico = periodicidad === "unico";
 
   function guardar() {
     const input: CompromisoPersonalInput = {
@@ -64,6 +68,7 @@ export function CompromisoDialog({
       monto: montoNumero,
       periodicidad,
       dia_pago: aNumero(diaPago),
+      fecha_unica: fechaUnica,
       categoria,
       activo,
       notas,
@@ -155,16 +160,29 @@ export function CompromisoDialog({
           valor={periodicidad}
           onCambio={setPeriodicidad}
         />
-        <PastillaEntrada
-          etiqueta="Día de pago"
-          tipo="number"
-          placeholder="15"
-          valor={diaPago}
-          onCambio={setDiaPago}
-          opcional
-          ayuda="Del 1 al 31. Si no lo sabes, déjalo en blanco."
-          idMovil="personal-dia"
-        />
+        {/* Recurrente = día del mes; «una sola vez» = fecha completa (el día
+            1-31 no dice mes ni año). Cada modo enseña solo su campo. */}
+        {esUnico ? (
+          <PastillaFecha
+            etiqueta="Día del pago"
+            etiquetaVacia="Día del pago"
+            valor={fechaUnica ?? ""}
+            onCambio={setFechaUnica}
+            limpiable
+            ayuda="La fecha en que se paga (o se pagó) este único cobro."
+          />
+        ) : (
+          <PastillaEntrada
+            etiqueta="Día de pago"
+            tipo="number"
+            placeholder="15"
+            valor={diaPago}
+            onCambio={setDiaPago}
+            opcional
+            ayuda="Del 1 al 31. Si no lo sabes, déjalo en blanco."
+            idMovil="personal-dia"
+          />
+        )}
         <PastillaOpcion
           etiqueta="Categoría"
           opciones={CATEGORIAS_PERSONALES}
@@ -179,14 +197,23 @@ export function CompromisoDialog({
         <PastillaDato
           etiqueta="Te cuesta al mes"
           icono={CalendarClock}
-          valor={formatearMXN(costoMensual(montoNumero, periodicidad))}
+          valor={esUnico ? "no suma al mes" : formatearMXN(costoMensual(montoNumero, periodicidad))}
           contenidoMovil={
             <p className="text-[13px] text-muted-foreground">
-              Te cuesta{" "}
-              <b className="text-foreground">
-                {formatearMXN(costoMensual(montoNumero, periodicidad))}
-              </b>{" "}
-              al mes.
+              {esUnico ? (
+                <>
+                  Es un pago de <b className="text-foreground">una sola vez</b>: no suma al total
+                  del mes.
+                </>
+              ) : (
+                <>
+                  Te cuesta{" "}
+                  <b className="text-foreground">
+                    {formatearMXN(costoMensual(montoNumero, periodicidad))}
+                  </b>{" "}
+                  al mes.
+                </>
+              )}
             </p>
           }
         />

@@ -1072,6 +1072,7 @@ export type Database = {
           envio_id: string
           id: string
           largo_cm: number | null
+          nota: string | null
           numero: number
           peso_kg: number | null
         }
@@ -1082,6 +1083,7 @@ export type Database = {
           envio_id: string
           id?: string
           largo_cm?: number | null
+          nota?: string | null
           numero: number
           peso_kg?: number | null
         }
@@ -1092,6 +1094,7 @@ export type Database = {
           envio_id?: string
           id?: string
           largo_cm?: number | null
+          nota?: string | null
           numero?: number
           peso_kg?: number | null
         }
@@ -1323,6 +1326,7 @@ export type Database = {
           concepto: string
           created_at: string
           dia_pago: number | null
+          fecha_unica: string | null
           id: string
           monto: number
           notas: string | null
@@ -1336,6 +1340,7 @@ export type Database = {
           concepto: string
           created_at?: string
           dia_pago?: number | null
+          fecha_unica?: string | null
           id?: string
           monto?: number
           notas?: string | null
@@ -1349,6 +1354,7 @@ export type Database = {
           concepto?: string
           created_at?: string
           dia_pago?: number | null
+          fecha_unica?: string | null
           id?: string
           monto?: number
           notas?: string | null
@@ -1928,6 +1934,7 @@ export type Database = {
           cantidad: number
           created_at: string
           created_by: string | null
+          diseno_id: string | null
           id: string
           insumo_id: string
           lote: string | null
@@ -1940,6 +1947,7 @@ export type Database = {
           cantidad: number
           created_at?: string
           created_by?: string | null
+          diseno_id?: string | null
           id?: string
           insumo_id: string
           lote?: string | null
@@ -1952,6 +1960,7 @@ export type Database = {
           cantidad?: number
           created_at?: string
           created_by?: string | null
+          diseno_id?: string | null
           id?: string
           insumo_id?: string
           lote?: string | null
@@ -1966,6 +1975,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "maquila_consignacion_movs_diseno_id_fkey"
+            columns: ["diseno_id"]
+            isOneToOne: false
+            referencedRelation: "maquila_disenos"
             referencedColumns: ["id"]
           },
           {
@@ -3214,6 +3230,43 @@ export type Database = {
           },
         ]
       }
+      product_tn_categorias: {
+        Row: {
+          categoria_id: number
+          product_id: string
+        }
+        Insert: {
+          categoria_id: number
+          product_id: string
+        }
+        Update: {
+          categoria_id?: number
+          product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_tn_categorias_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "tn_categorias"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_tn_categorias_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "producto_costos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_tn_categorias_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           activo: boolean
@@ -3416,8 +3469,10 @@ export type Database = {
           categoria: string | null
           created_at: string
           descontado_en: string | null
+          esperado: number | null
           estado: string
           id: string
+          nota: string | null
           producto_id: string | null
           producto_nombre: string | null
           recepcion_id: string
@@ -3431,8 +3486,10 @@ export type Database = {
           categoria?: string | null
           created_at?: string
           descontado_en?: string | null
+          esperado?: number | null
           estado?: string
           id?: string
+          nota?: string | null
           producto_id?: string | null
           producto_nombre?: string | null
           recepcion_id: string
@@ -3446,8 +3503,10 @@ export type Database = {
           categoria?: string | null
           created_at?: string
           descontado_en?: string | null
+          esperado?: number | null
           estado?: string
           id?: string
+          nota?: string | null
           producto_id?: string | null
           producto_nombre?: string | null
           recepcion_id?: string
@@ -3990,6 +4049,57 @@ export type Database = {
           },
         ]
       }
+      supplier_order_files: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          mime: string | null
+          nombre: string | null
+          nota: string | null
+          pedido_id: string
+          storage_path: string
+          tipo: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mime?: string | null
+          nombre?: string | null
+          nota?: string | null
+          pedido_id: string
+          storage_path: string
+          tipo?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          mime?: string | null
+          nombre?: string | null
+          nota?: string | null
+          pedido_id?: string
+          storage_path?: string
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_order_files_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_order_files_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       supplier_order_incidents: {
         Row: {
           created_at: string
@@ -4091,9 +4201,11 @@ export type Database = {
           comprobante_tipo: string | null
           created_at: string
           created_by: string | null
+          divisa: string | null
           fecha: string
           id: string
           monto: number
+          monto_origen: number | null
           nota: string | null
           pedido_id: string
         }
@@ -4103,9 +4215,11 @@ export type Database = {
           comprobante_tipo?: string | null
           created_at?: string
           created_by?: string | null
+          divisa?: string | null
           fecha?: string
           id?: string
           monto: number
+          monto_origen?: number | null
           nota?: string | null
           pedido_id: string
         }
@@ -4115,9 +4229,11 @@ export type Database = {
           comprobante_tipo?: string | null
           created_at?: string
           created_by?: string | null
+          divisa?: string | null
           fecha?: string
           id?: string
           monto?: number
+          monto_origen?: number | null
           nota?: string | null
           pedido_id?: string
         }
@@ -4138,49 +4254,112 @@ export type Database = {
           },
         ]
       }
+      supplier_order_trackings: {
+        Row: {
+          contenido: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          num_guia: string
+          paqueteria: string | null
+          pedido_id: string
+          url_rastreo: string | null
+        }
+        Insert: {
+          contenido?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          num_guia: string
+          paqueteria?: string | null
+          pedido_id: string
+          url_rastreo?: string | null
+        }
+        Update: {
+          contenido?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          num_guia?: string
+          paqueteria?: string | null
+          pedido_id?: string
+          url_rastreo?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_order_trackings_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_order_trackings_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       supplier_orders: {
         Row: {
+          costo_extra_nota: string | null
+          costo_extra_pct: number | null
           costo_total: number | null
           created_at: string
           created_by: string | null
+          divisa_origen: string
           estado: string
           fecha_estimada: string | null
           fecha_pedido: string
           id: string
           notas: string | null
           num_guia: string | null
+          pago_intl_nota: string | null
           paqueteria: string | null
           proveedor_id: string
+          tipo_envio: string | null
           updated_at: string | null
           url_rastreo: string | null
         }
         Insert: {
+          costo_extra_nota?: string | null
+          costo_extra_pct?: number | null
           costo_total?: number | null
           created_at?: string
           created_by?: string | null
+          divisa_origen?: string
           estado?: string
           fecha_estimada?: string | null
           fecha_pedido?: string
           id?: string
           notas?: string | null
           num_guia?: string | null
+          pago_intl_nota?: string | null
           paqueteria?: string | null
           proveedor_id: string
+          tipo_envio?: string | null
           updated_at?: string | null
           url_rastreo?: string | null
         }
         Update: {
+          costo_extra_nota?: string | null
+          costo_extra_pct?: number | null
           costo_total?: number | null
           created_at?: string
           created_by?: string | null
+          divisa_origen?: string
           estado?: string
           fecha_estimada?: string | null
           fecha_pedido?: string
           id?: string
           notas?: string | null
           num_guia?: string | null
+          pago_intl_nota?: string | null
           paqueteria?: string | null
           proveedor_id?: string
+          tipo_envio?: string | null
           updated_at?: string | null
           url_rastreo?: string | null
         }
@@ -4679,6 +4858,27 @@ export type Database = {
           },
         ]
       }
+      tn_categorias: {
+        Row: {
+          actualizado_en: string
+          id: number
+          nombre: string
+          parent_id: number | null
+        }
+        Insert: {
+          actualizado_en?: string
+          id: number
+          nombre: string
+          parent_id?: number | null
+        }
+        Update: {
+          actualizado_en?: string
+          id?: number
+          nombre?: string
+          parent_id?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       maquila_anticipos_saldo: {
@@ -4840,11 +5040,21 @@ export type Database = {
       maquila_cancelar_corte: { Args: { cid: string }; Returns: undefined }
       maquila_cerrar_corte: { Args: { cid: string }; Returns: undefined }
       maquila_devolver_insumo: {
-        Args: { iid: string; n: number; p_motivo?: string }
+        Args: {
+          iid: string
+          n: number
+          p_diseno_id?: string
+          p_motivo?: string
+        }
         Returns: number
       }
       maquila_enviar_insumo: {
-        Args: { iid: string; n: number; p_motivo?: string }
+        Args: {
+          iid: string
+          n: number
+          p_diseno_id?: string
+          p_motivo?: string
+        }
         Returns: number
       }
       maquila_fijar_costo_pedido: {
@@ -4884,6 +5094,7 @@ export type Database = {
           sku: string
         }[]
       }
+      orden_viva: { Args: { estado: string }; Returns: boolean }
       pagos_canal: { Args: { canal_f: string; desde: string }; Returns: Json }
       puede_contribuir_tarea: { Args: { tid: string }; Returns: boolean }
       puede_gestionar_tarea: { Args: { tid: string }; Returns: boolean }

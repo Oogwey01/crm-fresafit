@@ -199,29 +199,44 @@ async function ttFetch<T>(
   path: string,
   opts?: { query?: Record<string, string>; body?: unknown; sinCipher?: boolean },
 ): Promise<T> {
-  const query: Record<string, string> = {
-    app_key: process.env.TIKTOK_APP_KEY ?? "",
-    timestamp: String(Math.floor(Date.now() / 1000)),
-    ...(opts?.sinCipher ? {} : cx.shopCipher ? { shop_cipher: cx.shopCipher } : {}),
-    ...(opts?.query ?? {}),
-  };
-  const bodyStr = opts?.body != null ? JSON.stringify(opts.body) : "";
-  query.sign = firmar(path, query, bodyStr || null);
+  /* Backoff ante rate limit: requisito para subir la frecuencia de la sync
+     (junta 13/08: «actualizar más seguido que a medianoche»). TikTok responde
+     HTTP 429 o code 429xxx cuando se le pide muy rápido; se espera y se
+     reintenta hasta 3 veces con pausa creciente. La firma se rehace en cada
+     intento: lleva timestamp y una vieja sería rechazada. */
+  for (let intento = 0; ; intento++) {
+    const query: Record<string, string> = {
+      app_key: process.env.TIKTOK_APP_KEY ?? "",
+      timestamp: String(Math.floor(Date.now() / 1000)),
+      ...(opts?.sinCipher ? {} : cx.shopCipher ? { shop_cipher: cx.shopCipher } : {}),
+      ...(opts?.query ?? {}),
+    };
+    const bodyStr = opts?.body != null ? JSON.stringify(opts.body) : "";
+    query.sign = firmar(path, query, bodyStr || null);
 
-  const res = await fetch(`${API_BASE}${path}?${new URLSearchParams(query)}`, {
-    method,
-    headers: { "x-tts-access-token": cx.accessToken, "Content-Type": "application/json" },
-    body: bodyStr || undefined,
-    cache: "no-store",
-  });
-  const json = (await res.json().catch(() => null)) as RespuestaTT<T> | null;
-  if (!json || json.code !== 0) {
-    throw new ErrorTikTok(
-      json?.code ?? null,
-      `TikTok Shop ${path} respondió code ${json?.code}: ${json?.message ?? res.status}`,
-    );
+    const res = await fetch(`${API_BASE}${path}?${new URLSearchParams(query)}`, {
+      method,
+      headers: { "x-tts-access-token": cx.accessToken, "Content-Type": "application/json" },
+      body: bodyStr || undefined,
+      cache: "no-store",
+    });
+    const json = (await res.json().catch(() => null)) as RespuestaTT<T> | null;
+
+    const rateLimited =
+      res.status === 429 || (json != null && json.code !== 0 && String(json.code).startsWith("429"));
+    if (rateLimited && intento < 3) {
+      await new Promise((r) => setTimeout(r, 1000 * (intento + 1)));
+      continue;
+    }
+
+    if (!json || json.code !== 0) {
+      throw new ErrorTikTok(
+        json?.code ?? null,
+        `TikTok Shop ${path} respondió code ${json?.code}: ${json?.message ?? res.status}`,
+      );
+    }
+    return json.data as T;
   }
-  return json.data as T;
 }
 
 /* Error de la API con su `code`, para que los callers distingan causas
