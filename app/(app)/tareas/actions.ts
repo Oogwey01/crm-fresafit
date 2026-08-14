@@ -13,3 +13,4 @@ export * from "@/app/(app)/tareas/acciones/detalle";
 export * from "@/app/(app)/tareas/acciones/adjuntos";
 export * from "@/app/(app)/tareas/acciones/respaldo";
 export * from "@/app/(app)/tareas/acciones/notificaciones";
+export * from "@/app/(app)/tareas/acciones/purga";

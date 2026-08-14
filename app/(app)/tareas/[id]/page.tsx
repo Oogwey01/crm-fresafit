@@ -19,10 +19,10 @@ export default async function TareaPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ comentario?: string }>;
+  searchParams: Promise<{ comentario?: string; volver?: string }>;
 }) {
   const { id } = await params;
-  const { comentario } = await searchParams;
+  const { comentario, volver } = await searchParams;
 
   const { supabase, user, rol: rolCrudo } = await usuarioActual();
   const rol = (rolCrudo ?? "miembro") as RolId;
@@ -65,8 +65,13 @@ export default async function TareaPage({
       .filter((p): p is Pick<Profile, "id" | "nombre" | "color"> => Boolean(p)),
   };
 
-  /* Se vuelve al tablero de donde salió la tarea, no siempre al de Fresafit. */
-  const volverA = tarea.espacio === "agencia" ? "/agencia/tareas" : "/tareas";
+  /* Se vuelve al tablero de donde salió la tarea, no siempre al de Fresafit.
+     `volver` trae los filtros con los que se venía mirando la lista (los pone
+     el tablero al navegar aquí); se pega como query sobre la MISMA ruta, así
+     que no puede mandar a otro lado. */
+  const volverBase = tarea.espacio === "agencia" ? "/agencia/tareas" : "/tareas";
+  const filtrosDeVuelta = (volver ?? "").replace(/^[?/#]+/, "");
+  const volverA = filtrosDeVuelta ? `${volverBase}?${filtrosDeVuelta}` : volverBase;
 
   return (
     <div>

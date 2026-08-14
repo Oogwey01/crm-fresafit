@@ -1,7 +1,7 @@
 "use client";
 
-import { useOptimistic, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useOptimistic, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -65,6 +65,7 @@ import { VistaCalendario } from "@/components/tareas/vista-calendario";
 import { VistaMovil } from "@/components/tareas/vista-movil";
 import { ImportarTareas } from "@/components/tareas/importar";
 import { Papelera } from "@/components/tareas/papelera";
+import { PurgaTotal } from "@/components/tareas/purga-total";
 import { MotivoAtoradoDialog } from "@/components/tareas/motivo-atorado-dialog";
 
 /* Carril del tablero cuando se agrupa (por área, por persona o por cliente). */
@@ -158,22 +159,73 @@ export function Board({
       estado.map((t) => (t.id === m.id ? { ...t, ...m.patch } : t)),
   );
 
-  const [vistaTop, setVistaTop] = useState<VistaTop>("tabla");
+  /* Los filtros viven en la URL (mismo patrón que proveedores/panel.tsx): abrir
+     una tarea y volver —con la flecha o con el back del navegador— regresa a la
+     MISMA lista, no al tablero recién abierto. Los defaults no se escriben para
+     que /tareas a secas siga limpio. */
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const ejeDefault: Eje = esAgencia ? "empresa" : "area";
+
+  const [vistaTop, setVistaTop] = useState<VistaTop>(() => {
+    const v = searchParams.get("vista");
+    return v === "tablero" || v === "calendario" ? v : "tabla";
+  });
   /* En la agencia el eje natural es el cliente, no el área: la pregunta de todos
      los días es «¿qué traemos de Nutravia?». */
-  const [ejeAgrupacion, setEjeAgrupacion] = useState<Eje>(esAgencia ? "empresa" : "area");
-  const [alcance, setAlcance] = useState<Alcance>("todas");
-  const [filtroResponsable, setFiltroResponsable] = useState("todos");
-  const [filtroArea, setFiltroArea] = useState("todas");
-  const [filtroEmpresa, setFiltroEmpresa] = useState("todas");
+  const [ejeAgrupacion, setEjeAgrupacion] = useState<Eje>(() => {
+    const v = searchParams.get("eje");
+    return v === "area" || v === "persona" || (v === "empresa" && esAgencia) ? (v as Eje) : ejeDefault;
+  });
+  const [alcance, setAlcance] = useState<Alcance>(() => {
+    const v = searchParams.get("alcance");
+    return v === "mis" || v === "delegadas" ? v : "todas";
+  });
+  const [filtroResponsable, setFiltroResponsable] = useState(searchParams.get("resp") ?? "todos");
+  const [filtroArea, setFiltroArea] = useState(searchParams.get("area") ?? "todas");
+  const [filtroEmpresa, setFiltroEmpresa] = useState(searchParams.get("cliente") ?? "todas");
   /* "Quién te puso la tarea" (created_by). Aplica en cualquier alcance. */
-  const [filtroAsignador, setFiltroAsignador] = useState("todos");
+  const [filtroAsignador, setFiltroAsignador] = useState(searchParams.get("de") ?? "todos");
   /* Etiquetas marcadas (vacío = no filtra). Vive aquí, y no dentro de cada
      vista, para que valga igual en tabla, tablero, calendario y teléfono. */
-  const [filtroEtiquetas, setFiltroEtiquetas] = useState<string[]>([]);
-  const [soloVencidas, setSoloVencidas] = useState(false);
-  const [ordenActividad, setOrdenActividad] = useState(false);
+  const [filtroEtiquetas, setFiltroEtiquetas] = useState<string[]>(
+    () => searchParams.get("etq")?.split(",").filter(Boolean) ?? [],
+  );
+  const [soloVencidas, setSoloVencidas] = useState(searchParams.get("vencidas") === "1");
+  const [ordenActividad, setOrdenActividad] = useState(searchParams.get("novedades") === "1");
   const { ejecutar } = useAccionServidor();
+
+  /* replaceState y no router.push: misma entrada de historial (el back del
+     navegador no tiene que "deshacer" cada clic de filtro) y sin ida al
+     servidor — la página de /tareas ni lee estos parámetros. */
+  useEffect(() => {
+    const q = new URLSearchParams();
+    if (vistaTop !== "tabla") q.set("vista", vistaTop);
+    if (ejeAgrupacion !== ejeDefault) q.set("eje", ejeAgrupacion);
+    if (alcance !== "todas") q.set("alcance", alcance);
+    if (filtroResponsable !== "todos") q.set("resp", filtroResponsable);
+    if (filtroArea !== "todas") q.set("area", filtroArea);
+    if (filtroEmpresa !== "todas") q.set("cliente", filtroEmpresa);
+    if (filtroAsignador !== "todos") q.set("de", filtroAsignador);
+    if (filtroEtiquetas.length > 0) q.set("etq", filtroEtiquetas.join(","));
+    if (soloVencidas) q.set("vencidas", "1");
+    if (ordenActividad) q.set("novedades", "1");
+    const qs = q.toString();
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+  }, [
+    vistaTop,
+    ejeAgrupacion,
+    ejeDefault,
+    alcance,
+    filtroResponsable,
+    filtroArea,
+    filtroEmpresa,
+    filtroAsignador,
+    filtroEtiquetas,
+    soloVencidas,
+    ordenActividad,
+    pathname,
+  ]);
 
   const [nuevaAbierta, setNuevaAbierta] = useState(false);
   /* Prellenado de la tarea nueva cuando se abre desde una plantilla. */
@@ -183,7 +235,13 @@ export function Board({
      paso la tarea gana una URL propia que se puede compartir y a la que pueden
      apuntar los avisos de la campana. */
   const router = useRouter();
-  const abrirTarea = (t: TaskConResponsable) => router.push(`/tareas/${t.id}`);
+  /* La query actual (los filtros, que el efecto de arriba mantiene en la URL)
+     viaja como ?volver= para que el detalle regrese a ESTA lista y no al
+     tablero con los filtros recién nacidos. */
+  const abrirTarea = (t: TaskConResponsable) => {
+    const qs = typeof window === "undefined" ? "" : window.location.search.slice(1);
+    router.push(`/tareas/${t.id}${qs ? `?volver=${encodeURIComponent(qs)}` : ""}`);
+  };
   const [activeId, setActiveId] = useState<string | null>(null);
   /* Tarea en espera de motivo para atorarse (abre MotivoAtoradoDialog). */
   const [atorarPendiente, setAtorarPendiente] = useState<{ id: string; motivoInicial: string } | null>(null);
@@ -311,12 +369,18 @@ export function Board({
   const asignadores = equipo.filter((p) => tareas.some((t) => t.created_by === p.id));
 
   /* Conjunto base según el alcance: "mis" ignora los filtros de persona/área
-     (es estrictamente lo asignado a mí); "todas" aplica ambos filtros. */
+     (es estrictamente lo asignado a mí); "todas" aplica ambos filtros. En
+     "delegadas" el filtro de persona sí aplica, pero con otro sentido: «de lo
+     que YO delegué, enséñame lo de Manuel» — lo que pidió Armando. */
   const porAlcance =
     alcance === "mis"
       ? tareas.filter((t) => trabajaLaTarea(t, currentUserId))
       : alcance === "delegadas"
-        ? tareas.filter((t) => t.created_by === currentUserId)
+        ? tareas.filter(
+            (t) =>
+              t.created_by === currentUserId &&
+              (filtroResponsable === "todos" || trabajaLaTarea(t, filtroResponsable)),
+          )
         : tareas.filter(
             (t) =>
               (filtroResponsable === "todos" || trabajaLaTarea(t, filtroResponsable)) &&
@@ -478,6 +542,9 @@ export function Board({
               cada quien, y ahora que un miembro puede borrar las suyas también
               necesita poder sacarlas de ahí. */}
           {puedeCrear && <Papelera borradas={borradas} />}
+          {/* «Empezar de cero»: la purga total que pidió Armando. Solo
+              dirección, con respaldo obligatorio y frase de confirmación. */}
+          {rol === "direccion" && <PurgaTotal totalTareas={tareas.length} esAgencia={esAgencia} />}
           {/* Atajo pedido por TikTok: la tarea de "gráfico para el live" nace ya
               armada (área diseño, etiquetas, checklist en la descripción). */}
           {coordinaContenido && !esAgencia && (
@@ -599,31 +666,37 @@ export function Board({
           </Select>
         )}
 
-        {/* Filtros de PERSONA y ÁREA — solo con alcance "Todas" ("mis" ya es lo mío). */}
-        {alcance === "todas" && (
-          <>
-            <Select value={filtroResponsable} onValueChange={(v) => setFiltroResponsable(v ?? "todos")}>
-              <SelectTrigger className="w-full bg-card sm:w-[190px]">
-                <SelectValue>
-                  {(value: string) =>
-                    value === "todos"
-                      ? "Todas las personas"
+        {/* Filtro de PERSONA — en "Todas" y también en "Delegadas por mí" («¿a
+            quién se la delegué?»); en "mis" no aplica (ya es lo mío). */}
+        {(alcance === "todas" || alcance === "delegadas") && (
+          <Select value={filtroResponsable} onValueChange={(v) => setFiltroResponsable(v ?? "todos")}>
+            <SelectTrigger className="w-full bg-card sm:w-[190px]">
+              <SelectValue>
+                {(value: string) =>
+                  value === "todos"
+                    ? alcance === "delegadas"
+                      ? "Delegadas a quien sea"
+                      : "Todas las personas"
+                    : alcance === "delegadas"
+                      ? `A ${equipo.find((p) => p.id === value)?.nombre ?? "?"}`
                       : (equipo.find((p) => p.id === value)?.nombre ?? "Persona")}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todas las personas</SelectItem>
-                {equipo.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <TaskFilters filtroArea={filtroArea} setFiltroArea={setFiltroArea} />
-          </>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">
+                {alcance === "delegadas" ? "Delegadas a quien sea" : "Todas las personas"}
+              </SelectItem>
+              {equipo.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {alcance === "delegadas" ? `A ${p.nombre}` : p.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         )}
+
+        {/* Filtro de ÁREA — solo con alcance "Todas". */}
+        {alcance === "todas" && <TaskFilters filtroArea={filtroArea} setFiltroArea={setFiltroArea} />}
 
         {/* Quién te asignó la tarea. A diferencia de los dos de arriba, sirve en
             cualquier alcance: el caso real es filtrar MIS tareas por quien me
