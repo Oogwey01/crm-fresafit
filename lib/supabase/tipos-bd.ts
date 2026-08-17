@@ -5005,6 +5005,7 @@ export type Database = {
       es_gestor: { Args: never; Returns: boolean }
       es_interno: { Args: never; Returns: boolean }
       es_maquilero: { Args: never; Returns: boolean }
+      estado_pedido_operativo: { Args: { e: string }; Returns: boolean }
       etiqueta_estado: { Args: { e: string }; Returns: string }
       fusionar_producto_ml: {
         Args: { p_ganador: string; p_perdedor: string }
@@ -5013,6 +5014,10 @@ export type Database = {
       fusionar_producto_tiktok: {
         Args: { p_ganador: string; p_perdedor: string }
         Returns: undefined
+      }
+      guardar_envio_pedido: {
+        Args: { p_id: string; p_num_guia: string; p_paqueteria: string }
+        Returns: number
       }
       ingresos_por_dia: {
         Args: { desde: string }
@@ -5074,6 +5079,10 @@ export type Database = {
       mi_area: { Args: never; Returns: string }
       mi_empresa: { Args: never; Returns: string }
       mi_rol: { Args: never; Returns: string }
+      mover_estado_pedido: {
+        Args: { p_estado: string; p_id: string }
+        Returns: number
+      }
       mover_insumo: {
         Args: {
           iid: string

@@ -143,6 +143,12 @@ export function PanelPedidos({
   ahora: number;
 }) {
   const gestor = esGestor(rol);
+  /* Cancelar retira la venta de Métricas y devuelve stock: es del lado del
+     dinero y la BD lo reserva a dirección (ver 20261020000000). Ofrecerlo a
+     quien no puede solo produce un error al soltar el clic; el resto del ciclo
+     del envío lo mueve cualquiera del equipo. */
+  const estadosQuePuedePoner =
+    rol === "direccion" ? ESTADOS_PEDIDO : ESTADOS_PEDIDO.filter((e) => e.id !== "cancelado");
   const [filtro, setFiltro] = useState<Filtro>("pendientes");
   const [filtroCanal, setFiltroCanal] = useState<CanalId | "todos">("todos");
   const [filtroEstado, setFiltroEstado] = useState<EstadoPedidoId | "todos">("todos");
@@ -350,7 +356,7 @@ export function PanelPedidos({
             {p.estado && <PastillaEstado estado={p.estado} />}
           </SelectTrigger>
           <SelectContent>
-            {ESTADOS_PEDIDO.map((e) => (
+            {estadosQuePuedePoner.map((e) => (
               <SelectItem key={e.id} value={e.id}>
                 {e.nombre}
               </SelectItem>

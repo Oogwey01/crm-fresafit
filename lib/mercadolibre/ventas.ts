@@ -52,6 +52,10 @@ export type ResumenVentasML = {
   existentes: number;
   retiradas: number; // renglones eliminados por órdenes canceladas
   clientes: number; // clientes creados o actualizados desde las órdenes
+  /* Órdenes que la ventana devolvió pero ya no se refrescan por viejas (ver
+     DIAS_REFRESCO). Va en la respuesta del cron para que se vea de un vistazo
+     cuánta cola está quedando fuera. */
+  congeladas?: number;
 };
 
 function esVendible(o: OrdenML): boolean {
@@ -618,6 +622,45 @@ async function aplicarOrdenes(
   };
 }
 
+/* Hasta qué edad se vuelve a mirar una orden ya importada.
+
+   Las órdenes se piden por fecha de ACTUALIZACIÓN (así nos enteramos de que un
+   pedido de la semana pasada ya se entregó), y Mercado Libre toca esa fecha por
+   cualquier motivo: una calificación, una factura, un ajuste de su lado. Medido
+   el 17/08/2026 sobre la cuenta real: de las 7,489 órdenes que devolvía la
+   ventana, 6,806 tenían MÁS DE 60 DÍAS y 7,089 ya estaban entregadas. Refrescar
+   esa historia cuesta una llamada de envío y otra de costos por orden, y es lo
+   que reventaba los 300 s de la función: la sync moría, el sello
+   `ventas_ultima_sync` no avanzaba, la ventana del día siguiente salía más
+   ancha todavía y el CRM se quedó SIETE DÍAS sin enterarse de qué se había
+   enviado. Eso es lo que se veía en Pedidos como "Mercado Libre ya lo mandó y
+   aquí sigue en Preparando".
+
+   45 días cubre de sobra el ciclo vivo de un pedido —entrega, incidencia,
+   devolución— y deja fuera justo la cola que no cambia. Lo que se pierde son
+   correcciones tardías del canal sobre órdenes viejas (una comisión que ML
+   recalcula meses después); para eso está la reimportación explícita, que NO
+   pasa por este corte: `?completo=1` o `?dias=90`. */
+const DIAS_REFRESCO = 45;
+
+/* Las canceladas se conservan tengan la edad que tengan: son baratas —no piden
+   envío ni costos— y son la única señal de que hay que retirar renglones ya
+   importados. Una orden sin fecha legible también se conserva: ante la duda, se
+   mira. */
+function acotarRefresco(
+  ordenes: OrdenML[],
+  opts: OpcionesImportacion | undefined,
+): { vigentes: OrdenML[]; congeladas: number } {
+  if (opts?.completo || opts?.dias) return { vigentes: ordenes, congeladas: 0 };
+  const corte = Date.now() - DIAS_REFRESCO * 86_400_000;
+  const vigentes = ordenes.filter((o) => {
+    if (estaCancelada(o)) return true;
+    const creada = Date.parse(o.date_created);
+    return Number.isNaN(creada) || creada >= corte;
+  });
+  return { vigentes, congeladas: ordenes.length - vigentes.length };
+}
+
 /* Importación por ventana de fechas (cron diario y red de seguridad del sync).
    `completo` rescanea los 90 días aunque ya haya habido syncs: sirve para
    rellenar datos nuevos (p. ej. ligar clientes a ventas ya importadas). */
@@ -637,11 +680,17 @@ export async function importarVentasML(
   /* `desde` cumple dos papeles: desde cuándo se piden órdenes ACTUALIZADAS, y
      hasta dónde se permite dar de alta ventas nuevas. */
   const ordenes = await listarOrdenesML(cx, desde.toISOString());
-  const resumen = await aplicarOrdenes(cx, ordenes, desde);
+  const { vigentes, congeladas } = acotarRefresco(ordenes, opts);
+  if (congeladas > 0) {
+    console.info(
+      `[mercadolibre] ${congeladas} órdenes de más de ${DIAS_REFRESCO} días: fuera del refresco (usa ?completo=1 para incluirlas).`,
+    );
+  }
+  const resumen = await aplicarOrdenes(cx, vigentes, desde);
 
   await mezclarDatosIntegracion("mercadolibre", { ventas_ultima_sync: new Date().toISOString() }, datos);
 
-  return resumen;
+  return { ...resumen, congeladas };
 }
 
 /* Procesa UNA orden avisada por webhook (tópico orders_v2). */

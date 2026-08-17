@@ -106,6 +106,16 @@ copiando un `select` a una tercera página, va ahí.
 pedido): inserta primero y poda después. Borrar-luego-insertar deja el conjunto
 vacío si algo falla en medio, y eso es pérdida de datos.
 
+**Un `.update()` que la RLS descarta NO devuelve error.** PostgREST responde 204
+con cero filas y el action lo lee como éxito: el usuario ve el toast verde y el
+dato no se movió. Pasó en /pedidos —la RLS reserva a dirección las ventas
+`origen = 'api'`, o sea todas las de los canales, y bodega no podía mover un
+solo pedido—. Al escribir con el cliente **del usuario** (no el admin), cierra
+con `.select("id")` y trata las cero filas como error. Y si lo que hace falta es
+dejar tocar unas columnas sí y otras no, eso RLS no lo distingue: va en una
+función `security definer` acotada, como
+[20261020000000](supabase/migrations/20261020000000_pedido_fulfillment_interno.sql).
+
 ## Caché
 
 [lib/supabase/cache.ts](lib/supabase/cache.ts) envuelve `unstable_cache`. Léelo

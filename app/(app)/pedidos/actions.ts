@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import type { Resultado } from "@/lib/acciones";
 import { exigirRol } from "@/lib/supabase/guardia";
 import { traerTodo } from "@/lib/canales/paginacion";
-import { textoONulo } from "@/lib/validacion";
 import { diasDesdeHoy } from "@/lib/fecha";
 import {
   COLUMNAS_PEDIDO,
@@ -48,18 +47,48 @@ export async function listarPedidosHistorico(): Promise<
   }
 }
 
-/* Cambio de estado del pedido en línea (nuevo → preparando → enviado → …). */
+/* Cambio de estado del pedido en línea (nuevo → preparando → enviado → …).
+
+   Va por RPC y no por UPDATE directo por una razón concreta: TODOS los pedidos
+   pendientes son `origen = 'api'` —los tres canales entran solos— y la RLS de
+   20260805000100 reserva la edición de esas ventas a dirección, para que nadie
+   descuadre monto ni cantidad contra el canal. Un UPDATE que la RLS descarta no
+   devuelve error: PostgREST contesta 204 con cero filas, así que esto respondía
+   `ok` y bodega veía el toast verde mientras el pedido se quedaba donde estaba.
+   `mover_estado_pedido` (20261020000000) escribe SOLO `estado` para cualquier
+   interno y deja el dinero bajo llave. Ver ARQUITECTURA.md. */
 export async function cambiarEstadoPedido(id: string, estado: EstadoPedidoId): Promise<Resultado> {
   const cx = await exigirRol("interno", "Solo el equipo interno puede mover pedidos.");
   if ("error" in cx) return cx;
 
-  const { error } = await cx.supabase.from("sales").update({ estado }).eq("id", id);
+  /* Cancelar sí es del lado del dinero —retira la venta de Métricas y devuelve
+     stock—, así que sigue por el camino normal y la RLS decide. */
+  if (estado === "cancelado") {
+    const { data, error } = await cx.supabase
+      .from("sales")
+      .update({ estado })
+      .eq("id", id)
+      .select("id");
+    if (error) return { error: error.message };
+    if (!data?.length) {
+      return { error: "Cancelar una venta que vino del canal es de Dirección." };
+    }
+    revalidar();
+    return { ok: true };
+  }
+
+  const { data, error } = await cx.supabase.rpc("mover_estado_pedido", {
+    p_id: id,
+    p_estado: estado,
+  });
   if (error) return { error: error.message };
+  if (!data) return { error: "Ese pedido ya no está o está cancelado; recarga la lista." };
   revalidar();
   return { ok: true };
 }
 
-/* Guardar paquetería y número de guía (y opcionalmente marcar enviado). */
+/* Guardar paquetería y número de guía (y opcionalmente marcar enviado).
+   Por RPC y con el conteo de filas, por lo mismo que `cambiarEstadoPedido`. */
 export async function guardarEnvio(
   id: string,
   paqueteria: string,
@@ -68,18 +97,19 @@ export async function guardarEnvio(
   const cx = await exigirRol("interno", "Solo el equipo interno puede editar envíos.");
   if ("error" in cx) return cx;
 
-  /* Se borra la URL de rastreo que hubiera dado el canal: apuntaba a la guía
-     anterior, y un enlace que lleva al paquete equivocado es peor que ninguno.
-     Sin ella, el CRM la deriva de la paquetería (lib/pedidos/rastreo.ts). */
-  const { error } = await cx.supabase
-    .from("sales")
-    .update({
-      paqueteria: textoONulo(paqueteria),
-      num_guia: textoONulo(numGuia),
-      url_rastreo: null,
-    })
-    .eq("id", id);
+  /* Los dos campos viajan crudos: el vaciado a NULL lo hace la RPC con el mismo
+     criterio que `textoONulo` (btrim + nullif), y así el contrato de la función
+     no depende de que cada caller se acuerde de limpiar. La RPC borra además la
+     URL de rastreo que hubiera dado el canal: apuntaba a la guía anterior, y un
+     enlace que lleva al paquete equivocado es peor que ninguno. Sin ella, el CRM
+     la deriva de la paquetería (lib/pedidos/rastreo.ts). */
+  const { data, error } = await cx.supabase.rpc("guardar_envio_pedido", {
+    p_id: id,
+    p_paqueteria: paqueteria,
+    p_num_guia: numGuia,
+  });
   if (error) return { error: error.message };
+  if (!data) return { error: "Ese pedido ya no está; recarga la lista." };
   revalidar();
   return { ok: true };
 }
