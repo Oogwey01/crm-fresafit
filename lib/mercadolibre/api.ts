@@ -380,7 +380,9 @@ export type OrdenML = {
   // La orden trae el id del envío (el estado vive en /shipments/{id}) y tags de
   // alto nivel ("delivered" / "not_delivered") que evitan consultar los ya
   // entregados.
-  shipping?: { id?: number | null } | null;
+  /* `logistic_type` viaja también aquí y sirve de respaldo cuando el envío no
+     se llegó a consultar (las órdenes que los tags ya dan por entregadas). */
+  shipping?: { id?: number | null; logistic_type?: string | null } | null;
   /* Carrito al que pertenece la orden. El panel de ventas abre el detalle por
      ESTE id, no por el de la orden: pasarle el de la orden manda al listado. */
   pack_id?: number | null;
@@ -391,7 +393,18 @@ export type EnvioML = {
   // pending | handling | ready_to_ship | shipped | delivered | not_delivered |
   // cancelled | to_be_agreed | …
   status?: string | null;
+  /* Dónde está el paquete DENTRO del estado: `ready_to_ship` puede ser
+     "por imprimir la etiqueta" o "listo, esperando la colecta", y con Mercado
+     Full ni siquiera está en nuestra bodega. Es lo que distingue el trabajo
+     pendiente del que ya está hecho — ver situacionPreparacion(). */
   substatus?: string | null;
+  /* fulfillment (Mercado Full) | cross_docking | drop_off | self_service. Vive
+     en el envío y también en el item; el del envío es el que manda, porque es
+     el que se usó de verdad para esta venta. */
+  logistic_type?: string | null;
+  /* A qué venta pertenece. Es lo que permite atender el aviso del tópico
+     `shipments`, que solo dice el id del envío (ver el webhook). */
+  order_id?: number | null;
   tracking_number?: string | null;
   tracking_method?: string | null; // nombre de la paquetería / servicio
   /* Plazos del envío.

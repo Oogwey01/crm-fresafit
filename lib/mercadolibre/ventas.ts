@@ -92,6 +92,12 @@ function nombreComprador(o: OrdenML): string | null {
 type EstadoPedido = Exclude<EstadoPedidoId, "cancelado">;
 type InfoEnvio = {
   estado: EstadoPedido;
+  /* Los dos datos que dicen DE QUIÉN es el trabajo: en qué punto está el
+     paquete (`ready_for_pickup`, `in_warehouse`…) y quién lo despacha
+     (`fulfillment` = Mercado Full). Ver situacionPreparacion() en
+     lib/canales/despacho.ts. */
+  subestado: string | null;
+  logistica: string | null;
   paqueteria: string | null;
   num_guia: string | null;
   /* Id del shipment: con él se pide la etiqueta PDF a la API para imprimirla
@@ -109,6 +115,8 @@ type InfoEnvio = {
 
 const SIN_ENVIO: InfoEnvio = {
   estado: "nuevo",
+  subestado: null,
+  logistica: null,
   paqueteria: null,
   num_guia: null,
   envio_id: null,
@@ -216,6 +224,10 @@ async function infoEnvioDeOrdenes(cx: ConexionML, ordenes: OrdenML[]): Promise<M
         const d = env?.receiver_address;
         info.set(o.id, {
           estado: estadoDeEnvio(env),
+          subestado: env?.substatus?.trim() || null,
+          /* El del envío manda sobre el del item: es el que se usó de verdad
+             para esta venta (una publicación de Full puede vender por otra vía). */
+          logistica: env?.logistic_type?.trim() || o.shipping?.logistic_type?.trim() || null,
           paqueteria: env?.tracking_method?.trim() || null,
           num_guia: env?.tracking_number?.trim() || null,
           envio_id: String(o.shipping!.id!),
@@ -321,6 +333,8 @@ function filasDeOrden(
       monto: Math.round(unitario * cantidad * 100) / 100,
       cliente_id: clienteId,
       estado: envio.estado,
+      envio_subestado: envio.subestado,
+      envio_logistica: envio.logistica,
       paqueteria: envio.paqueteria,
       num_guia: envio.num_guia,
       envio_id: envio.envio_id,
@@ -506,6 +520,12 @@ async function aplicarOrdenes(
         monto: f.monto,
         cantidad: f.cantidad,
         estado: f.estado,
+        /* En qué punto del canal está el paquete: es lo que separa "hay que
+           empacarlo" de "ya está listo, falta la colecta", y por tanto lo que
+           decide si el pedido sale en Urgentes. Viaja por el REFRESCO porque
+           cambia varias veces DESPUÉS de que la venta se importó. */
+        envio_subestado: f.envio_subestado,
+        envio_logistica: f.envio_logistica,
         paqueteria: f.paqueteria,
         num_guia: f.num_guia,
         /* El id del envío tiene que viajar por el REFRESCO: los pedidos

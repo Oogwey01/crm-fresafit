@@ -577,6 +577,13 @@ export type Sale = {
   /* Id del shipment en Mercado Libre: con él se pide la etiqueta PDF a su API
      (ruta /api/mercadolibre/etiqueta). Null en los demás canales. */
   envio_id: string | null;
+  /* En qué punto del canal está el paquete y quién lo despacha, crudos como los
+     manda la plataforma (ML: `ready_for_pickup` / `fulfillment`). Distinguen el
+     pedido que hay que empacar del que ya está listo esperando la colecta, y del
+     que vive en un centro de Mercado Full. La traducción a español y el criterio
+     están en situacionPreparacion(), lib/canales/despacho.ts. */
+  envio_subestado: string | null;
+  envio_logistica: string | null;
   /* Lo que contestó la paquetería la última vez que se le preguntó por la guía
      (lo deja el cron de rastreo; ver lib/pedidos/conciliar-envios.ts).
      `rastreo_estado` es el texto crudo del proveedor —se guarda sin traducir
@@ -672,6 +679,12 @@ export type PedidoEnvio = Pick<
   | "envio_despachado_en"
   /* Con el id del shipment, el botón de la guía abre la etiqueta PDF de ML. */
   | "envio_id"
+  /* En qué punto del canal está el paquete y quién lo despacha. Es lo que
+     separa el pedido que hay que empacar del que ya está listo esperando la
+     colecta —o del que vive en un centro de Mercado Full y nunca fue trabajo
+     de bodega—. Ver situacionPreparacion() en lib/canales/despacho.ts. */
+  | "envio_subestado"
+  | "envio_logistica"
   /* Lo último que dijo la paquetería sobre la guía (lo deja el cron de rastreo,
      ver lib/pedidos/conciliar-envios.ts). Es el dato por el que había que salir
      del CRM a abrir el buscador de la paquetería: por qué un paquete no llegó, o

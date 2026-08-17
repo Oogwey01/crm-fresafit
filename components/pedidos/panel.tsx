@@ -11,7 +11,13 @@ import {
   obtenerEstadoPedido,
 } from "@/lib/catalogos";
 import { diasDesdeFecha, esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
-import { SITUACION, situacionDespacho } from "@/lib/canales/despacho";
+import {
+  PREPARACION,
+  SITUACION,
+  situacionDespacho,
+  situacionPreparacion,
+  type SituacionPreparacion,
+} from "@/lib/canales/despacho";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
 import { cambiarEstadoPedido, listarPedidosHistorico } from "@/app/(app)/pedidos/actions";
@@ -33,15 +39,22 @@ import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
 import { EnvioDialog } from "@/components/pedidos/envio-dialog";
 import { cn } from "@/lib/utils";
 
-/* Las tres VISTAS de la pantalla. "Entregados" era una cuarta y salió de aquí:
-   ahora es un estado más del selector, que además alcanza los cancelados —que
-   no tenían forma de verse solos— y no deja combinar "Entregados" con "estado:
-   nuevo", que solo podía dar una tabla vacía. */
-type Filtro = "pendientes" | "urgentes" | "todos";
+/* Las VISTAS de la pantalla. "Entregados" era una y salió de aquí: ahora es un
+   estado más del selector, que además alcanza los cancelados —que no tenían
+   forma de verse solos— y no deja combinar "Entregados" con "estado: nuevo",
+   que solo podía dar una tabla vacía.
+
+   "Listos" nació de una pregunta de Armando: por qué un pedido que Mercado
+   Libre ya daba por "Listo para recolección" seguía saliendo en Urgentes. Es su
+   propia vista porque no es trabajo pendiente ni asunto cerrado: el paquete está
+   hecho y lo único que falta es que alguien lo recoja. Si nadie lo hace en dos
+   días, ahí se ve. */
+type Filtro = "pendientes" | "urgentes" | "listos" | "todos";
 
 const FILTROS: [Filtro, string][] = [
   ["pendientes", "Pendientes"],
   ["urgentes", "Urgentes"],
+  ["listos", "Listos"],
   ["todos", "Todos"],
 ];
 
@@ -54,8 +67,11 @@ function esEstadoTerminal(e: EstadoPedidoId): boolean {
 /* La última columna llevaba 60 px y el envío ("Estafeta MX 905590979741C70…")
    salía cortado sin remedio; ahora es la más ancha de la fila, que es lo que
    corresponde a la información con la que uno trabaja al empacar. La primera
-   creció de 88 a 112 px para que quepa la pastilla del plazo de despacho. */
-const COLS = "grid-cols-[112px_minmax(170px,1fr)_130px_120px_118px_minmax(215px,250px)]";
+   creció de 88 a 112 px para que quepa la pastilla del plazo de despacho, y de
+   112 a 148 para la de "Listo para recolección" —el nombre es el que usa el
+   panel de Mercado Libre y acortarlo obligaría a traducir de una pantalla a la
+   otra—. */
+const COLS = "grid-cols-[148px_minmax(170px,1fr)_130px_120px_118px_minmax(215px,250px)]";
 
 /* `referencia_externa` es por RENGLÓN ("<orden>:<línea>"); lo que identifica al
    pedido de cara al cliente es la parte de la orden. */
@@ -87,12 +103,32 @@ function urlVerPedido(p: PedidoEnvio, dominioTN?: string | null): string | null 
   return urlOrdenCanal(p.canal, ref, dominioTN, p.url_orden);
 }
 
+/* Dónde está el paquete de un pedido que aún no sale. Para los que ya salieron
+   —enviado en adelante— no aplica: el subestado que quedó guardado describe una
+   etapa que ya pasó. */
+function preparacion(p: PedidoEnvio): SituacionPreparacion | null {
+  if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
+  return situacionPreparacion(p.envio_logistica, p.envio_subestado);
+}
+
+/* ¿Queda trabajo de bodega? Es la pregunta que decide qué sale en Urgentes.
+   Un paquete ya empacado esperando la colecta, o uno que vive en un centro de
+   Mercado Full, no lo es — por muy vencido que esté el plazo, apurarse no
+   cambia nada—. Sin el dato del canal (Tienda Nube no lo manda) se asume que sí:
+   es lo que había antes y es el lado seguro. */
+function hayTrabajo(p: PedidoEnvio): boolean {
+  const s = preparacion(p);
+  return s === null || PREPARACION[s].pendiente;
+}
+
 /* Plazo de despacho del canal (la sync lo deja en la venta; hoy lo reportan
    Mercado Libre y TikTok Shop): solo avisa mientras el pedido da trabajo —nuevo
-   o preparando— y solo cuando urge. Ya enviado, "se pasó el plazo" es ruido; en
-   plazo holgado, también. */
+   o preparando, y todavía en la bodega— y solo cuando urge. Ya enviado, "se pasó
+   el plazo" es ruido; en plazo holgado, también; y sobre un paquete que ya está
+   hecho, es una alarma que nadie puede atender. */
 function plazoUrgente(p: PedidoEnvio, ahora: number): "vencido" | "por_vencer" | null {
   if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
+  if (!hayTrabajo(p)) return null;
   const s = situacionDespacho(p.envio_limite_despacho, p.envio_despachado_en, ahora);
   return s === "vencido" || s === "por_vencer" ? s : null;
 }
@@ -117,6 +153,11 @@ function diasEnTransito(p: PedidoEnvio): number | null {
    la plataforma castigándonos—. El KPI contaba solo la primera mitad, así que
    podía haber cinco filas rojas y un "Atrasados: 2". */
 function esUrgente(p: PedidoEnvio, ahora: number): boolean {
+  /* Los dos criterios exigen que quede algo por hacer aquí. Un pedido del 14 de
+     agosto empacado y esperando la colecta cumplía las dos condiciones y salía
+     rojo: la regla de los tres días lo daba por atrasado y el plazo del canal
+     por vencido, cuando lo único pendiente era que pasara el transportista. */
+  if (!hayTrabajo(p)) return false;
   return esPedidoAtrasado(p.fecha, p.estado) || plazoUrgente(p, ahora) === "vencido";
 }
 
@@ -187,14 +228,18 @@ export function PanelPedidos({
     let nuevos = 0,
       preparando = 0,
       enviados = 0,
-      atrasados = 0;
+      atrasados = 0,
+      listos = 0;
     for (const p of pedidos) {
       if (p.estado === "nuevo") nuevos++;
       else if (p.estado === "preparando") preparando++;
       else if (p.estado === "enviado") enviados++;
       if (esUrgente(p, ahora)) atrasados++;
+      /* Cuántos de esos "preparando" ya no son trabajo de nadie de aquí: el
+         número suelto decía "10 por preparar" cuando nueve estaban hechos. */
+      if (preparacion(p) !== null && !hayTrabajo(p)) listos++;
     }
-    return { nuevos, preparando, enviados, atrasados };
+    return { nuevos, preparando, enviados, atrasados, listos };
   }, [pedidos, ahora]);
 
   const visibles = useMemo(() => {
@@ -213,10 +258,15 @@ export function PanelPedidos({
                  y los que llevan días sin salir. Sale de los pendientes y no del
                  histórico: un pedido entregado ya no urge, por tarde que saliera. */
               pedidos.filter((p) => esUrgente(p, ahora) || plazoUrgente(p, ahora) === "por_vencer")
-            : // pendientes: nuevo, preparando, enviado (lo que aún da trabajo)
-              pedidos.filter(
-                (p) => p.estado === "nuevo" || p.estado === "preparando" || p.estado === "enviado",
-              );
+            : filtro === "listos"
+              ? /* Hechos, esperando a que se los lleven: los empacados con la
+                   etiqueta puesta y los que están en un centro del canal. Aquí no
+                   se empaca nada; se vigila que no lleven días parados. */
+                pedidos.filter((p) => preparacion(p) !== null && !hayTrabajo(p))
+              : // pendientes: nuevo, preparando, enviado (lo que aún da trabajo)
+                pedidos.filter(
+                  (p) => p.estado === "nuevo" || p.estado === "preparando" || p.estado === "enviado",
+                );
 
     /* Filtro por canal: hasta ahora el canal se pintaba pero no se podía filtrar,
        y "enséñame solo lo de Mercado Libre" es justo lo que se pide al empacar. */
@@ -251,8 +301,11 @@ export function PanelPedidos({
       clave: "fecha",
       label: "Fecha",
       celda: (p) => {
-        const atrasado = esPedidoAtrasado(p.fecha, p.estado);
+        /* "Atrasado" es un reproche a quien empaca, así que solo se pinta si
+           todavía hay algo que empacar. Ver hayTrabajo(). */
+        const atrasado = esPedidoAtrasado(p.fecha, p.estado) && hayTrabajo(p);
         const plazo = plazoUrgente(p, ahora);
+        const prep = preparacion(p);
         const transito = diasEnTransito(p);
         const canal = obtenerCanal(p.canal)?.nombre ?? "la plataforma";
         return (
@@ -274,6 +327,27 @@ export function PanelPedidos({
                   nombre={SITUACION[plazo].nombre}
                   color={SITUACION[plazo].color}
                   className="mt-1 whitespace-nowrap px-1.5 py-0.5 text-[10.5px]"
+                />
+              </span>
+            )}
+            {/* Dónde está el paquete mientras no sale. "Por empacar" no se
+                pinta: es el caso normal de un pendiente y llenaría la tabla de
+                pastillas que no dicen nada. Lo que se anuncia es justo lo
+                contrario —que aquí ya no hay nada que hacer—, porque es lo que
+                explica que el pedido no esté en Urgentes. */}
+            {prep && !PREPARACION[prep].pendiente && (
+              <span
+                className="block"
+                title={
+                  prep === "en_el_canal"
+                    ? `${canal} lo despacha desde su centro: aquí no hay nada que empacar.`
+                    : `Empacado y con la etiqueta puesta desde ${formatearFecha(p.fecha)}; falta que pase la recolección.`
+                }
+              >
+                <Pastilla
+                  nombre={PREPARACION[prep].nombre}
+                  color={PREPARACION[prep].color}
+                  className="mt-1 px-1.5 py-0.5 text-[10.5px]"
                 />
               </span>
             )}
@@ -487,7 +561,16 @@ export function PanelPedidos({
       {/* KPIs */}
       <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <StatCard etiqueta="Nuevos" valor={String(conteo.nuevos)} icono={Clock} />
-        <StatCard etiqueta="Preparando" valor={String(conteo.preparando)} icono={PackageCheck} />
+        <StatCard
+          etiqueta="Preparando"
+          valor={String(conteo.preparando)}
+          icono={PackageCheck}
+          nota={
+            conteo.listos > 0
+              ? `${conteo.listos} ya listos, esperando recolección`
+              : undefined
+          }
+        />
         <StatCard etiqueta="Enviados" valor={String(conteo.enviados)} icono={Send} />
         <StatCard
           etiqueta="Atrasados"
@@ -596,7 +679,9 @@ export function PanelPedidos({
                 ? "No hay pedidos pendientes. Todo al día. 🎉"
                 : filtro === "urgentes"
                   ? "Nada urgente: ningún pedido con el plazo encima. 🎉"
-                  : "No hay pedidos que mostrar."
+                  : filtro === "listos"
+                    ? "Ningún paquete esperando recolección."
+                    : "No hay pedidos que mostrar."
         }
       />
 

@@ -58,3 +58,57 @@ export const SITUACION: Record<
 export function instanteDeCorte(): number {
   return Date.now();
 }
+
+/* ---------------------------------------------------------------------------
+   ¿DE QUIÉN ES EL TRABAJO?
+
+   "Preparando" significaba tres cosas a la vez: el paquete sin tocar en la
+   bodega, el paquete ya empacado esperando la colecta, y el paquete que vive en
+   un centro de Mercado Full a cientos de kilómetros. Los tres salían en
+   Urgentes, y de los nueve pendientes de Mercado Libre del 17/08/2026 SOLO los
+   primeros eran trabajo — que resultaron ser cero.
+
+   El canal sí lo distingue, en dos datos que ahora se guardan
+   (`sales.envio_subestado` y `sales.envio_logistica`, migración 20261021000000).
+   La traducción vive aquí y no en la base a propósito: cada canal nombra sus
+   etapas a su manera y cambiarlas no debe costar una migración.
+   --------------------------------------------------------------------------- */
+
+/* Dónde está el paquete cuando el pedido todavía no sale.
+
+   · `en_bodega`   — hay que empacarlo, o ya está empacado pero sigue aquí.
+   · `por_recoger` — empacado y etiquetado; falta que pase la colecta.
+   · `en_el_canal` — está en un centro del canal (Mercado Full). No hay nada
+     que hacer, y ni siquiera se recibe plazo de despacho: ML despacha solo. */
+export type SituacionPreparacion = "en_bodega" | "por_recoger" | "en_el_canal";
+
+/* Mercado Full: el inventario está en un centro de ML, que empaca y despacha.
+   Lo mismo vale para su variante `fulfillment_extended`. */
+function esDelCanal(logistica: string | null): boolean {
+  return !!logistica && logistica.startsWith("fulfillment");
+}
+
+/* Subestados de `ready_to_ship` en los que el paquete ya está cerrado y solo
+   espera al transportista. `printed` y `picked` cuentan: con la etiqueta puesta
+   ya no queda nada que empacar. Los que NO están aquí —`ready_to_print`,
+   `invoice_pending`— siguen siendo trabajo. */
+const SUBESTADOS_LISTO = new Set(["ready_for_pickup", "ready_to_ship", "printed", "picked"]);
+
+export function situacionPreparacion(
+  logistica: string | null | undefined,
+  subestado: string | null | undefined,
+): SituacionPreparacion {
+  if (esDelCanal(logistica ?? null)) return "en_el_canal";
+  return subestado && SUBESTADOS_LISTO.has(subestado) ? "por_recoger" : "en_bodega";
+}
+
+export const PREPARACION: Record<
+  SituacionPreparacion,
+  { nombre: string; color: string; /* ¿queda trabajo de bodega? */ pendiente: boolean }
+> = {
+  en_bodega: { nombre: "Por empacar", color: "#f59e0b", pendiente: true },
+  /* El mismo nombre que usa el panel de Mercado Libre, para que quien mira las
+     dos pantallas no tenga que traducir. */
+  por_recoger: { nombre: "Listo para recolección", color: "#0984e3", pendiente: false },
+  en_el_canal: { nombre: "En centro del canal", color: "#6c5ce7", pendiente: false },
+};

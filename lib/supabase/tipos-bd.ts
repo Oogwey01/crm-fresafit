@@ -3761,6 +3761,8 @@ export type Database = {
           envio_direccion: Json | null
           envio_id: string | null
           envio_limite_despacho: string | null
+          envio_logistica: string | null
+          envio_subestado: string | null
           estado: string | null
           fecha: string
           id: string
@@ -3789,6 +3791,8 @@ export type Database = {
           envio_direccion?: Json | null
           envio_id?: string | null
           envio_limite_despacho?: string | null
+          envio_logistica?: string | null
+          envio_subestado?: string | null
           estado?: string | null
           fecha?: string
           id?: string
@@ -3817,6 +3821,8 @@ export type Database = {
           envio_direccion?: Json | null
           envio_id?: string | null
           envio_limite_despacho?: string | null
+          envio_logistica?: string | null
+          envio_subestado?: string | null
           estado?: string | null
           fecha?: string
           id?: string

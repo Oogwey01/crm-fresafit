@@ -12,6 +12,7 @@ export const COLUMNAS_PEDIDO =
   "id, fecha, canal, cantidad, estado, num_guia, paqueteria, descripcion," +
   " referencia_externa, envio_direccion, url_rastreo, url_orden," +
   " envio_limite_despacho, envio_despachado_en, envio_id," +
+  " envio_subestado, envio_logistica," +
   " rastreo_estado, rastreo_detalle, rastreo_en," +
   " producto:products!producto_id(id, nombre, variante)," +
   " cliente:customers!cliente_id(id, nombre)";
