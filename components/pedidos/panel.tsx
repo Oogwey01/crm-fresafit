@@ -1,7 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Clock, ExternalLink, Eye, PackageCheck, Printer, Send, Truck } from "lucide-react";
+import {
+  AlertTriangle,
+  Clock,
+  ExternalLink,
+  Eye,
+  PackageCheck,
+  Printer,
+  Scissors,
+  Send,
+  Truck,
+} from "lucide-react";
 import {
   CANALES,
   ESTADOS_PEDIDO,
@@ -722,20 +732,24 @@ export function PanelPedidos({
           Full no lleva tarjeta a propósito: no es trabajo de nadie de aquí y
           ocuparía un cuarto de la fila para decir "no hagas nada". Su número
           vive en la pestaña, que es donde se consulta. */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3 lg:grid-cols-5">
+        {/* Las dos mitades del trabajo, separadas como las dos tablas de abajo:
+            una se resuelve con lo que hay en el estante y la otra depende del
+            taller. Juntas en una sola cifra, "158 por empacar" mandaba a bodega
+            a buscar 46 piezas que todavía no existen. */}
         <StatCard
-          etiqueta="Por empacar"
-          valor={String(conteo.bandejas.por_empacar)}
+          etiqueta="De bodega"
+          valor={String(conteo.bandejas.por_empacar - conteo.personalizados)}
           icono={PackageCheck}
-          /* El matiz que más cambia la cuenta va primero: un personalizado no se
-             empaca hoy porque todavía se está fabricando. */
-          nota={
-            conteo.personalizados > 0
-              ? `${conteo.personalizados} son personalizados, aún en el taller`
-              : conteo.sinEmpezar > 0
-                ? `${conteo.sinEmpezar} sin empezar`
-                : undefined
-          }
+          nota={conteo.sinEmpezar > 0 ? `${conteo.sinEmpezar} sin empezar` : undefined}
+        />
+        <StatCard
+          etiqueta="Personalizados"
+          valor={String(conteo.personalizados)}
+          /* El mismo icono con el que se ven en Maquila, que es donde se
+             gestionan de verdad. */
+          icono={Scissors}
+          nota="se fabrican primero"
         />
         <StatCard
           etiqueta="Urgentes"
