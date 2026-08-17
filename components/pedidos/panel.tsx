@@ -12,6 +12,7 @@ import {
 } from "@/lib/catalogos";
 import { diasDesdeFecha, esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
 import {
+  esDelCanal,
   PREPARACION,
   SITUACION,
   situacionDespacho,
@@ -42,20 +43,90 @@ import { cn } from "@/lib/utils";
 /* Las VISTAS de la pantalla. "Entregados" era una y salió de aquí: ahora es un
    estado más del selector, que además alcanza los cancelados —que no tenían
    forma de verse solos— y no deja combinar "Entregados" con "estado: nuevo",
-   que solo podía dar una tabla vacía.
+   que solo podía dar una tabla vacía. */
+type Vista = "por_empacar" | "urgentes" | "listos" | "full" | "en_camino" | "todos";
 
-   "Listos" nació de una pregunta de Armando: por qué un pedido que Mercado
-   Libre ya daba por "Listo para recolección" seguía saliendo en Urgentes. Es su
-   propia vista porque no es trabajo pendiente ni asunto cerrado: el paquete está
-   hecho y lo único que falta es que alguien lo recoja. Si nadie lo hace en dos
-   días, ahí se ve. */
-type Filtro = "pendientes" | "urgentes" | "listos" | "todos";
+/* Las cuatro BANDEJAS en las que se reparte, SIN SOLAPARSE, todo lo que la
+   página carga. Responden la única pregunta que importa al abrir la pantalla:
+   ¿de quién es esto y qué falta?
 
-const FILTROS: [Filtro, string][] = [
-  ["pendientes", "Pendientes"],
-  ["urgentes", "Urgentes"],
-  ["listos", "Listos"],
-  ["todos", "Todos"],
+     · por_empacar — hay que armar la caja. Es el trabajo.
+     · listos      — empacado y etiquetado; falta que pase la colecta.
+     · full        — lo despacha Mercado Libre desde su centro. Nunca fue nuestro.
+     · en_camino   — salió de aquí y va en la calle.
+
+   Las cuatro salían juntas en "Pendientes": 336 renglones el 17/08/2026, de los
+   que solo 158 eran trabajo. Para encontrarlos había que leerlos todos.
+
+   Que sean bandejas y no cuatro filtros sueltos es lo que hace que los números
+   de las pestañas SUMEN el total. Con condiciones independientes, un pedido
+   podía caer en dos listas y nadie se enteraba. */
+type Bandeja = "por_empacar" | "listos" | "full" | "en_camino";
+
+function bandeja(p: PedidoEnvio): Bandeja {
+  /* Full manda sobre todo, incluso sobre "enviado": el motivo de apartarlo no
+     es en qué etapa va, sino que el trabajo no es nuestro. Si ganara "enviado",
+     el pedido cambiaría de pestaña el día que ML lo despacha y acabaría en la
+     lista donde lo único que se hace es llamarle a la paquetería — que es justo
+     lo que en Full no se puede hacer. Son 15 de los enviados de hoy. */
+  if (esDelCanal(p.envio_logistica)) return "full";
+  if (p.estado === "enviado") return "en_camino";
+  if (preparacion(p) === "por_recoger") return "listos";
+  return "por_empacar";
+}
+
+/* Etiqueta, regla y mensaje de vacío de cada vista, JUNTOS. Antes vivían en tres
+   escaleras de ternarios paralelas —una para filtrar, otra para el vacío, otra
+   para el conteo—, y con seis vistas la sexta se habría olvidado en alguna. */
+const VISTAS: {
+  id: Vista;
+  label: string;
+  /* Qué filas entran. `null` = todas, histórico incluido. */
+  filtra: ((p: PedidoEnvio, ahora: number) => boolean) | null;
+  vacio: string;
+  /* Listas que se leen al revés: lo que lleva más tiempo esperando es lo que hay
+     que atender, y el orden normal —lo más nuevo arriba— lo manda al fondo. */
+  masViejosPrimero?: boolean;
+}[] = [
+  {
+    id: "por_empacar",
+    label: "Por empacar",
+    filtra: (p) => bandeja(p) === "por_empacar",
+    vacio: "No queda nada por empacar. Todo al día. 🎉",
+  },
+  {
+    id: "urgentes",
+    label: "Urgentes",
+    /* Lo que hay que mover HOY. No es una bandeja: es un recorte de la de
+       bodega. El `bandeja(p)` es redundante mientras `esUrgente` exija
+       `hayTrabajo`, y va escrito de todos modos para que un cambio futuro en
+       esa función no cuele un Full aquí sin que nadie lo note. */
+    filtra: (p, ahora) =>
+      bandeja(p) === "por_empacar" &&
+      (esUrgente(p, ahora) || plazoUrgente(p, ahora) === "por_vencer"),
+    vacio: "Nada urgente: ningún pedido con el plazo encima. 🎉",
+  },
+  {
+    id: "listos",
+    label: "Listos",
+    filtra: (p) => bandeja(p) === "listos",
+    vacio: "Ningún paquete esperando recolección.",
+    masViejosPrimero: true,
+  },
+  {
+    id: "full",
+    label: "Full",
+    filtra: (p) => bandeja(p) === "full",
+    vacio: "Nada en Mercado Full.",
+  },
+  {
+    id: "en_camino",
+    label: "En camino",
+    filtra: (p) => bandeja(p) === "en_camino",
+    vacio: "Ningún paquete en la calle.",
+    masViejosPrimero: true,
+  },
+  { id: "todos", label: "Todos", filtra: null, vacio: "No hay pedidos que mostrar." },
 ];
 
 /* Los estados que ya no dan trabajo viven en el histórico, que la página no
@@ -139,10 +210,13 @@ function plazoUrgente(p: PedidoEnvio, ahora: number): "vencido" | "por_vencer" |
    útil para llamar a la paquetería. Gris a propósito: informa, no alarma. */
 const DIAS_TRANSITO_VISIBLE = 5;
 
-function diasEnTransito(p: PedidoEnvio): number | null {
+/* El umbral es parámetro porque depende de dónde se mire: en una lista mezclada,
+   "salió ayer" es ruido; en la vista de En camino los días en la calle son la
+   razón de ser de la lista y el criterio con el que se decide a quién llamarle. */
+function diasEnTransito(p: PedidoEnvio, umbral = DIAS_TRANSITO_VISIBLE): number | null {
   if (p.estado !== "enviado") return null;
   const d = diasDesdeFecha(p.fecha);
-  return d >= DIAS_TRANSITO_VISIBLE ? d : null;
+  return d >= umbral ? d : null;
 }
 
 /* Lo que la tabla pinta de rojo, y por tanto lo que el contador debe contar.
@@ -190,7 +264,7 @@ export function PanelPedidos({
      del envío lo mueve cualquiera del equipo. */
   const estadosQuePuedePoner =
     rol === "direccion" ? ESTADOS_PEDIDO : ESTADOS_PEDIDO.filter((e) => e.id !== "cancelado");
-  const [filtro, setFiltro] = useState<Filtro>("pendientes");
+  const [filtro, setFiltro] = useState<Vista>("por_empacar");
   const [filtroCanal, setFiltroCanal] = useState<CanalId | "todos">("todos");
   const [filtroEstado, setFiltroEstado] = useState<EstadoPedidoId | "todos">("todos");
   const [busqueda, setBusqueda] = useState("");
@@ -225,22 +299,46 @@ export function PanelPedidos({
   }, [pedidos, historico]);
 
   const conteo = useMemo(() => {
-    let nuevos = 0,
-      preparando = 0,
-      enviados = 0,
-      atrasados = 0,
-      listos = 0;
+    /* Una sola pasada: los números de las pestañas y los de las tarjetas salen
+       de la MISMA clasificación, así que no pueden contradecirse. Antes el KPI
+       "Atrasados" contaba solo lo vencido y la pestaña "Urgentes" contaba
+       además lo que vence en horas: dos cifras parecidas que nunca cuadraban. */
+    const bandejas: Record<Bandeja, number> = { por_empacar: 0, listos: 0, full: 0, en_camino: 0 };
+    let urgentes = 0,
+      vencidos = 0,
+      sinEmpezar = 0,
+      enTransito = 0;
     for (const p of pedidos) {
-      if (p.estado === "nuevo") nuevos++;
-      else if (p.estado === "preparando") preparando++;
-      else if (p.estado === "enviado") enviados++;
-      if (esUrgente(p, ahora)) atrasados++;
-      /* Cuántos de esos "preparando" ya no son trabajo de nadie de aquí: el
-         número suelto decía "10 por preparar" cuando nueve estaban hechos. */
-      if (preparacion(p) !== null && !hayTrabajo(p)) listos++;
+      const b = bandeja(p);
+      bandejas[b]++;
+      if (b === "por_empacar") {
+        if (p.estado === "nuevo") sinEmpezar++;
+        if (esUrgente(p, ahora)) {
+          urgentes++;
+          vencidos++;
+        } else if (plazoUrgente(p, ahora) === "por_vencer") urgentes++;
+      } else if (b === "en_camino" && diasEnTransito(p) !== null) enTransito++;
     }
-    return { nuevos, preparando, enviados, atrasados, listos };
+    return { bandejas, urgentes, vencidos, sinEmpezar, enTransito };
   }, [pedidos, ahora]);
+
+  /* El número de cada pestaña. "Todos" no lleva: depende del histórico, que
+     puede no estar cargado todavía, y una cifra que cambia sola al hacer clic
+     miente más de lo que informa. */
+  function numeroDeVista(id: Vista): number | null {
+    if (id === "todos") return null;
+    return id === "urgentes" ? conteo.urgentes : conteo.bandejas[id];
+  }
+
+  const vistaActual = VISTAS.find((v) => v.id === filtro)!;
+
+  /* Cambiar de vista desde los DOS controles (el selector del teléfono y el
+     segmentado del escritorio). Centralizado para que el histórico no se quede
+     sin pedir en uno de ellos. */
+  function cambiarVista(id: Vista) {
+    setFiltro(id);
+    if (id === "todos") void asegurarHistorico();
+  }
 
   const visibles = useMemo(() => {
     /* Un estado concreto manda sobre la vista: quien pide "enséñame lo que está
@@ -251,22 +349,9 @@ export function PanelPedidos({
         ? (esEstadoTerminal(filtroEstado) ? conHistorico : pedidos).filter(
             (p) => p.estado === filtroEstado,
           )
-        : filtro === "todos"
-          ? conHistorico
-          : filtro === "urgentes"
-            ? /* Lo que hay que mover HOY: el plazo del canal vencido o a punto,
-                 y los que llevan días sin salir. Sale de los pendientes y no del
-                 histórico: un pedido entregado ya no urge, por tarde que saliera. */
-              pedidos.filter((p) => esUrgente(p, ahora) || plazoUrgente(p, ahora) === "por_vencer")
-            : filtro === "listos"
-              ? /* Hechos, esperando a que se los lleven: los empacados con la
-                   etiqueta puesta y los que están en un centro del canal. Aquí no
-                   se empaca nada; se vigila que no lleven días parados. */
-                pedidos.filter((p) => preparacion(p) !== null && !hayTrabajo(p))
-              : // pendientes: nuevo, preparando, enviado (lo que aún da trabajo)
-                pedidos.filter(
-                  (p) => p.estado === "nuevo" || p.estado === "preparando" || p.estado === "enviado",
-                );
+        : vistaActual.filtra
+          ? pedidos.filter((p) => vistaActual.filtra!(p, ahora))
+          : conHistorico;
 
     /* Filtro por canal: hasta ahora el canal se pintaba pero no se podía filtrar,
        y "enséñame solo lo de Mercado Libre" es justo lo que se pide al empacar. */
@@ -274,18 +359,30 @@ export function PanelPedidos({
       filtroCanal === "todos" ? porEstado : porEstado.filter((p) => p.canal === filtroCanal);
 
     const q = busqueda.trim().toLowerCase();
-    if (!q) return porCanal;
     /* Se busca por lo que uno tiene a mano cuando pregunta por un pedido: el
        nombre del cliente, el número de guía o la referencia de la orden. */
-    return porCanal.filter(
-      (p) =>
-        (p.cliente?.nombre ?? "").toLowerCase().includes(q) ||
-        (p.num_guia ?? "").toLowerCase().includes(q) ||
-        (p.paqueteria ?? "").toLowerCase().includes(q) ||
-        (p.referencia_externa ?? "").toLowerCase().includes(q) ||
-        nombreVenta(p).toLowerCase().includes(q),
-    );
-  }, [pedidos, conHistorico, filtro, filtroCanal, filtroEstado, busqueda, ahora]);
+    const encontrados = !q
+      ? porCanal
+      : porCanal.filter(
+          (p) =>
+            (p.cliente?.nombre ?? "").toLowerCase().includes(q) ||
+            (p.num_guia ?? "").toLowerCase().includes(q) ||
+            (p.paqueteria ?? "").toLowerCase().includes(q) ||
+            (p.referencia_externa ?? "").toLowerCase().includes(q) ||
+            nombreVenta(p).toLowerCase().includes(q),
+        );
+
+    /* El servidor manda lo más nuevo primero, que es lo correcto para empacar
+       —lo de hoy es lo que tiene el plazo vivo— y justo al revés en las listas de
+       espera: el paquete que lleva 18 días en la calle quedaba en el renglón 169.
+       Se invierte solo si lo pide la vista, y no cuando el usuario forzó un
+       estado: ahí manda su elección, no la pestaña. La lista ya viene ordenada
+       por fecha y filtrar conserva el orden, así que invertir al final es exacto
+       y no exige volver a ordenar. */
+    return vistaActual.masViejosPrimero && filtroEstado === "todos"
+      ? [...encontrados].reverse()
+      : encontrados;
+  }, [pedidos, conHistorico, vistaActual, filtroCanal, filtroEstado, busqueda, ahora]);
 
   /* Recibe el pedido entero, y no solo su id, para que el aviso pueda nombrarlo
      igual que la columna de la tabla. */
@@ -306,7 +403,10 @@ export function PanelPedidos({
         const atrasado = esPedidoAtrasado(p.fecha, p.estado) && hayTrabajo(p);
         const plazo = plazoUrgente(p, ahora);
         const prep = preparacion(p);
-        const transito = diasEnTransito(p);
+        /* En "En camino" los días en la calle son la columna por la que se
+           decide a quién llamarle, así que se enseñan todos; en las listas
+           mezcladas, "salió ayer" solo sería ruido. */
+        const transito = diasEnTransito(p, filtro === "en_camino" ? 0 : DIAS_TRANSITO_VISIBLE);
         const canal = obtenerCanal(p.canal)?.nombre ?? "la plataforma";
         return (
           <div className="min-w-0">
@@ -334,8 +434,10 @@ export function PanelPedidos({
                 pinta: es el caso normal de un pendiente y llenaría la tabla de
                 pastillas que no dicen nada. Lo que se anuncia es justo lo
                 contrario —que aquí ya no hay nada que hacer—, porque es lo que
-                explica que el pedido no esté en Urgentes. */}
-            {prep && !PREPARACION[prep].pendiente && (
+                explica que el pedido no esté en Urgentes. Por lo mismo tampoco
+                se pinta dentro de la vista Full: ahí lo dice el rótulo de la
+                tabla y las filas dirían todas lo mismo. */}
+            {prep && !PREPARACION[prep].pendiente && filtro !== "full" && (
               <span
                 className="block"
                 title={
@@ -351,13 +453,24 @@ export function PanelPedidos({
                 />
               </span>
             )}
-            {/* Ya salió: cuántos días lleva viajando. No es una alerta. */}
+            {/* Ya salió: cuántos días lleva viajando. No es una alerta —informa,
+                no alarma—, pero a partir del umbral se marca: son los que hay
+                que ir a preguntar a la paquetería. */}
             {transito !== null && (
               <span
-                className="mt-1 block whitespace-nowrap text-[10.5px] text-muted-foreground"
-                title={`Despachado hace ${transito} días; la plataforma aún no confirma la entrega.`}
+                className={cn(
+                  "mt-1 block whitespace-nowrap text-[10.5px]",
+                  transito >= DIAS_TRANSITO_VISIBLE
+                    ? "font-semibold text-foreground"
+                    : "text-muted-foreground",
+                )}
+                title={
+                  transito === 0
+                    ? "Despachado hoy."
+                    : `Despachado hace ${transito} días; la plataforma aún no confirma la entrega.`
+                }
               >
-                En tránsito {transito} d
+                {transito === 0 ? "Salió hoy" : `En tránsito ${transito} d`}
               </span>
             )}
           </div>
@@ -558,25 +671,45 @@ export function PanelPedidos({
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs: las mismas cuatro cifras que las pestañas, para que nunca digan
+          cosas distintas. Antes eran Nuevos / Preparando / Enviados / Atrasados,
+          y las dos primeras partían el MISMO trabajo por un estado interno que
+          nadie usa para decidir nada — lo que se quiere saber es cuántas cajas
+          hay que armar; "nadie lo ha tocado aún" cabe en la nota.
+
+          Full no lleva tarjeta a propósito: no es trabajo de nadie de aquí y
+          ocuparía un cuarto de la fila para decir "no hagas nada". Su número
+          vive en la pestaña, que es donde se consulta. */}
       <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-        <StatCard etiqueta="Nuevos" valor={String(conteo.nuevos)} icono={Clock} />
         <StatCard
-          etiqueta="Preparando"
-          valor={String(conteo.preparando)}
+          etiqueta="Por empacar"
+          valor={String(conteo.bandejas.por_empacar)}
           icono={PackageCheck}
+          nota={conteo.sinEmpezar > 0 ? `${conteo.sinEmpezar} sin empezar` : undefined}
+        />
+        <StatCard
+          etiqueta="Urgentes"
+          valor={String(conteo.urgentes)}
+          icono={AlertTriangle}
+          valorClassName={conteo.vencidos > 0 ? "text-red-600" : undefined}
+          nota={conteo.vencidos > 0 ? `${conteo.vencidos} ya se pasaron del plazo` : undefined}
+        />
+        <StatCard
+          etiqueta="Listos"
+          valor={String(conteo.bandejas.listos)}
+          icono={Clock}
+          nota="esperando recolección"
+        />
+        <StatCard
+          etiqueta="En camino"
+          valor={String(conteo.bandejas.en_camino)}
+          icono={Send}
+          /* La única parte accionable: a esos hay que llamarle a la paquetería. */
           nota={
-            conteo.listos > 0
-              ? `${conteo.listos} ya listos, esperando recolección`
+            conteo.enTransito > 0
+              ? `${conteo.enTransito} llevan ${DIAS_TRANSITO_VISIBLE}+ días`
               : undefined
           }
-        />
-        <StatCard etiqueta="Enviados" valor={String(conteo.enviados)} icono={Send} />
-        <StatCard
-          etiqueta="Atrasados"
-          valor={String(conteo.atrasados)}
-          icono={AlertTriangle}
-          valorClassName={conteo.atrasados > 0 ? "text-red-600" : undefined}
         />
       </div>
 
@@ -637,27 +770,61 @@ export function PanelPedidos({
             </SelectContent>
           </Select>
 
-          <div className="flex w-full rounded-xl bg-muted p-[3px] md:w-auto">
-            {FILTROS.map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => {
-                  setFiltro(id);
-                  /* El histórico se pide la primera vez que hace falta. Ni
-                     "pendientes" ni "urgentes" lo necesitan: los dos salen de lo
-                     que el servidor ya mandó. */
-                  if (id === "todos") void asegurarHistorico();
+          {/* Móvil: selector. Escritorio: segmentado. Con seis vistas ya no
+              caben seis botones en el ancho del teléfono —a 390 px tocan a 60 px
+              y "Por empacar" se partía en dos renglones—. Mismo patrón que
+              Clientes. El histórico se pide la primera vez que hace falta, y por
+              eso los dos controles llaman a `cambiarVista`: ninguna de las cinco
+              vistas restantes lo necesita, solo "Todos". */}
+          <Select value={filtro} onValueChange={(v) => v && cambiarVista(v as Vista)}>
+            <SelectTrigger className="w-full bg-card md:hidden">
+              <SelectValue>
+                {(v: string) => {
+                  const vista = VISTAS.find((x) => x.id === v);
+                  const n = numeroDeVista(v as Vista);
+                  return `Vista: ${vista?.label ?? "—"}${n !== null ? ` (${n})` : ""}`;
                 }}
-                className={cn(
-                  "flex-1 rounded-lg px-3.5 py-2 text-[13px] font-semibold transition-colors md:flex-none",
-                  filtro === id
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label}
-              </button>
-            ))}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {VISTAS.map((v) => {
+                const n = numeroDeVista(v.id);
+                return (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.label}
+                    {n !== null ? ` (${n})` : ""}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+
+          <div className="hidden rounded-xl bg-muted p-[3px] md:inline-flex">
+            {VISTAS.map((v) => {
+              const n = numeroDeVista(v.id);
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => cambiarVista(v.id)}
+                  className={cn(
+                    "rounded-lg px-3 py-1.5 text-[13px] font-semibold transition-colors",
+                    filtro === v.id
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {v.label}
+                  {/* El número al lado: es lo que evita entrar a una pestaña
+                      para descubrir que está vacía. */}
+                  {n !== null && (
+                    <span className="ml-1.5 text-[11.5px] font-semibold tabular-nums text-muted-foreground">
+                      {n}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       </BarraHerramientas>
@@ -670,18 +837,21 @@ export function PanelPedidos({
         minW="min-w-[900px]"
         onRowClick={(p) => setEnvio(p)}
         filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
+        /* De quién es el trabajo, dicho una vez arriba de la lista en las dos
+           vistas donde la respuesta no es "de la bodega". En las demás sobra. */
+        titulo={
+          filtro === "full"
+            ? "Los prepara y despacha Mercado Libre desde su centro"
+            : filtro === "en_camino"
+              ? "Ya salieron de aquí · lo más viejo primero"
+              : undefined
+        }
         vacio={
           cargandoHistorico
             ? "Cargando el histórico…"
             : filtroEstado !== "todos"
               ? `Ningún pedido en "${obtenerEstadoPedido(filtroEstado)?.nombre ?? filtroEstado}".`
-              : filtro === "pendientes"
-                ? "No hay pedidos pendientes. Todo al día. 🎉"
-                : filtro === "urgentes"
-                  ? "Nada urgente: ningún pedido con el plazo encima. 🎉"
-                  : filtro === "listos"
-                    ? "Ningún paquete esperando recolección."
-                    : "No hay pedidos que mostrar."
+              : vistaActual.vacio
         }
       />
 

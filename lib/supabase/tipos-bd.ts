@@ -5111,6 +5111,10 @@ export type Database = {
       }
       orden_viva: { Args: { estado: string }; Returns: boolean }
       pagos_canal: { Args: { canal_f: string; desde: string }; Returns: Json }
+      pedido_por_empacar: {
+        Args: { p_estado: string; p_logistica: string; p_subestado: string }
+        Returns: boolean
+      }
       puede_contribuir_tarea: { Args: { tid: string }; Returns: boolean }
       puede_gestionar_tarea: { Args: { tid: string }; Returns: boolean }
       puede_mover_insumos: { Args: never; Returns: boolean }

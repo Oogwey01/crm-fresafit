@@ -83,8 +83,16 @@ export function instanteDeCorte(): number {
 export type SituacionPreparacion = "en_bodega" | "por_recoger" | "en_el_canal";
 
 /* Mercado Full: el inventario está en un centro de ML, que empaca y despacha.
-   Lo mismo vale para su variante `fulfillment_extended`. */
-function esDelCanal(logistica: string | null): boolean {
+   Lo mismo vale para su variante `fulfillment_extended`.
+
+   Se exporta porque la pantalla de Pedidos necesita apartar esos pedidos
+   SIEMPRE —también después de que salen—, y `situacionPreparacion` no sirve
+   para eso a propósito: describe la etapa ANTERIOR al envío y se calla en
+   cuanto el pedido sale. Qué significa cada valor de `envio_logistica` es
+   conocimiento del canal y vive aquí; repetir el `startsWith` en la UI es lo
+   que hace que el día que ML invente un tercer prefijo solo se arregle en un
+   sitio. */
+export function esDelCanal(logistica: string | null | undefined): boolean {
   return !!logistica && logistica.startsWith("fulfillment");
 }
 
