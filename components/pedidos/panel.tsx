@@ -329,7 +329,8 @@ export function PanelPedidos({
        además lo que vence en horas: dos cifras parecidas que nunca cuadraban. */
     const bandejas: Record<Bandeja, number> = { por_empacar: 0, listos: 0, full: 0, en_camino: 0 };
     let urgentes = 0,
-      vencidos = 0,
+      urgentesBodega = 0,
+      urgentesTaller = 0,
       sinEmpezar = 0,
       personalizados = 0,
       enTransito = 0;
@@ -337,15 +338,27 @@ export function PanelPedidos({
       const b = bandeja(p);
       bandejas[b]++;
       if (b === "por_empacar") {
-        if (esPersonalizado(p, enProduccion)) personalizados++;
+        const deTaller = esPersonalizado(p, enProduccion);
+        if (deTaller) personalizados++;
         if (p.estado === "nuevo") sinEmpezar++;
-        if (esUrgente(p, ahora)) {
+        if (esUrgente(p, ahora) || plazoUrgente(p, ahora) === "por_vencer") {
           urgentes++;
-          vencidos++;
-        } else if (plazoUrgente(p, ahora) === "por_vencer") urgentes++;
+          /* La urgencia se desglosa por mitad porque se atiende distinto: una se
+             resuelve empacando y la otra hay que ir a pedírsela al taller. */
+          if (deTaller) urgentesTaller++;
+          else urgentesBodega++;
+        }
       } else if (b === "en_camino" && diasEnTransito(p) !== null) enTransito++;
     }
-    return { bandejas, urgentes, vencidos, sinEmpezar, personalizados, enTransito };
+    return {
+      bandejas,
+      urgentes,
+      urgentesBodega,
+      urgentesTaller,
+      sinEmpezar,
+      personalizados,
+      enTransito,
+    };
     /* `enProduccion` entra por `esPersonalizado`: llega del servidor y solo
        cambia cuando cambian los pedidos, pero va en las dependencias para que el
        conteo no se quede viejo si un día deja de venir junto. */
@@ -414,12 +427,17 @@ export function PanelPedidos({
       : encontrados;
   }, [pedidos, conHistorico, vistaActual, filtroCanal, filtroEstado, busqueda, ahora]);
 
-  /* Los personalizados salen a su propia tabla, debajo, y SOLO en "Por empacar":
-     es la vista donde estorban, porque quien la abre está decidiendo qué cajas
-     arma hoy y esas piezas todavía no existen — las está haciendo Eduardo—. En
-     "Todos" o filtrando por un estado, partir la lista escondería la mitad de lo
-     que se pidió ver. */
-  const partirPorProduccion = filtro === "por_empacar" && filtroEstado === "todos";
+  /* Los personalizados salen a su propia tabla, debajo, en las dos vistas de
+     trabajo: "Por empacar" y "Urgentes". Son las que se abren para decidir qué
+     hacer AHORA, y ahí estorban — esas piezas todavía no existen, las está
+     haciendo el taller—. En Urgentes pesan todavía más: 41 de los 77 son
+     personalizados, así que sin separar, la lista de "lo que se me está pasando"
+     era mayoría trabajo que no depende de bodega.
+
+     En "Todos" o filtrando por un estado NO se parte: ahí partir la lista
+     escondería la mitad de lo que se pidió ver. */
+  const partirPorProduccion =
+    (filtro === "por_empacar" || filtro === "urgentes") && filtroEstado === "todos";
   const enBodega = partirPorProduccion ? visibles.filter((p) => !esPersonalizado(p, enProduccion)) : visibles;
   const enTaller = partirPorProduccion ? visibles.filter((p) => esPersonalizado(p, enProduccion)) : [];
 
@@ -723,16 +741,20 @@ export function PanelPedidos({
         </div>
       </div>
 
-      {/* KPIs: las mismas cuatro cifras que las pestañas, para que nunca digan
-          cosas distintas. Antes eran Nuevos / Preparando / Enviados / Atrasados,
-          y las dos primeras partían el MISMO trabajo por un estado interno que
-          nadie usa para decidir nada — lo que se quiere saber es cuántas cajas
-          hay que armar; "nadie lo ha tocado aún" cabe en la nota.
+      {/* KPIs: cuatro cifras, una por lista de la pantalla, para que nunca digan
+          cosas distintas de las pestañas.
 
-          Full no lleva tarjeta a propósito: no es trabajo de nadie de aquí y
-          ocuparía un cuarto de la fila para decir "no hagas nada". Su número
+          "Urgentes" tuvo tarjeta propia y se la quitó: la urgencia no es una
+          quinta categoría de pedidos, es un ATRIBUTO de las dos mitades del
+          trabajo — y se atiende distinto en cada una, porque una se resuelve
+          empacando y la otra hay que ir a pedírsela al taller—. Repartida en sus
+          notas, la fila vuelve a cuatro tarjetas sin perder nada: los dos
+          números suman los de la pestaña Urgentes.
+
+          Full tampoco lleva tarjeta, a propósito: no es trabajo de nadie de aquí
+          y ocuparía un cuarto de la fila para decir "no hagas nada". Su número
           vive en la pestaña, que es donde se consulta. */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-3 lg:grid-cols-5">
+      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         {/* Las dos mitades del trabajo, separadas como las dos tablas de abajo:
             una se resuelve con lo que hay en el estante y la otra depende del
             taller. Juntas en una sola cifra, "158 por empacar" mandaba a bodega
@@ -741,7 +763,14 @@ export function PanelPedidos({
           etiqueta="De bodega"
           valor={String(conteo.bandejas.por_empacar - conteo.personalizados)}
           icono={PackageCheck}
-          nota={conteo.sinEmpezar > 0 ? `${conteo.sinEmpezar} sin empezar` : undefined}
+          nota={
+            conteo.urgentesBodega > 0
+              ? `${conteo.urgentesBodega} urgentes`
+              : conteo.sinEmpezar > 0
+                ? `${conteo.sinEmpezar} sin empezar`
+                : undefined
+          }
+          notaClassName={conteo.urgentesBodega > 0 ? "font-semibold text-red-600" : undefined}
         />
         <StatCard
           etiqueta="Personalizados"
@@ -749,14 +778,10 @@ export function PanelPedidos({
           /* El mismo icono con el que se ven en Maquila, que es donde se
              gestionan de verdad. */
           icono={Scissors}
-          nota="se fabrican primero"
-        />
-        <StatCard
-          etiqueta="Urgentes"
-          valor={String(conteo.urgentes)}
-          icono={AlertTriangle}
-          valorClassName={conteo.vencidos > 0 ? "text-red-600" : undefined}
-          nota={conteo.vencidos > 0 ? `${conteo.vencidos} ya se pasaron del plazo` : undefined}
+          nota={
+            conteo.urgentesTaller > 0 ? `${conteo.urgentesTaller} urgentes` : "se fabrican primero"
+          }
+          notaClassName={conteo.urgentesTaller > 0 ? "font-semibold text-red-600" : undefined}
         />
         <StatCard
           etiqueta="Listos"
@@ -921,7 +946,9 @@ export function PanelPedidos({
                    vacía arriba y otra llena abajo, sin explicación, parece un
                    error de la pantalla. */
                 enTaller.length > 0
-                ? "Nada que empacar de bodega: lo que queda son personalizados."
+                ? filtro === "urgentes"
+                  ? "Nada urgente de bodega: lo que corre prisa está en el taller."
+                  : "Nada que empacar de bodega: lo que queda son personalizados."
                 : vistaActual.vacio
         }
       />
@@ -939,6 +966,10 @@ export function PanelPedidos({
             filaKey={(p) => p.id}
             minW="min-w-[900px]"
             onRowClick={(p) => setEnvio(p)}
+            /* Mismo rojo que arriba: que la pieza la haga el taller no quita que
+               el plazo con el cliente se esté pasando — solo cambia a quién hay
+               que ir a buscar. */
+            filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
             titulo={`Personalizados · ${enTaller.length} — los fabrica el taller antes de poder empacarse`}
             vacio="Ningún personalizado pendiente."
           />
