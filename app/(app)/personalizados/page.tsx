@@ -3,6 +3,7 @@ import { equipoCompleto } from "@/lib/supabase/consultas";
 import { traerTodo } from "@/lib/canales/paginacion";
 import { PanelPersonalizados } from "@/components/personalizados/panel";
 import { enlacesDeOrden } from "@/lib/personalizados/desde-maquila";
+import { correosDeClientes } from "@/lib/personalizados/correo-cliente";
 import { leerDatosIntegracion } from "@/lib/canales/integraciones";
 import type { Personalizado } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
@@ -27,7 +28,7 @@ export default async function PersonalizadosPage() {
       supabase
         .from("personalizados")
         .select(
-          "id, cliente, tipo, modelo, talla, no_venta, sale_order_id, canal, fecha_compra, fecha_produccion, fecha_limite, url, foto_path, estado, notas, responsable_id, created_by, created_at, updated_at",
+          "id, cliente, tipo, modelo, talla, no_venta, sale_order_id, canal, fecha_compra, fecha_produccion, fecha_limite, url, foto_path, estado, notas, responsable_id, correo_enviado_en, correo_enviado_a, created_by, created_at, updated_at",
         )
         /* En el orden en que se vendieron: el que lleva más esperando, primero.
            Es como el diseñador se pone al día — atiende la cola, no la busca.
@@ -51,14 +52,21 @@ export default async function PersonalizadosPage() {
     leerDatosIntegracion("tiendanube").catch(() => ({}) as Record<string, unknown>),
   ]);
 
-  /* A dónde va el botón: el detalle de la venta en el panel del canal. Va
-     después y no en el Promise.all porque necesita los ids que acaba de traer
-     la consulta de arriba. */
-  const enlaces = await enlacesDeOrden(
-    supabase,
-    personalizados.map((p) => p.id),
-    typeof datosTN.dominio_admin === "string" ? datosTN.dominio_admin : null,
-  );
+  /* Los dos van después y no en el Promise.all porque necesitan los ids que
+     acaba de traer la consulta de arriba.
+       · `enlaces`: a dónde lleva el botón de la venta en el panel del canal.
+       · `correos`: a quién se le puede mandar la confirmación del pedido. Solo
+         Tienda Nube da correo real, así que la mayoría de las fichas no sale en
+         el mapa — es justo eso lo que apaga el botón en vez de dejar que
+         alguien lo apriete y se lleve un error. */
+  const [enlaces, correos] = await Promise.all([
+    enlacesDeOrden(
+      supabase,
+      personalizados.map((p) => p.id),
+      typeof datosTN.dominio_admin === "string" ? datosTN.dominio_admin : null,
+    ),
+    correosDeClientes(supabase, personalizados),
+  ]);
 
   /* El bucket es privado, pero la página ya NO firma las miniaturas: firmarlas
      todas —una por una, porque la firma con transform no admite lote— eran
@@ -71,6 +79,7 @@ export default async function PersonalizadosPage() {
       personalizados={personalizados}
       equipo={equipo}
       enlacesOrden={Object.fromEntries(enlaces)}
+      correosCliente={Object.fromEntries(correos)}
     />
   );
 }

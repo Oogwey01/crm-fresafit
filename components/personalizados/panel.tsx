@@ -7,6 +7,8 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Mail,
+  MailCheck,
   Palette,
   Plus,
   Sparkles,
@@ -40,6 +42,7 @@ import {
   ligaDisenoParaProveedor,
   traerPedidosDeMaquila,
 } from "@/app/(app)/personalizados/actions";
+import { enviarConfirmacionPersonalizado } from "@/app/(app)/personalizados/acciones/correo";
 import {
   ESTADOS_PERSONALIZADO,
   ESTADOS_PERSONALIZADO_ABIERTOS,
@@ -51,7 +54,7 @@ import {
 import { formatearFecha, hoyISO, rangoDeMes, type PresetRangoId } from "@/lib/fecha";
 import { enRango } from "@/lib/metricas";
 import { norm } from "@/lib/importar/tsv";
-import { iniciales } from "@/lib/utils";
+import { cn, iniciales } from "@/lib/utils";
 import type { EnlaceOrden } from "@/lib/personalizados/desde-maquila";
 import type { EstadoPersonalizadoId, Personalizado, Profile } from "@/lib/types";
 
@@ -76,6 +79,52 @@ function PuntoEstado({ estado }: { estado: string }) {
       style={{ backgroundColor: color }}
       aria-hidden="true"
     />
+  );
+}
+
+/* El botón que le escribe al CLIENTE: confirmación, cómo funciona y para cuándo
+   lo tendrá. Vive apagado la mayor parte del tiempo —solo Tienda Nube entrega el
+   correo del comprador— y por eso el título explica el motivo en vez de dejar un
+   botón muerto sin razón aparente. Verde y con palomita cuando ya salió: es la
+   única forma de ver desde la tabla a quién falta avisarle. */
+function BotonCorreoCliente({
+  personalizado: p,
+  correo,
+  pendiente,
+  onEnviar,
+}: {
+  personalizado: Personalizado;
+  correo: string | undefined;
+  pendiente: boolean;
+  onEnviar: () => void;
+}) {
+  const enviado = Boolean(p.correo_enviado_en);
+  const Icono = enviado ? MailCheck : Mail;
+  const titulo = !correo
+    ? "No tenemos el correo de este cliente: solo llega de Tienda Nube (Mercado Libre lo anonimiza y TikTok lo enmascara)."
+    : enviado
+      ? `Confirmación enviada a ${p.correo_enviado_a ?? correo}${
+          p.correo_enviado_en ? ` el ${formatearFecha(p.correo_enviado_en.slice(0, 10))}` : ""
+        }. Clic para volver a mandarla.`
+      : `Mandarle a ${p.cliente} la confirmación de su pedido (${correo})`;
+
+  return (
+    <button
+      type="button"
+      disabled={!correo || pendiente}
+      onClick={(e) => {
+        e.stopPropagation();
+        onEnviar();
+      }}
+      className={cn(
+        "rounded p-1 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+        enviado ? "text-emerald-600" : "text-muted-foreground hover:text-foreground",
+      )}
+      title={titulo}
+      aria-label={titulo}
+    >
+      <Icono className="size-4" />
+    </button>
   );
 }
 
@@ -108,6 +157,7 @@ export function PanelPersonalizados({
   personalizados,
   equipo,
   enlacesOrden,
+  correosCliente,
 }: {
   personalizados: Personalizado[];
   equipo: Profile[];
@@ -115,6 +165,10 @@ export function PanelPersonalizados({
      enlace las que salieron de una venta del CRM: el folio de las viejas de la
      hoja no existe en ningún panel. */
   enlacesOrden: Record<string, EnlaceOrden>;
+  /* id de la ficha → correo del cliente, cuando lo tenemos (en la práctica,
+     Tienda Nube y poco más: ver lib/personalizados/correo-cliente.ts). Lo que
+     no está aquí es lo que no se puede avisar. */
+  correosCliente: Record<string, string>;
 }) {
   const porId = new Map(equipo.map((p) => [p.id, p]));
 
@@ -146,6 +200,25 @@ export function PanelPersonalizados({
      de la tabla, y el botón no debe deshabilitarse cuando alguien mueve una
      ficha (ni al revés). */
   const { pending: pendingTraer, ejecutar: ejecutarTraer } = useAccionServidor();
+  const { pending: pendingCorreo, ejecutar: ejecutarCorreo } = useAccionServidor();
+
+  /* La confirmación al cliente. Pide confirmar SIEMPRE —sale un correo a una
+     persona de fuera y de la bandeja de alguien no se retira nada— y avisa
+     cuando ya se le escribió antes, que es el único error caro aquí. */
+  function mandarConfirmacion(p: Personalizado) {
+    const correo = correosCliente[p.id];
+    if (!correo) return;
+    const yaFue = Boolean(p.correo_enviado_en);
+    ejecutarCorreo(() => enviarConfirmacionPersonalizado(p.id, yaFue), {
+      confirmar: yaFue
+        ? `A ${p.cliente} ya se le mandó la confirmación${
+            p.correo_enviado_en ? ` el ${formatearFecha(p.correo_enviado_en.slice(0, 10))}` : ""
+          }.\n\n¿Volver a enviarla a ${correo}?`
+        : `Se le va a mandar a ${p.cliente} la confirmación de su pedido, con las instrucciones y la fecha estimada de entrega.\n\nA: ${correo}\n\n¿Enviar?`,
+      ok: (r) => `Confirmación enviada a ${r.datos.correo}.`,
+      error: "No se pudo enviar el correo. Revisa tu conexión.",
+    });
+  }
   const [dialogo, setDialogo] = useState<Personalizado | "nuevo" | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("abiertos");
@@ -438,6 +511,15 @@ export function PanelPersonalizados({
           >
             <Copy className="size-4" />
           </button>
+          {/* La confirmación al CLIENTE. Se pinta deshabilitado y no se esconde
+              cuando no hay correo: «no se puede» explica algo, un botón ausente
+              solo deja la duda de si existe. */}
+          <BotonCorreoCliente
+            personalizado={p}
+            correo={correosCliente[p.id]}
+            pendiente={pendingCorreo}
+            onEnviar={() => mandarConfirmacion(p)}
+          />
           <Button variant="outline" size="sm" onClick={() => setDialogo(p)}>
             Editar
           </Button>
@@ -592,11 +674,11 @@ export function PanelPersonalizados({
         /* El diseño se lleva la columna más ancha de la tabla a propósito: es lo
            que distingue un pedido de otro. Las fechas y el nº de venta se
            aprietan para pagarla. */
-        cols="grid-cols-[minmax(170px,1fr)_48px_140px_105px_105px_360px_170px_150px]"
+        cols="grid-cols-[minmax(170px,1fr)_48px_140px_105px_105px_360px_170px_180px]"
         columnas={columnas}
         datos={visibles}
         filaKey={(p) => p.id}
-        minW="min-w-[1380px]"
+        minW="min-w-[1410px]"
         vacio="Sin personalizados. Da de alta el primero o pega el bloque de la hoja."
         onRowClick={setDialogo}
       />

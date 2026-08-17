@@ -25,6 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/tipos-bd";
 import { traerPorLotes } from "@/lib/supabase/lotes";
 import { diaMX } from "@/lib/fecha";
+import { fechaLimitePersonalizado } from "@/lib/personalizados/plazo";
 import { urlOrdenCanal } from "@/lib/pedidos/rastreo";
 import type { AcabadoMaquilaId, ModeloMaquilaId } from "@/lib/types";
 
@@ -59,7 +60,6 @@ type PedidoSinFicha = {
   talla: string | null;
   envio_nombre: string | null;
   pagado_en: string | null;
-  fecha_prometida: string | null;
   created_at: string;
 };
 
@@ -72,7 +72,7 @@ async function pedidosSinFicha(supabase: Cliente): Promise<PedidoSinFicha[]> {
     .from("maquila_pedidos")
     .select(
       "id, canal, referencia_orden, numero_orden, modelo, acabado, talla, envio_nombre," +
-        " pagado_en, fecha_prometida, created_at," +
+        " pagado_en, created_at," +
         " producto:products!inner(bajo_pedido)",
     )
     .is("personalizado_id", null)
@@ -157,6 +157,9 @@ export async function sembrarPersonalizadosDeMaquila(
      un insert masivo devuelve los ids sin decir de quién es cada uno. Son
      decenas en el primer arranque y unidades después. */
   for (const p of pedidos) {
+    /* El día en que entró el cinto: de él cuelgan la cola de la pantalla y la
+       promesa al cliente, así que se calcula una vez y se usa para las dos. */
+    const ingreso = diaMX(p.pagado_en ?? p.created_at);
     const { data: ficha, error } = await supabase
       .from("personalizados")
       .insert({
@@ -166,10 +169,13 @@ export async function sembrarPersonalizadosDeMaquila(
         talla: p.talla,
         no_venta: p.numero_orden,
         canal: canalDeFicha(p.canal),
-        fecha_compra: diaMX(p.pagado_en ?? p.created_at),
-        /* La promesa al cliente, para que el diseñador vea qué urge sin tener
-           que abrir maquila. */
-        fecha_limite: p.fecha_prometida,
+        fecha_compra: ingreso,
+        /* La promesa AL CLIENTE: 33 días naturales desde el ingreso
+           (lib/personalizados/plazo.ts). Aquí se copiaba `fecha_prometida`, que
+           es la promesa del TALLER —7/10 días hábiles— y mide otra cosa: las
+           fichas nacían con ~12 días de límite y el módulo las daba por fuera
+           de fecha cuando todavía les sobraban tres semanas. */
+        fecha_limite: fechaLimitePersonalizado(ingreso),
         sale_order_id: ordenes.get(`${p.canal}:${p.referencia_orden}`) ?? null,
         estado: "recibido",
         notas: "Alta automática desde la venta: falta el arte.",

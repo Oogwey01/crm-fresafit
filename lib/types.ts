@@ -1349,6 +1349,11 @@ export type Personalizado = {
   notas: string | null;
   /* Quién lo lleva (Juanpi o Ulises): sin esto, el reparto vivía en WhatsApp. */
   responsable_id: string | null;
+  /* El sello de la confirmación que se le mandó al cliente. NULL = todavía no
+     se le ha escrito. La dirección se congela al enviar: la de `customers`
+     puede cambiar después y entonces ya no diría a dónde fue. */
+  correo_enviado_en: string | null;
+  correo_enviado_a: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string | null;

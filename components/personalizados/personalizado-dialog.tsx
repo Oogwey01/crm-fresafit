@@ -34,6 +34,10 @@ import {
   TIPOS_PERSONALIZADO,
 } from "@/lib/catalogos";
 import { hoyISO } from "@/lib/fecha";
+import {
+  PLAZO_PERSONALIZADO_DIAS,
+  fechaLimitePersonalizado,
+} from "@/lib/personalizados/plazo";
 import type {
   EstadoPersonalizadoId,
   ModeloPersonalizadoId,
@@ -83,7 +87,14 @@ export function PersonalizadoDialog({
   const [canal, setCanal] = useState<string | null>(personalizado?.canal ?? null);
   const [fechaCompra, setFechaCompra] = useState(personalizado?.fecha_compra ?? hoyISO());
   const [fechaProduccion, setFechaProduccion] = useState(personalizado?.fecha_produccion ?? "");
-  const [fechaLimite, setFechaLimite] = useState(personalizado?.fecha_limite ?? "");
+  /* Una ficha nueva nace con la promesa ya puesta (compra + 33 días); una que
+     se edita conserva la suya, incluso vacía — las históricas de la hoja no
+     tienen y no se les inventa una desde hoy. */
+  const [fechaLimite, setFechaLimite] = useState(
+    personalizado
+      ? (personalizado.fecha_limite ?? "")
+      : (fechaLimitePersonalizado(hoyISO()) ?? ""),
+  );
   const [url, setUrl] = useState(personalizado?.url ?? "");
   const [estado, setEstado] = useState<EstadoPersonalizadoId>(personalizado?.estado ?? "recibido");
   const [notas, setNotas] = useState(personalizado?.notas ?? "");
@@ -110,6 +121,17 @@ export function PersonalizadoDialog({
     })),
   ];
 
+  /* La fecha límite se calcula sola desde la de compra —33 días naturales,
+     lib/personalizados/plazo.ts— pero NUNCA pisa una puesta a mano: solo se
+     recalcula si está vacía o si sigue siendo justo la que salió de la fecha de
+     compra anterior. Así mover el día de compra arrastra la promesa cuando era
+     automática, y respeta la renegociada con el cliente cuando no lo era. */
+  function cambiarFechaCompra(nueva: string) {
+    const eraAutomatica = !fechaLimite || fechaLimite === fechaLimitePersonalizado(fechaCompra);
+    setFechaCompra(nueva);
+    if (eraAutomatica) setFechaLimite(fechaLimitePersonalizado(nueva) ?? "");
+  }
+
   /* Elegir la venta llena de un golpe los tres datos que salen de ella: el
      folio, el canal y el día de compra. El canal solo si estaba en blanco —si
      alguien ya lo puso a mano, manda—; la fecha sí se pisa, porque su valor por
@@ -122,7 +144,7 @@ export function PersonalizadoDialog({
     setSaleOrderId(elegida?.id ?? null);
     if (!elegida) return;
     if (!canal && elegida.canal !== "punto_fisico") setCanal(elegida.canal);
-    setFechaCompra(elegida.fecha);
+    cambiarFechaCompra(elegida.fecha);
   }
 
   function guardar() {
@@ -256,7 +278,7 @@ export function PersonalizadoDialog({
           etiqueta="Fecha de compra"
           etiquetaVacia="Fecha de compra"
           valor={fechaCompra}
-          onCambio={setFechaCompra}
+          onCambio={cambiarFechaCompra}
           limpiable
         />
       </Propiedades>
@@ -274,6 +296,7 @@ export function PersonalizadoDialog({
           etiquetaVacia="Fecha límite"
           valor={fechaLimite}
           onCambio={setFechaLimite}
+          ayuda={`Se calcula sola: ${PLAZO_PERSONALIZADO_DIAS} días naturales desde la compra. Cámbiala si con este cliente se acordó otra cosa.`}
           limpiable
         />
         <PastillaOpcion

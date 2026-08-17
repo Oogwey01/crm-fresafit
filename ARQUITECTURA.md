@@ -197,6 +197,14 @@ lo sostienen, y que no se relajan:
 - **Correo**: `lib/correo/` (Resend por `fetch`, sin SDK). Sin
   `RESEND_API_KEY` degrada a campana+push sin romper. Urgente = inmediato con
   `after()`; el resto lo agrupa `/api/cron/portal` (cron-job.org, diario).
+  La infraestructura nació aquí pero ya no es solo del portal: la confirmación
+  de un cinturón personalizado
+  ([acciones/correo.ts](app/(app)/personalizados/acciones/correo.ts)) le escribe
+  a un CLIENTE FINAL, y eso cambia las reglas — se dispara a mano, pide
+  confirmación, sella la ficha para no repetirse, y solo alcanza a quien tiene
+  correo real (únicamente Tienda Nube: ML lo anonimiza y TikTok lo enmascara,
+  ver [correo-cliente.ts](lib/personalizados/correo-cliente.ts)). Ese archivo
+  prefiere no encontrar destinatario antes que adivinar uno.
 - **Altas de externos**: `scripts/crear-usuario.mjs --rol externo --empresa
   <slug> --rol-portal <admin_cliente|colaborador>`. La frontera casa↔portal no
   se cruza con un cambio de rol (checks en BD + guarda en /equipo).

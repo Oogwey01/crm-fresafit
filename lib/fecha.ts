@@ -32,6 +32,18 @@ export function formatearFechaLarga(iso: string): string {
   });
 }
 
+/* Como formatearFechaLarga pero CON año, ej. "12 de enero de 2027". Para lo que
+   sale del CRM hacia afuera —el correo que le prometemos una fecha de entrega a
+   un cliente—: adentro el año se sobreentiende, en una bandeja de correo que se
+   lee semanas después, no. */
+export function formatearFechaLargaConAnio(iso: string): string {
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 /* Fecha/hora actual vista desde México (zona del negocio). Anclarla aquí hace
    que el servidor (UTC en Vercel) y el navegador calculen el MISMO día: sin
    esto, el HTML del servidor y el del cliente difieren cerca de la medianoche

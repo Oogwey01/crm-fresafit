@@ -10,7 +10,7 @@
    lib/correo/enviar.ts. Así se pueden probar leyéndolas.
    ============================================================================ */
 
-import { formatearFechaLarga } from "@/lib/fecha";
+import { formatearFechaLarga, formatearFechaLargaConAnio } from "@/lib/fecha";
 import { obtenerPrioridad } from "@/lib/catalogos";
 
 const MARCA = "#e84393";
@@ -28,8 +28,19 @@ function esc(s: string | null | undefined): string {
     .replace(/"/g, "&quot;");
 }
 
+/* El pie por defecto habla de "el CRM": vale para el equipo y para los
+   contactos de las empresas cliente, que entran a él. A quien compró un cinto
+   no le dice nada —ni sabe que existe—, así que esas plantillas pasan el suyo. */
+const PIE_INTERNO =
+  "Este aviso salió del CRM de Fresafit. Si no esperabas este correo, respóndelo y lo revisamos.";
+
 /* El armazón común: cabecera con la marca, cuerpo y pie. */
-function envoltura(titulo: string, cuerpo: string, boton?: { texto: string; url: string }): string {
+function envoltura(
+  titulo: string,
+  cuerpo: string,
+  boton?: { texto: string; url: string },
+  pie: string = PIE_INTERNO,
+): string {
   return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:#f4f5f7;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:24px 12px;">
 <tr><td align="center">
@@ -48,7 +59,7 @@ function envoltura(titulo: string, cuerpo: string, boton?: { texto: string; url:
       }
     </td></tr>
     <tr><td style="padding:16px 24px 22px;border-top:1px solid #eceef1;color:${SUAVE};font-size:12px;line-height:1.5;">
-      Este aviso salió del CRM de Fresafit. Si no esperabas este correo, respóndelo y lo revisamos.
+      ${esc(pie)}
     </td></tr>
   </table>
 </td></tr></table></body></html>`;
@@ -173,6 +184,127 @@ export function correoTareaVencida(datos: {
       datos.url ? { texto: "Ver la tarea", url: datos.url } : undefined,
     ),
     texto: `Venció: ${datos.titulo} (${formatearFechaLarga(datos.fechaLimite)}). A cargo de ${datos.responsable}.`,
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   Confirmación de un cinturón PERSONALIZADO — la única plantilla que le habla a
+   un cliente final, y por eso la que más cuidado pide.
+
+   Existe porque un personalizado tarda semanas y el cliente no tiene forma de
+   saber por qué: compró y no pasa nada visible. Las tres cosas que pidió el
+   negocio —confirmar, explicar cómo funciona y decir para cuándo— son
+   exactamente las tres preguntas con las que la gente escribe a los tres días.
+
+   El paso 2 se dice sin rodeos («no producimos nada hasta que apruebes») porque
+   es la parte del proceso que depende de ELLOS: si se enteran tarde, la espera
+   que reclaman después es la que ellos mismos alargaron.
+
+   La fecha va como ESTIMADA, nunca como compromiso cerrado: se calcula desde el
+   ingreso (33 días naturales, lib/personalizados/plazo.ts) y el ida y vuelta del
+   diseño puede recorrerla.
+   --------------------------------------------------------------------------- */
+export function correoPersonalizadoConfirmado(datos: {
+  cliente: string;
+  /* El folio que el cliente ve en su comprobante; puede faltar en las fichas
+     capturadas a mano. */
+  folio?: string | null;
+  modelo?: string | null;
+  talla?: string | null;
+  tecnica?: string | null;
+  /* AAAA-MM-DD. Sin ella el correo sale sin promesa en vez de con una inventada:
+     una fecha equivocada en la bandeja de un cliente es peor que ninguna. */
+  fechaEstimada?: string | null;
+}): Mensaje {
+  const nombrePila = datos.cliente.trim().split(/\s+/)[0] || datos.cliente.trim();
+  const pieza = [datos.modelo, datos.talla ? `talla ${datos.talla}` : null, datos.tecnica]
+    .filter(Boolean)
+    .join(" · ");
+
+  const paso = (n: number, titulo: string, texto: string) =>
+    `<tr>
+       <td width="28" valign="top" style="padding:0 10px 14px 0;">
+         <span style="display:inline-block;width:22px;height:22px;border-radius:11px;background:${MARCA};color:#fff;font-size:12px;font-weight:700;text-align:center;line-height:22px;">${n}</span>
+       </td>
+       <td valign="top" style="padding:0 0 14px;font-size:14px;line-height:1.5;color:${TINTA};">
+         <strong>${esc(titulo)}</strong><br><span style="color:${SUAVE};">${esc(texto)}</span>
+       </td>
+     </tr>`;
+
+  const cuerpo = [
+    parrafo(`Hola ${esc(nombrePila)}:`),
+    parrafo(
+      "Recibimos tu pedido de cinturón personalizado y ya lo estamos trabajando. Aquí te dejamos los detalles y cómo sigue todo, para que sepas qué esperar.",
+    ),
+    `<div style="margin:16px 0;padding:14px 16px;background:#f8f9fb;border-radius:10px;">`,
+    datos.folio ? dato("Pedido", datos.folio) : "",
+    pieza ? dato("Tu cinturón", pieza) : "",
+    datos.fechaEstimada
+      ? dato("Fecha estimada de entrega", formatearFechaLargaConAnio(datos.fechaEstimada))
+      : "",
+    `</div>`,
+    `<p style="margin:22px 0 12px;font-size:13px;font-weight:700;color:${SUAVE};text-transform:uppercase;letter-spacing:.4px;">Cómo funciona</p>`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" width="100%">`,
+    paso(1, "Diseñamos tu propuesta", "Nuestro equipo prepara el diseño con lo que pediste."),
+    paso(
+      2,
+      "Tú das el visto bueno",
+      "Te lo mandamos para que lo revises. No empezamos a producir hasta que lo apruebes, así que entre más pronto nos contestes, antes lo tienes.",
+    ),
+    paso(
+      3,
+      "Lo fabricamos",
+      "Tu cinturón se borda o se sublima pieza por pieza. Es hecho a mano y solo para ti: por eso tarda más que un producto de catálogo.",
+    ),
+    paso(4, "Te lo enviamos", "En cuanto salga te compartimos el número de guía para que lo sigas."),
+    `</table>`,
+    datos.fechaEstimada
+      ? parrafo(
+          `<span style="color:${SUAVE};">La fecha de entrega es estimada: cuenta desde que recibimos tu pedido e incluye el diseño, tu aprobación, la producción y el envío. Si la aprobación del diseño se demora, la fecha se recorre esos días.</span>`,
+        )
+      : "",
+    parrafo("¿Dudas o quieres cambiar algo? Responde este correo y te contestamos."),
+  ].join("");
+
+  /* Los renglones que dependen de un dato ausente entran como `null` y se caen;
+     las cadenas vacías son separadores y se quedan. Filtrar "" también dejaría
+     el texto plano en un bloque corrido y sin respiro. */
+  const textoPlano = [
+    `Hola ${nombrePila}:`,
+    "",
+    "Recibimos tu pedido de cinturón personalizado y ya lo estamos trabajando.",
+    "",
+    datos.folio ? `Pedido: ${datos.folio}` : null,
+    pieza ? `Tu cinturón: ${pieza}` : null,
+    datos.fechaEstimada
+      ? `Fecha estimada de entrega: ${formatearFechaLargaConAnio(datos.fechaEstimada)}`
+      : null,
+    "",
+    "CÓMO FUNCIONA",
+    "1. Diseñamos tu propuesta con lo que pediste.",
+    "2. Tú das el visto bueno. No producimos nada hasta que lo apruebes, así que entre más pronto nos contestes, antes lo tienes.",
+    "3. Lo fabricamos pieza por pieza, hecho a mano solo para ti.",
+    "4. Te lo enviamos y te compartimos el número de guía.",
+    "",
+    datos.fechaEstimada
+      ? "La fecha de entrega es estimada e incluye diseño, aprobación, producción y envío. Si la aprobación del diseño se demora, la fecha se recorre esos días."
+      : null,
+    "¿Dudas o quieres cambiar algo? Responde este correo y te contestamos.",
+  ]
+    .filter((l): l is string => l !== null)
+    .join("\n");
+
+  return {
+    asunto: datos.folio
+      ? `Tu cinturón personalizado ya está en proceso (pedido ${datos.folio})`
+      : "Tu cinturón personalizado ya está en proceso",
+    html: envoltura(
+      "Tu cinturón personalizado ya está en proceso",
+      cuerpo,
+      undefined,
+      "Te escribimos porque compraste un cinturón personalizado en FRESA FIT. Puedes responder este correo directamente.",
+    ),
+    texto: textoPlano,
   };
 }
 

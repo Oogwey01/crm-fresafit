@@ -3099,6 +3099,8 @@ export type Database = {
           canal: string | null
           clave: string | null
           cliente: string
+          correo_enviado_a: string | null
+          correo_enviado_en: string | null
           created_at: string
           created_by: string | null
           estado: string
@@ -3121,6 +3123,8 @@ export type Database = {
           canal?: string | null
           clave?: string | null
           cliente: string
+          correo_enviado_a?: string | null
+          correo_enviado_en?: string | null
           created_at?: string
           created_by?: string | null
           estado?: string
@@ -3143,6 +3147,8 @@ export type Database = {
           canal?: string | null
           clave?: string | null
           cliente?: string
+          correo_enviado_a?: string | null
+          correo_enviado_en?: string | null
           created_at?: string
           created_by?: string | null
           estado?: string
