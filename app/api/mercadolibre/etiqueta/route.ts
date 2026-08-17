@@ -7,11 +7,24 @@ import { conexionMercadolibre, mlFetch } from "@/lib/mercadolibre/api";
    Antes de esto, imprimir una guía era: abrir el panel de ML, buscar la orden,
    entrar al detalle y darle a imprimir — pedido por pedido. La API entrega el
    mismo PDF directo por id de envío (`sales.envio_id`, lo deja la sync), así
-   que el botón de la guía en /pedidos abre esta ruta y sale la etiqueta.
+   que el botón de la guía en /pedidos llama a esta ruta y sale la etiqueta.
 
-   Es solo LECTURA sobre la cuenta de ML: no toca la orden ni el envío, así que
-   no le aplica el candado del piloto de escritura. La sesión es la del CRM
-   (cookie), por eso basta abrirla en una pestaña nueva. */
+   ESTO NO ES UNA LECTURA, y aquí decía que sí lo era. Para Mercado Libre,
+   entregar el PDF ES el acto de imprimir: sella `date_first_printed` y mueve el
+   envío a `printed` y de ahí a `ready_for_pickup`. Es decir, esta ruta CAMBIA EL
+   ESTADO DEL ENVÍO en la cuenta del canal — anuncia que el paquete está listo
+   para que pase la colecta—, aunque en la bodega no se haya empacado nada.
+
+   El 17/08/2026 se descubrió con un cinturón del día 14 que amaneció "Listo
+   para recolección" sin que bodega hubiera tocado su guía. Por eso quien la
+   llama (components/pedidos/panel.tsx) pide confirmación explícita y ya no es
+   un enlace: un `<a href>` es un GET, y un GET lo dispara el navegador solo.
+
+   No le aplica el candado de `CANALES_SOLO_LECTURA` porque ese candado protege
+   el STOCK (ver ARQUITECTURA.md), pero conviene saber que este es el único
+   punto del CRM que mueve algo en un canal, y que lo hace de verdad.
+
+   La sesión es la del CRM (cookie), por eso el PDF se abre en una pestaña. */
 export async function GET(request: Request) {
   const cx = await exigirRol("interno");
   if ("error" in cx) return NextResponse.json({ error: cx.error }, { status: 401 });

@@ -174,6 +174,29 @@ function urlEtiquetaDirecta(p: PedidoEnvio): string | null {
   return null;
 }
 
+/* Pedir la etiqueta NO es mirarla: para Mercado Libre, entregar el PDF ES el
+   acto de imprimir. Sella `date_first_printed` y empuja el envío a `printed` y
+   de ahí a `ready_for_pickup` — o sea, el pedido queda anunciado como listo
+   para que pase la colecta, sin que nadie haya empacado nada.
+
+   El 17/08/2026 le pasó a un cinturón del día 14: apareció impreso a las 11:31
+   y bodega no había tocado esa guía. Por eso esto dejó de ser un `<a href>`.
+   Un enlace es un GET, y un GET lo puede disparar el navegador solo —una
+   precarga especulativa, una extensión que adelanta los enlaces al pasar el
+   ratón— con la sesión ya puesta y sin un clic de por medio. Como botón, hace
+   falta la intención: un clic y un sí.
+
+   La advertencia dice lo que va a pasar en el canal, no lo que va a pasar en el
+   CRM: quien la lee está a punto de comprometer una recolección. */
+function imprimirGuia(url: string) {
+  const seguro = window.confirm(
+    "Mercado Libre va a dar esta guía por IMPRESA y el pedido pasará a «Listo para recolección».\n\n" +
+      "Hazlo solo si de verdad vas a imprimirla y empacar el paquete.\n\n¿Continuar?",
+  );
+  if (!seguro) return;
+  window.open(url, "_blank", "noopener");
+}
+
 /* "Ver pedido": la orden en el panel del canal, que es donde se imprime la
    guía cuando no hay PDF directo. Tienda Nube va por la ruta de etiqueta: hoy
    redirige al admin (Envío Nube no publica el PDF en la API), y el día que lo
@@ -680,17 +703,18 @@ export function PanelPedidos({
                 (ML con id de envío), y "ver pedido" para abrir la orden en el
                 panel del canal — que es donde se imprime cuando no hay PDF. */}
             {etiqueta && (
-              <a
-                href={etiqueta}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                title="Imprimir la guía (PDF directo de Mercado Libre)"
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  imprimirGuia(etiqueta);
+                }}
+                title="Imprimir la guía. OJO: Mercado Libre la da por impresa y el pedido pasa a «Listo para recolección»."
                 aria-label="Imprimir la guía"
                 className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
               >
                 <Printer className="size-3.5" />
-              </a>
+              </button>
             )}
             {verPedido && (
               <a

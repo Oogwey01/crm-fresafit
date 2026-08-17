@@ -11,6 +11,17 @@ lo viejo. Si algo aquí estorba, cámbialo — pero cámbialo aquí también.
    hardcodeado y no en una variable de entorno **a propósito**: pasó después de
    que una escritura borrara 27 unidades reales. No lo conviertas en env var
    "para simplificar".
+
+   **La única excepción viva, y conviene tenerla presente:**
+   [/api/mercadolibre/etiqueta](app/api/mercadolibre/etiqueta/route.ts). Pedirle
+   el PDF de la guía a ML *es* imprimirla: el envío pasa a `printed` y de ahí a
+   `ready_for_pickup`, o sea que el CRM anuncia al canal que el paquete está
+   listo para la colecta. Se descubrió el 17/08/2026 con un pedido que amaneció
+   "Listo para recolección" sin que bodega tocara su guía. Por eso el botón pide
+   confirmación y **no** es un enlace: un `<a href>` es un GET, y un GET lo
+   dispara solo el navegador (precarga especulativa, extensiones que adelantan
+   enlaces) con la sesión ya puesta. Si algún día se añade otra llamada a la API
+   de un canal, pregúntate primero si de verdad solo lee.
 2. **`.env.local` apunta a PRODUCCIÓN.** Correr un script en la laptop toca la
    base real. Introspección (`supabase gen types`) sí; escrituras, nunca.
 3. **Las migraciones SQL se aplican con `supabase db push`.** Escribe el `.sql`
