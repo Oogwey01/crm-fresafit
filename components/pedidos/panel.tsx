@@ -8,7 +8,6 @@ import {
   Eye,
   PackageCheck,
   Printer,
-  Scissors,
   Send,
   Truck,
 } from "lucide-react";
@@ -353,7 +352,6 @@ export function PanelPedidos({
     const bandejas: Record<Bandeja, number> = { por_empacar: 0, listos: 0, full: 0, en_camino: 0 };
     let urgentes = 0,
       urgentesBodega = 0,
-      urgentesTaller = 0,
       sinEmpezar = 0,
       personalizados = 0,
       enTransito = 0;
@@ -365,23 +363,16 @@ export function PanelPedidos({
         if (deTaller) personalizados++;
         if (p.estado === "nuevo") sinEmpezar++;
         if (esUrgente(p, ahora) || plazoUrgente(p, ahora) === "por_vencer") {
+          /* `urgentes` es el de la pestaña —las dos mitades— y `urgentesBodega`
+             el de la tarjeta, que solo habla de lo que se puede empacar hoy: al
+             de una pieza que aún está en el taller no se le corre, se le
+             pregunta a Maquila. */
           urgentes++;
-          /* La urgencia se desglosa por mitad porque se atiende distinto: una se
-             resuelve empacando y la otra hay que ir a pedírsela al taller. */
-          if (deTaller) urgentesTaller++;
-          else urgentesBodega++;
+          if (!deTaller) urgentesBodega++;
         }
       } else if (b === "en_camino" && diasEnTransito(p) !== null) enTransito++;
     }
-    return {
-      bandejas,
-      urgentes,
-      urgentesBodega,
-      urgentesTaller,
-      sinEmpezar,
-      personalizados,
-      enTransito,
-    };
+    return { bandejas, urgentes, urgentesBodega, sinEmpezar, personalizados, enTransito };
     /* `enProduccion` entra por `esPersonalizado`: llega del servidor y solo
        cambia cuando cambian los pedidos, pero va en las dependencias para que el
        conteo no se quede viejo si un día deja de venir junto. */
@@ -765,24 +756,20 @@ export function PanelPedidos({
         </div>
       </div>
 
-      {/* KPIs: cuatro cifras, una por lista de la pantalla, para que nunca digan
-          cosas distintas de las pestañas.
+      {/* KPIs: tres cifras, y las tres son de ESTA pantalla —lo que hay que
+          empacar, lo que espera la colecta y lo que va en la calle—.
 
-          "Urgentes" tuvo tarjeta propia y se la quitó: la urgencia no es una
-          quinta categoría de pedidos, es un ATRIBUTO de las dos mitades del
-          trabajo — y se atiende distinto en cada una, porque una se resuelve
-          empacando y la otra hay que ir a pedírsela al taller—. Repartida en sus
-          notas, la fila vuelve a cuatro tarjetas sin perder nada: los dos
-          números suman los de la pestaña Urgentes.
-
-          Full tampoco lleva tarjeta, a propósito: no es trabajo de nadie de aquí
-          y ocuparía un cuarto de la fila para decir "no hagas nada". Su número
-          vive en la pestaña, que es donde se consulta. */}
-      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
-        {/* Las dos mitades del trabajo, separadas como las dos tablas de abajo:
-            una se resuelve con lo que hay en el estante y la otra depende del
-            taller. Juntas en una sola cifra, "158 por empacar" mandaba a bodega
-            a buscar 46 piezas que todavía no existen. */}
+          Lo que NO lleva tarjeta, y en los tres casos a propósito:
+            · Personalizados — se ven en su tabla, pero el número no manda aquí:
+              quien mira esta pantalla decide qué empacar, y esas piezas las
+              gobierna Maquila, que es donde se les pone fecha y se les empuja.
+            · Full — no es trabajo de nadie de aquí; ocuparía un cuarto de la
+              fila para decir "no hagas nada".
+            · Urgentes — no es una categoría de pedidos sino un ATRIBUTO del
+              trabajo de bodega, así que va como nota roja de la primera. */}
+      <div className="mb-4 grid grid-cols-2 gap-3.5 lg:grid-cols-3">
+        {/* Solo lo que se arma con lo que hay en el estante: los personalizados
+            no se cuentan aquí porque no se pueden empacar todavía. */}
         <StatCard
           etiqueta="De bodega"
           valor={String(conteo.bandejas.por_empacar - conteo.personalizados)}
@@ -795,17 +782,6 @@ export function PanelPedidos({
                 : undefined
           }
           notaClassName={conteo.urgentesBodega > 0 ? "font-semibold text-red-600" : undefined}
-        />
-        <StatCard
-          etiqueta="Personalizados"
-          valor={String(conteo.personalizados)}
-          /* El mismo icono con el que se ven en Maquila, que es donde se
-             gestionan de verdad. */
-          icono={Scissors}
-          nota={
-            conteo.urgentesTaller > 0 ? `${conteo.urgentesTaller} urgentes` : "se fabrican primero"
-          }
-          notaClassName={conteo.urgentesTaller > 0 ? "font-semibold text-red-600" : undefined}
         />
         <StatCard
           etiqueta="Listos"
