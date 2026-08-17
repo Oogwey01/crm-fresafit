@@ -8,6 +8,7 @@ import {
   ESTADOS_PEDIDO_PENDIENTES,
   esGestor,
   obtenerCanal,
+  obtenerEstadoMaquila,
   obtenerEstadoPedido,
 } from "@/lib/catalogos";
 import { diasDesdeFecha, esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
@@ -21,6 +22,7 @@ import {
 } from "@/lib/canales/despacho";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
+import type { EnProduccion } from "@/lib/pedidos/produccion";
 import { cambiarEstadoPedido, listarPedidosHistorico } from "@/app/(app)/pedidos/actions";
 import type { CanalId, EstadoPedidoId, RolId, PedidoEnvio } from "@/lib/types";
 import {
@@ -235,6 +237,14 @@ function esUrgente(p: PedidoEnvio, ahora: number): boolean {
   return esPedidoAtrasado(p.fecha, p.estado) || plazoUrgente(p, ahora) === "vencido";
 }
 
+/* Hay que fabricarlo antes de empacarlo: no está en ningún estante, lo está
+   haciendo el taller. Ver lib/pedidos/produccion.ts. Vive fuera del componente
+   —y recibe el mapa en vez de cerrarse sobre él— para que el `useMemo` del
+   conteo no se recalcule en cada render por una función nueva. */
+function esPersonalizado(p: PedidoEnvio, enProduccion: EnProduccion): boolean {
+  return p.id in enProduccion;
+}
+
 function PastillaEstado({ estado }: { estado: string }) {
   const e = obtenerEstadoPedido(estado);
   if (!e) return null;
@@ -246,9 +256,13 @@ export function PanelPedidos({
   rol,
   dominioTiendaNube,
   ahora,
+  enProduccion,
 }: {
   pedidos: PedidoEnvio[];
   rol: RolId;
+  /* Qué ventas están en el taller y en qué van (lib/pedidos/produccion.ts). Un
+     personalizado no se empaca: primero hay que fabricarlo. */
+  enProduccion: EnProduccion;
   /* Subdominio del panel de la tienda; sin él no se puede enlazar la orden de
      Tienda Nube (cada tienda tiene el suyo). Ver app/(app)/pedidos/page.tsx. */
   dominioTiendaNube?: string | null;
@@ -307,11 +321,13 @@ export function PanelPedidos({
     let urgentes = 0,
       vencidos = 0,
       sinEmpezar = 0,
+      personalizados = 0,
       enTransito = 0;
     for (const p of pedidos) {
       const b = bandeja(p);
       bandejas[b]++;
       if (b === "por_empacar") {
+        if (esPersonalizado(p, enProduccion)) personalizados++;
         if (p.estado === "nuevo") sinEmpezar++;
         if (esUrgente(p, ahora)) {
           urgentes++;
@@ -319,8 +335,11 @@ export function PanelPedidos({
         } else if (plazoUrgente(p, ahora) === "por_vencer") urgentes++;
       } else if (b === "en_camino" && diasEnTransito(p) !== null) enTransito++;
     }
-    return { bandejas, urgentes, vencidos, sinEmpezar, enTransito };
-  }, [pedidos, ahora]);
+    return { bandejas, urgentes, vencidos, sinEmpezar, personalizados, enTransito };
+    /* `enProduccion` entra por `esPersonalizado`: llega del servidor y solo
+       cambia cuando cambian los pedidos, pero va en las dependencias para que el
+       conteo no se quede viejo si un día deja de venir junto. */
+  }, [pedidos, ahora, enProduccion]);
 
   /* El número de cada pestaña. "Todos" no lleva: depende del histórico, que
      puede no estar cargado todavía, y una cifra que cambia sola al hacer clic
@@ -339,6 +358,7 @@ export function PanelPedidos({
     setFiltro(id);
     if (id === "todos") void asegurarHistorico();
   }
+
 
   const visibles = useMemo(() => {
     /* Un estado concreto manda sobre la vista: quien pide "enséñame lo que está
@@ -384,6 +404,15 @@ export function PanelPedidos({
       : encontrados;
   }, [pedidos, conHistorico, vistaActual, filtroCanal, filtroEstado, busqueda, ahora]);
 
+  /* Los personalizados salen a su propia tabla, debajo, y SOLO en "Por empacar":
+     es la vista donde estorban, porque quien la abre está decidiendo qué cajas
+     arma hoy y esas piezas todavía no existen — las está haciendo Eduardo—. En
+     "Todos" o filtrando por un estado, partir la lista escondería la mitad de lo
+     que se pidió ver. */
+  const partirPorProduccion = filtro === "por_empacar" && filtroEstado === "todos";
+  const enBodega = partirPorProduccion ? visibles.filter((p) => !esPersonalizado(p, enProduccion)) : visibles;
+  const enTaller = partirPorProduccion ? visibles.filter((p) => esPersonalizado(p, enProduccion)) : [];
+
   /* Recibe el pedido entero, y no solo su id, para que el aviso pueda nombrarlo
      igual que la columna de la tabla. */
   function cambiar(p: PedidoEnvio, estado: EstadoPedidoId) {
@@ -408,6 +437,7 @@ export function PanelPedidos({
            mezcladas, "salió ayer" solo sería ruido. */
         const transito = diasEnTransito(p, filtro === "en_camino" ? 0 : DIAS_TRANSITO_VISIBLE);
         const canal = obtenerCanal(p.canal)?.nombre ?? "la plataforma";
+        const produccion = obtenerEstadoMaquila(enProduccion[p.id]);
         return (
           <div className="min-w-0">
             <span
@@ -449,6 +479,18 @@ export function PanelPedidos({
                 <Pastilla
                   nombre={PREPARACION[prep].nombre}
                   color={PREPARACION[prep].color}
+                  className="mt-1 px-1.5 py-0.5 text-[10.5px]"
+                />
+              </span>
+            )}
+            {/* En qué va en el taller. Responde la pregunta que deja la tabla de
+                personalizados —"¿y cuándo puedo empacar esto?"— sin salir a
+                Maquila, que es donde se gestiona de verdad. */}
+            {produccion && (
+              <span className="block" title="Se fabrica antes de poder empacarse. Ver Maquila.">
+                <Pastilla
+                  nombre={produccion.nombre}
+                  color={produccion.color}
                   className="mt-1 px-1.5 py-0.5 text-[10.5px]"
                 />
               </span>
@@ -685,7 +727,15 @@ export function PanelPedidos({
           etiqueta="Por empacar"
           valor={String(conteo.bandejas.por_empacar)}
           icono={PackageCheck}
-          nota={conteo.sinEmpezar > 0 ? `${conteo.sinEmpezar} sin empezar` : undefined}
+          /* El matiz que más cambia la cuenta va primero: un personalizado no se
+             empaca hoy porque todavía se está fabricando. */
+          nota={
+            conteo.personalizados > 0
+              ? `${conteo.personalizados} son personalizados, aún en el taller`
+              : conteo.sinEmpezar > 0
+                ? `${conteo.sinEmpezar} sin empezar`
+                : undefined
+          }
         />
         <StatCard
           etiqueta="Urgentes"
@@ -832,28 +882,54 @@ export function PanelPedidos({
       <TablaSimple
         cols={COLS}
         columnas={columnas}
-        datos={visibles}
+        datos={enBodega}
         filaKey={(p) => p.id}
         minW="min-w-[900px]"
         onRowClick={(p) => setEnvio(p)}
         filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
-        /* De quién es el trabajo, dicho una vez arriba de la lista en las dos
+        /* De quién es el trabajo, dicho una vez arriba de la lista en las
            vistas donde la respuesta no es "de la bodega". En las demás sobra. */
         titulo={
           filtro === "full"
             ? "Los prepara y despacha Mercado Libre desde su centro"
             : filtro === "en_camino"
               ? "Ya salieron de aquí · lo más viejo primero"
-              : undefined
+              : enTaller.length > 0
+                ? "De bodega · se arman con lo que hay en el estante"
+                : undefined
         }
         vacio={
           cargandoHistorico
             ? "Cargando el histórico…"
             : filtroEstado !== "todos"
               ? `Ningún pedido en "${obtenerEstadoPedido(filtroEstado)?.nombre ?? filtroEstado}".`
-              : vistaActual.vacio
+              : /* Si lo único que queda son personalizados, decirlo: una tabla
+                   vacía arriba y otra llena abajo, sin explicación, parece un
+                   error de la pantalla. */
+                enTaller.length > 0
+                ? "Nada que empacar de bodega: lo que queda son personalizados."
+                : vistaActual.vacio
         }
       />
+
+      {/* Los personalizados, aparte. No se empacan: se fabrican primero, y
+          mezclarlos con el resto hacía que la lista de "lo que hay que armar
+          hoy" incluyera piezas que todavía no existen. El estado de cada una
+          vive en el tablero de Maquila; aquí solo se dice en qué va. */}
+      {enTaller.length > 0 && (
+        <div className="mt-6">
+          <TablaSimple
+            cols={COLS}
+            columnas={columnas}
+            datos={enTaller}
+            filaKey={(p) => p.id}
+            minW="min-w-[900px]"
+            onRowClick={(p) => setEnvio(p)}
+            titulo={`Personalizados · ${enTaller.length} — los fabrica el taller antes de poder empacarse`}
+            vacio="Ningún personalizado pendiente."
+          />
+        </div>
+      )}
 
       {envio && (
         <EnvioDialog

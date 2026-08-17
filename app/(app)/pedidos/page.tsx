@@ -5,6 +5,7 @@ import { diasDesdeHoy } from "@/lib/fecha";
 import { instanteDeCorte } from "@/lib/canales/despacho";
 import { ESTADOS_PEDIDO_PENDIENTES } from "@/lib/catalogos";
 import { COLUMNAS_PEDIDO, DIAS_VENTANA_PEDIDOS } from "@/lib/pedidos/consulta";
+import { leerEnProduccion } from "@/lib/pedidos/produccion";
 import { PanelPedidos } from "@/components/pedidos/panel";
 import type { PedidoEnvio, RolId } from "@/lib/types";
 import { exigirModulo } from "@/lib/supabase/guardia-modulo";
@@ -50,12 +51,26 @@ export default async function PedidosPage() {
   const dominioTN =
     typeof datosTN.dominio_admin === "string" ? datosTN.dominio_admin : null;
 
+  /* Cuáles de esos pedidos hay que FABRICAR antes de empacarlos. Va después y no
+     en el Promise.all porque necesita los ids de las ventas que acaban de
+     llegar. Si la consulta falla, la pantalla se pinta igual: los
+     personalizados se mezclan con el resto como hasta ahora, que es molesto pero
+     no es un error que valga tirar la página. */
+  const enProduccion = await leerEnProduccion(
+    supabase,
+    pedidos.map((p) => p.id),
+  ).catch((e) => {
+    console.error("[pedidos] estado de producción:", e);
+    return {};
+  });
+
   return (
     <PanelPedidos
       pedidos={pedidos}
       rol={rol}
       dominioTiendaNube={dominioTN}
       ahora={instanteDeCorte()}
+      enProduccion={enProduccion}
     />
   );
 }
