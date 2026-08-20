@@ -13,8 +13,12 @@ export const COLUMNAS_PEDIDO =
   " referencia_externa, envio_direccion, url_rastreo, url_orden," +
   " envio_limite_despacho, envio_despachado_en, envio_id," +
   " envio_subestado, envio_logistica," +
+  " etapa_empaque, etapa_empaque_en," +
   " rastreo_estado, rastreo_detalle, rastreo_en," +
-  " producto:products!producto_id(id, nombre, variante)," +
+  /* `imagen_url` es la foto que el tablero de empaque pinta de fondo en cada
+     tarjeta: al armar la caja se reconoce antes el producto por la foto que por
+     el nombre, sobre todo entre variantes que solo se diferencian en el color. */
+  " producto:products!producto_id(id, nombre, variante, imagen_url)," +
   " cliente:customers!cliente_id(id, nombre)";
 
 /* Estados terminales: lo que ya no da trabajo. Es el complemento de

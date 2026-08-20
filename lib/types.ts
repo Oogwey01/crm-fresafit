@@ -13,6 +13,7 @@ import type {
   TIPOS_ENVIO_PROVEEDOR,
   TIPOS_ARCHIVO_PEDIDO,
   ESTADOS_PEDIDO,
+  ETAPAS_EMPAQUE,
   CANALES,
   CATEGORIAS_GASTO,
   CATEGORIAS_PERSONALES,
@@ -89,6 +90,9 @@ export type CategoriaGastoId = (typeof CATEGORIAS_GASTO)[number]["id"];
 export type CategoriaPersonalId = (typeof CATEGORIAS_PERSONALES)[number]["id"];
 export type PeriodicidadPersonalId = (typeof PERIODICIDADES_PERSONALES)[number]["id"];
 export type EstadoPedidoId = (typeof ESTADOS_PEDIDO)[number]["id"];
+/* La mesa de empaque: dónde está la CAJA, no dónde está el pedido. Ver
+   ETAPAS_EMPAQUE en lib/catalogos.ts. */
+export type EtapaEmpaqueId = (typeof ETAPAS_EMPAQUE)[number]["id"];
 export type TierInfluencerId = (typeof TIERS_INFLUENCER)[number]["id"];
 export type EtapaInfluencerId = (typeof ETAPAS_INFLUENCER)[number]["id"];
 export type CategoriaInsumoId = (typeof CATEGORIAS_INSUMO)[number]["id"];
@@ -584,6 +588,14 @@ export type Sale = {
      están en situacionPreparacion(), lib/canales/despacho.ts. */
   envio_subestado: string | null;
   envio_logistica: string | null;
+  /* La MESA DE EMPAQUE, que es lo contrario de las dos de arriba: esto no lo
+     manda ningún canal ni viaja a ninguno, lo mueve quien está empacando desde
+     el tablero de /pedidos (migración 20261024000000). `etapa_empaque_en` es
+     cuándo entró a la columna donde está: sin ese sello, un paquete atorado hace
+     tres horas se ve igual que uno recién puesto. null = nadie lo ha tocado, y
+     el tablero lo pinta en la primera columna. */
+  etapa_empaque: EtapaEmpaqueId | null;
+  etapa_empaque_en: string | null;
   /* Lo que contestó la paquetería la última vez que se le preguntó por la guía
      (lo deja el cron de rastreo; ver lib/pedidos/conciliar-envios.ts).
      `rastreo_estado` es el texto crudo del proveedor —se guarda sin traducir
@@ -685,6 +697,10 @@ export type PedidoEnvio = Pick<
      de bodega—. Ver situacionPreparacion() en lib/canales/despacho.ts. */
   | "envio_subestado"
   | "envio_logistica"
+  /* La mesa de empaque: las dos columnas del tablero arrastrable. A diferencia
+     de las dos de arriba, las escribe bodega desde aquí. */
+  | "etapa_empaque"
+  | "etapa_empaque_en"
   /* Lo último que dijo la paquetería sobre la guía (lo deja el cron de rastreo,
      ver lib/pedidos/conciliar-envios.ts). Es el dato por el que había que salir
      del CRM a abrir el buscador de la paquetería: por qué un paquete no llegó, o
@@ -693,7 +709,9 @@ export type PedidoEnvio = Pick<
   | "rastreo_detalle"
   | "rastreo_en"
 > & {
-  producto: Pick<Product, "id" | "nombre" | "variante"> | null;
+  /* `imagen_url` la pinta de fondo la tarjeta del tablero de empaque: quien
+     arma la caja reconoce el producto antes por la foto que por el nombre. */
+  producto: Pick<Product, "id" | "nombre" | "variante" | "imagen_url"> | null;
   cliente: Pick<Customer, "id" | "nombre"> | null;
 };
 

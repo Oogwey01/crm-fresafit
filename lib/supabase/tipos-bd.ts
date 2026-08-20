@@ -3770,6 +3770,8 @@ export type Database = {
           envio_logistica: string | null
           envio_subestado: string | null
           estado: string | null
+          etapa_empaque: string | null
+          etapa_empaque_en: string | null
           fecha: string
           id: string
           monto: number
@@ -3800,6 +3802,8 @@ export type Database = {
           envio_logistica?: string | null
           envio_subestado?: string | null
           estado?: string | null
+          etapa_empaque?: string | null
+          etapa_empaque_en?: string | null
           fecha?: string
           id?: string
           monto?: number
@@ -3830,6 +3834,8 @@ export type Database = {
           envio_logistica?: string | null
           envio_subestado?: string | null
           estado?: string | null
+          etapa_empaque?: string | null
+          etapa_empaque_en?: string | null
           fecha?: string
           id?: string
           monto?: number
@@ -5018,6 +5024,7 @@ export type Database = {
       es_interno: { Args: never; Returns: boolean }
       es_maquilero: { Args: never; Returns: boolean }
       estado_pedido_operativo: { Args: { e: string }; Returns: boolean }
+      etapa_empaque_valida: { Args: { e: string }; Returns: boolean }
       etiqueta_estado: { Args: { e: string }; Returns: string }
       fusionar_producto_ml: {
         Args: { p_ganador: string; p_perdedor: string }
@@ -5093,6 +5100,10 @@ export type Database = {
       mi_rol: { Args: never; Returns: string }
       mover_estado_pedido: {
         Args: { p_estado: string; p_id: string }
+        Returns: number
+      }
+      mover_etapa_empaque: {
+        Args: { p_etapa: string; p_id: string }
         Returns: number
       }
       mover_insumo: {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useOptimistic, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   Clock,
@@ -19,21 +20,42 @@ import {
   obtenerCanal,
   obtenerEstadoMaquila,
   obtenerEstadoPedido,
+  obtenerEtapaEmpaque,
 } from "@/lib/catalogos";
-import { diasDesdeFecha, esPedidoAtrasado, formatearFecha, formatearFechaHora } from "@/lib/fecha";
+import { esPedidoAtrasado, formatearFecha, formatearFechaHora, hoyISO } from "@/lib/fecha";
+import { PREPARACION, SITUACION } from "@/lib/canales/despacho";
+/* La clasificación vive en lib/ para que la tabla y el tablero repartan IGUAL:
+   si discreparan en qué es "por empacar", los números de las pestañas dejarían
+   de cuadrar con lo que se ve. */
 import {
-  esDelCanal,
-  PREPARACION,
-  SITUACION,
-  situacionDespacho,
-  situacionPreparacion,
-  type SituacionPreparacion,
-} from "@/lib/canales/despacho";
+  DIAS_TRANSITO_VISIBLE,
+  bandeja,
+  diasEnTransito,
+  entraAlTablero,
+  esPersonalizado,
+  esUrgente,
+  hayTrabajo,
+  numeroOrden,
+  plazoUrgente,
+  preparacion,
+  rangoEstado,
+  type Bandeja,
+} from "@/lib/pedidos/bandejas";
 import { nombreVenta } from "@/lib/ventas";
 import { urlOrdenCanal, urlRastreo } from "@/lib/pedidos/rastreo";
 import type { EnProduccion } from "@/lib/pedidos/produccion";
-import { cambiarEstadoPedido, listarPedidosHistorico } from "@/app/(app)/pedidos/actions";
-import type { CanalId, EstadoPedidoId, RolId, PedidoEnvio } from "@/lib/types";
+import {
+  cambiarEstadoPedido,
+  listarPedidosHistorico,
+  moverEtapaEmpaque,
+} from "@/app/(app)/pedidos/actions";
+import type {
+  CanalId,
+  EstadoPedidoId,
+  EtapaEmpaqueId,
+  RolId,
+  PedidoEnvio,
+} from "@/lib/types";
 import {
   Select,
   SelectContent,
@@ -48,7 +70,9 @@ import { Resaltado } from "@/components/compartido/resaltado";
 import { StatCard } from "@/components/compartido/stat-card";
 import { TablaSimple, type Columna } from "@/components/compartido/tabla-simple";
 import { useAccionServidor } from "@/components/compartido/use-accion-servidor";
+import { ControlSegmentado } from "@/components/compartido/control-segmentado";
 import { EnvioDialog } from "@/components/pedidos/envio-dialog";
+import { TableroEmpaque } from "@/components/pedidos/tablero-empaque";
 import { cn } from "@/lib/utils";
 
 /* Las VISTAS de la pantalla. "Entregados" era una y salió de aquí: ahora es un
@@ -57,34 +81,13 @@ import { cn } from "@/lib/utils";
    que solo podía dar una tabla vacía. */
 type Vista = "por_empacar" | "urgentes" | "listos" | "full" | "en_camino" | "todos";
 
-/* Las cuatro BANDEJAS en las que se reparte, SIN SOLAPARSE, todo lo que la
-   página carga. Responden la única pregunta que importa al abrir la pantalla:
-   ¿de quién es esto y qué falta?
+/* Cómo se ve «Por empacar»: la lista de siempre, o la mesa de bodega.
 
-     · por_empacar — hay que armar la caja. Es el trabajo.
-     · listos      — empacado y etiquetado; falta que pase la colecta.
-     · full        — lo despacha Mercado Libre desde su centro. Nunca fue nuestro.
-     · en_camino   — salió de aquí y va en la calle.
-
-   Las cuatro salían juntas en "Pendientes": 336 renglones el 17/08/2026, de los
-   que solo 158 eran trabajo. Para encontrarlos había que leerlos todos.
-
-   Que sean bandejas y no cuatro filtros sueltos es lo que hace que los números
-   de las pestañas SUMEN el total. Con condiciones independientes, un pedido
-   podía caer en dos listas y nadie se enteraba. */
-type Bandeja = "por_empacar" | "listos" | "full" | "en_camino";
-
-function bandeja(p: PedidoEnvio): Bandeja {
-  /* Full manda sobre todo, incluso sobre "enviado": el motivo de apartarlo no
-     es en qué etapa va, sino que el trabajo no es nuestro. Si ganara "enviado",
-     el pedido cambiaría de pestaña el día que ML lo despacha y acabaría en la
-     lista donde lo único que se hace es llamarle a la paquetería — que es justo
-     lo que en Full no se puede hacer. Son 15 de los enviados de hoy. */
-  if (esDelCanal(p.envio_logistica)) return "full";
-  if (p.estado === "enviado") return "en_camino";
-  if (preparacion(p) === "por_recoger") return "listos";
-  return "por_empacar";
-}
+   El tablero manda por defecto porque es la vista con la que se trabaja —lo
+   pidió bodega, que hasta ahora llevaba las etapas en un rastreador fuera del
+   CRM—, y la tabla se queda a un clic porque es la única que enseña la guía, el
+   rastreo y el botón de imprimir la etiqueta. */
+type Modo = "tablero" | "tabla";
 
 /* Etiqueta, regla y mensaje de vacío de cada vista, JUNTOS. Antes vivían en tres
    escaleras de ternarios paralelas —una para filtrar, otra para el vacío, otra
@@ -155,12 +158,6 @@ function esEstadoTerminal(e: EstadoPedidoId): boolean {
    otra—. */
 const COLS = "grid-cols-[148px_minmax(170px,1fr)_130px_120px_118px_minmax(215px,250px)]";
 
-/* `referencia_externa` es por RENGLÓN ("<orden>:<línea>"); lo que identifica al
-   pedido de cara al cliente es la parte de la orden. */
-function numeroOrden(ref: string): string {
-  return ref.split(":")[0];
-}
-
 /* La guía imprimible DIRECTA: solo cuando el clic de verdad entrega la
    etiqueta (hoy: Mercado Libre con id de envío → PDF de su API). Cuando no la
    hay, la impresora no se pinta — mandar "imprimir" al detalle del pedido
@@ -208,75 +205,6 @@ function urlVerPedido(p: PedidoEnvio, dominioTN?: string | null): string | null 
   return urlOrdenCanal(p.canal, ref, dominioTN, p.url_orden);
 }
 
-/* Dónde está el paquete de un pedido que aún no sale. Para los que ya salieron
-   —enviado en adelante— no aplica: el subestado que quedó guardado describe una
-   etapa que ya pasó. */
-function preparacion(p: PedidoEnvio): SituacionPreparacion | null {
-  if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
-  return situacionPreparacion(p.envio_logistica, p.envio_subestado);
-}
-
-/* ¿Queda trabajo de bodega? Es la pregunta que decide qué sale en Urgentes.
-   Un paquete ya empacado esperando la colecta, o uno que vive en un centro de
-   Mercado Full, no lo es — por muy vencido que esté el plazo, apurarse no
-   cambia nada—. Sin el dato del canal (Tienda Nube no lo manda) se asume que sí:
-   es lo que había antes y es el lado seguro. */
-function hayTrabajo(p: PedidoEnvio): boolean {
-  const s = preparacion(p);
-  return s === null || PREPARACION[s].pendiente;
-}
-
-/* Plazo de despacho del canal (la sync lo deja en la venta; hoy lo reportan
-   Mercado Libre y TikTok Shop): solo avisa mientras el pedido da trabajo —nuevo
-   o preparando, y todavía en la bodega— y solo cuando urge. Ya enviado, "se pasó
-   el plazo" es ruido; en plazo holgado, también; y sobre un paquete que ya está
-   hecho, es una alarma que nadie puede atender. */
-function plazoUrgente(p: PedidoEnvio, ahora: number): "vencido" | "por_vencer" | null {
-  if (p.estado !== "nuevo" && p.estado !== "preparando") return null;
-  if (!hayTrabajo(p)) return null;
-  const s = situacionDespacho(p.envio_limite_despacho, p.envio_despachado_en, ahora);
-  return s === "vencido" || s === "por_vencer" ? s : null;
-}
-
-/* Cuánto lleva en la calle un paquete que ya salió. Es la contraparte tranquila
-   de `esPedidoAtrasado`: los enviados salieron de "atrasados" —despachar ya no
-   está pendiente— pero saber que uno lleva 18 días sin confirmarse sigue siendo
-   útil para llamar a la paquetería. Gris a propósito: informa, no alarma. */
-const DIAS_TRANSITO_VISIBLE = 5;
-
-/* El umbral es parámetro porque depende de dónde se mire: en una lista mezclada,
-   "salió ayer" es ruido; en la vista de En camino los días en la calle son la
-   razón de ser de la lista y el criterio con el que se decide a quién llamarle. */
-function diasEnTransito(p: PedidoEnvio, umbral = DIAS_TRANSITO_VISIBLE): number | null {
-  if (p.estado !== "enviado") return null;
-  const d = diasDesdeFecha(p.fecha);
-  return d >= umbral ? d : null;
-}
-
-/* Lo que la tabla pinta de rojo, y por tanto lo que el contador debe contar.
-
-   Son dos cosas distintas que urgen igual: el pedido viejo que sigue sin salir
-   (la regla de los tres días, que vale para todos los canales) y el que tiene el
-   plazo del canal ya vencido, aunque sea de ayer —ahí además hay una métrica de
-   la plataforma castigándonos—. El KPI contaba solo la primera mitad, así que
-   podía haber cinco filas rojas y un "Atrasados: 2". */
-function esUrgente(p: PedidoEnvio, ahora: number): boolean {
-  /* Los dos criterios exigen que quede algo por hacer aquí. Un pedido del 14 de
-     agosto empacado y esperando la colecta cumplía las dos condiciones y salía
-     rojo: la regla de los tres días lo daba por atrasado y el plazo del canal
-     por vencido, cuando lo único pendiente era que pasara el transportista. */
-  if (!hayTrabajo(p)) return false;
-  return esPedidoAtrasado(p.fecha, p.estado) || plazoUrgente(p, ahora) === "vencido";
-}
-
-/* Hay que fabricarlo antes de empacarlo: no está en ningún estante, lo está
-   haciendo el taller. Ver lib/pedidos/produccion.ts. Vive fuera del componente
-   —y recibe el mapa en vez de cerrarse sobre él— para que el `useMemo` del
-   conteo no se recalcule en cada render por una función nueva. */
-function esPersonalizado(p: PedidoEnvio, enProduccion: EnProduccion): boolean {
-  return p.id in enProduccion;
-}
-
 function PastillaEstado({ estado }: { estado: string }) {
   const e = obtenerEstadoPedido(estado);
   if (!e) return null;
@@ -317,6 +245,39 @@ export function PanelPedidos({
   const [envio, setEnvio] = useState<PedidoEnvio | null>(null);
   const { ejecutar } = useAccionServidor();
 
+  /* Parche optimista sobre la lista del servidor: arrastrar una tarjeta y verla
+     volver a su columna medio segundo hasta que llega el `revalidatePath` se
+     siente exactamente igual que un fallo. Reemplaza a `pedidos` en TODO lo que
+     sigue, así que de paso el selector de estado de la tabla y los KPIs también
+     dejan de esperar. El patrón es el del tablero de Tareas. */
+  const [lista, aplicarParche] = useOptimistic(
+    pedidos,
+    (estado, m: { id: string; patch: Partial<PedidoEnvio> }) =>
+      estado.map((p) => (p.id === m.id ? { ...p, ...m.patch } : p)),
+  );
+
+  /* Cómo se ve «Por empacar». Vive en la URL —y solo cuando no es el default—
+     para que volver al pedido, o mandarle el enlace a alguien, caiga en la misma
+     vista. `replaceState` y no `router.push`: misma entrada de historial y sin
+     ida al servidor, que ni lee este parámetro. */
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const [modo, setModo] = useState<Modo>(() =>
+    searchParams.get("modo") === "tabla" ? "tabla" : "tablero",
+  );
+  useEffect(() => {
+    /* Se parte de la query que hay y solo se toca `modo`, en vez de reconstruir
+       la cadena entera como hace Tareas: allá TODOS los filtros viven en la URL,
+       aquí solo éste, y rehacerla borraría cualquier otro parámetro con el que
+       hubieran entrado. El default no se escribe, para que /pedidos a secas siga
+       limpio. */
+    const q = new URLSearchParams(window.location.search);
+    if (modo === "tablero") q.delete("modo");
+    else q.set("modo", modo);
+    const qs = q.toString();
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+  }, [modo, pathname]);
+
   /* La página ya solo carga lo que da trabajo; los entregados y cancelados de
      la ventana se piden UNA vez, la primera vez que alguien sale del filtro de
      pendientes. `null` = aún no se han pedido. */
@@ -337,12 +298,12 @@ export function PanelPedidos({
   /* Activos + histórico, sin repetir (si un pedido está en ambos, manda la
      copia activa: es la más fresca) y en el mismo orden que trae el servidor. */
   const conHistorico = useMemo(() => {
-    if (!historico) return pedidos;
+    if (!historico) return lista;
     const porId = new Map<string, PedidoEnvio>();
     for (const p of historico) porId.set(p.id, p);
-    for (const p of pedidos) porId.set(p.id, p);
+    for (const p of lista) porId.set(p.id, p);
     return [...porId.values()].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
-  }, [pedidos, historico]);
+  }, [lista, historico]);
 
   const conteo = useMemo(() => {
     /* Una sola pasada: los números de las pestañas y los de las tarjetas salen
@@ -355,7 +316,7 @@ export function PanelPedidos({
       sinEmpezar = 0,
       personalizados = 0,
       enTransito = 0;
-    for (const p of pedidos) {
+    for (const p of lista) {
       const b = bandeja(p);
       bandejas[b]++;
       if (b === "por_empacar") {
@@ -376,7 +337,7 @@ export function PanelPedidos({
     /* `enProduccion` entra por `esPersonalizado`: llega del servidor y solo
        cambia cuando cambian los pedidos, pero va en las dependencias para que el
        conteo no se quede viejo si un día deja de venir junto. */
-  }, [pedidos, ahora, enProduccion]);
+  }, [lista, ahora, enProduccion]);
 
   /* El número de cada pestaña. "Todos" no lleva: depende del histórico, que
      puede no estar cargado todavía, y una cifra que cambia sola al hacer clic
@@ -397,37 +358,45 @@ export function PanelPedidos({
   }
 
 
+  /* Canal y búsqueda: los dos filtros que valen para CUALQUIER lista de esta
+     pantalla —la tabla y el tablero— y que por eso se aplican aparte del filtro
+     de vista. Se declara con useCallback porque el tablero lo usa dentro de su
+     propio useMemo. */
+  const buscarYFiltrarCanal = useCallback(
+    (arr: PedidoEnvio[]) => {
+      /* Hasta hace poco el canal se pintaba pero no se podía filtrar, y
+         "enséñame solo lo de Mercado Libre" es justo lo que se pide al empacar. */
+      const porCanal = filtroCanal === "todos" ? arr : arr.filter((p) => p.canal === filtroCanal);
+      const q = busqueda.trim().toLowerCase();
+      if (!q) return porCanal;
+      /* Se busca por lo que uno tiene a mano cuando pregunta por un pedido: el
+         nombre del cliente, el número de guía o la referencia de la orden. */
+      return porCanal.filter(
+        (p) =>
+          (p.cliente?.nombre ?? "").toLowerCase().includes(q) ||
+          (p.num_guia ?? "").toLowerCase().includes(q) ||
+          (p.paqueteria ?? "").toLowerCase().includes(q) ||
+          (p.referencia_externa ?? "").toLowerCase().includes(q) ||
+          nombreVenta(p).toLowerCase().includes(q),
+      );
+    },
+    [filtroCanal, busqueda],
+  );
+
   const visibles = useMemo(() => {
     /* Un estado concreto manda sobre la vista: quien pide "enséñame lo que está
        preparando" quiere ESO, sin que la vista de arriba se lo recorte. Los
        terminales salen del histórico (el selector se encarga de pedirlo). */
     const porEstado =
       filtroEstado !== "todos"
-        ? (esEstadoTerminal(filtroEstado) ? conHistorico : pedidos).filter(
+        ? (esEstadoTerminal(filtroEstado) ? conHistorico : lista).filter(
             (p) => p.estado === filtroEstado,
           )
         : vistaActual.filtra
-          ? pedidos.filter((p) => vistaActual.filtra!(p, ahora))
+          ? lista.filter((p) => vistaActual.filtra!(p, ahora))
           : conHistorico;
 
-    /* Filtro por canal: hasta ahora el canal se pintaba pero no se podía filtrar,
-       y "enséñame solo lo de Mercado Libre" es justo lo que se pide al empacar. */
-    const porCanal =
-      filtroCanal === "todos" ? porEstado : porEstado.filter((p) => p.canal === filtroCanal);
-
-    const q = busqueda.trim().toLowerCase();
-    /* Se busca por lo que uno tiene a mano cuando pregunta por un pedido: el
-       nombre del cliente, el número de guía o la referencia de la orden. */
-    const encontrados = !q
-      ? porCanal
-      : porCanal.filter(
-          (p) =>
-            (p.cliente?.nombre ?? "").toLowerCase().includes(q) ||
-            (p.num_guia ?? "").toLowerCase().includes(q) ||
-            (p.paqueteria ?? "").toLowerCase().includes(q) ||
-            (p.referencia_externa ?? "").toLowerCase().includes(q) ||
-            nombreVenta(p).toLowerCase().includes(q),
-        );
+    const encontrados = buscarYFiltrarCanal(porEstado);
 
     /* El servidor manda lo más nuevo primero, que es lo correcto para empacar
        —lo de hoy es lo que tiene el plazo vivo— y justo al revés en las listas de
@@ -439,7 +408,7 @@ export function PanelPedidos({
     return vistaActual.masViejosPrimero && filtroEstado === "todos"
       ? [...encontrados].reverse()
       : encontrados;
-  }, [pedidos, conHistorico, vistaActual, filtroCanal, filtroEstado, busqueda, ahora]);
+  }, [lista, conHistorico, vistaActual, buscarYFiltrarCanal, filtroEstado, ahora]);
 
   /* Los personalizados salen a su propia tabla, debajo, en las dos vistas de
      trabajo: "Por empacar" y "Urgentes". Son las que se abren para decidir qué
@@ -455,12 +424,56 @@ export function PanelPedidos({
   const enBodega = partirPorProduccion ? visibles.filter((p) => !esPersonalizado(p, enProduccion)) : visibles;
   const enTaller = partirPorProduccion ? visibles.filter((p) => esPersonalizado(p, enProduccion)) : [];
 
+  /* El tablero solo tiene sentido en «Por empacar»: en «En camino» o en el
+     histórico no hay ninguna caja que mover, y el toggle ni se ofrece. */
+  const hayTablero = filtro === "por_empacar" && filtroEstado === "todos";
+  /* Parte de la lista completa y NO de `visibles`: lo recolectado hace un rato
+     ya pasó a "enviado", así que el filtro de la vista —que solo deja pasar la
+     bandeja de por empacar— lo habría tirado, y la última columna se vaciaría en
+     el mismo gesto de soltar la tarjeta ahí. Los filtros que sí valen (canal y
+     búsqueda) se aplican igual que en la tabla. */
+  const enTablero = useMemo(
+    () =>
+      hayTablero
+        ? buscarYFiltrarCanal(lista.filter((p) => entraAlTablero(p, enProduccion, hoyISO())))
+        : [],
+    [hayTablero, lista, buscarYFiltrarCanal, enProduccion],
+  );
+
   /* Recibe el pedido entero, y no solo su id, para que el aviso pueda nombrarlo
      igual que la columna de la tabla. */
   function cambiar(p: PedidoEnvio, estado: EstadoPedidoId) {
     ejecutar(() => cambiarEstadoPedido(p.id, estado), {
       ok: `${nombreVenta(p)} → ${obtenerEstadoPedido(estado)?.nombre ?? estado}.`,
       error: "No se pudo actualizar el pedido. Revisa tu conexión.",
+      optimista: () => aplicarParche({ id: p.id, patch: { estado } }),
+    });
+  }
+
+  /* Mover una tarjeta en el tablero. El parche optimista repite en el cliente lo
+     que hace la RPC —incluido el avance de `estado`, que es lo que decide si la
+     tarjeta sigue en el tablero— para que soltar y ver el resultado sea el mismo
+     gesto. `etapa_empaque_en` se sella con la hora local: el servidor pondrá la
+     suya al revalidar y la diferencia es de milisegundos. */
+  function moverEtapa(p: PedidoEnvio, etapa: EtapaEmpaqueId) {
+    const avance: EstadoPedidoId | null =
+      etapa === "recolectado" ? "enviado" : etapa === "preparado" ? null : "preparando";
+    ejecutar(() => moverEtapaEmpaque(p.id, etapa), {
+      ok: `${nombreVenta(p)} → ${obtenerEtapaEmpaque(etapa)?.nombre ?? etapa}.`,
+      error: "No se pudo mover el paquete. Revisa tu conexión.",
+      optimista: () =>
+        aplicarParche({
+          id: p.id,
+          patch: {
+            etapa_empaque: etapa,
+            etapa_empaque_en: new Date().toISOString(),
+            /* Solo hacia adelante, igual que `avanzar_estado_pedido` en la BD:
+               arrastrar hacia atrás corrige la mesa, no desanda el canal. */
+            ...(avance && rangoEstado(avance) > rangoEstado(p.estado)
+              ? { estado: avance }
+              : {}),
+          },
+        }),
     });
   }
 
@@ -915,43 +928,74 @@ export function PanelPedidos({
               );
             })}
           </div>
+
+          {/* Cómo se ve «Por empacar». Solo aparece ahí: en las demás vistas no
+              hay ninguna caja que mover, y un control que no hace nada confunde
+              más de lo que ayuda. */}
+          {hayTablero && (
+            <ControlSegmentado
+              opciones={
+                [
+                  ["tablero", "Tablero"],
+                  ["tabla", "Tabla"],
+                ] as const
+              }
+              valor={modo}
+              onCambio={setModo}
+              className="ml-auto"
+            />
+          )}
         </div>
       </BarraHerramientas>
 
-      <TablaSimple
-        cols={COLS}
-        columnas={columnas}
-        datos={enBodega}
-        filaKey={(p) => p.id}
-        minW="min-w-[900px]"
-        onRowClick={(p) => setEnvio(p)}
-        filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
-        /* De quién es el trabajo, dicho una vez arriba de la lista en las
-           vistas donde la respuesta no es "de la bodega". En las demás sobra. */
-        titulo={
-          filtro === "full"
-            ? "Los prepara y despacha Mercado Libre desde su centro"
-            : filtro === "en_camino"
-              ? "Ya salieron de aquí · lo más viejo primero"
-              : enTaller.length > 0
-                ? "De bodega · se arman con lo que hay en el estante"
-                : undefined
-        }
-        vacio={
-          cargandoHistorico
-            ? "Cargando el histórico…"
-            : filtroEstado !== "todos"
-              ? `Ningún pedido en "${obtenerEstadoPedido(filtroEstado)?.nombre ?? filtroEstado}".`
-              : /* Si lo único que queda son personalizados, decirlo: una tabla
-                   vacía arriba y otra llena abajo, sin explicación, parece un
-                   error de la pantalla. */
-                enTaller.length > 0
-                ? filtro === "urgentes"
-                  ? "Nada urgente de bodega: lo que corre prisa está en el taller."
-                  : "Nada que empacar de bodega: lo que queda son personalizados."
-                : vistaActual.vacio
-        }
-      />
+      {/* La mesa de empaque. Sustituye SOLO a la tabla de bodega: la de
+          personalizados de abajo se queda igual en los dos modos, porque esas
+          piezas no se empacan —todavía no existen— y no tienen sitio en ninguna
+          de las cuatro columnas. */}
+      {hayTablero && modo === "tablero" ? (
+        <TableroEmpaque
+          pedidos={enTablero}
+          ahora={ahora}
+          onMover={moverEtapa}
+          onAbrir={(p) => setEnvio(p)}
+          dominioTiendaNube={dominioTiendaNube}
+        />
+      ) : (
+        <TablaSimple
+          cols={COLS}
+          columnas={columnas}
+          datos={enBodega}
+          filaKey={(p) => p.id}
+          minW="min-w-[900px]"
+          onRowClick={(p) => setEnvio(p)}
+          filaClassName={(p) => (esUrgente(p, ahora) ? "bg-red-50/50 dark:bg-red-950/20" : "")}
+          /* De quién es el trabajo, dicho una vez arriba de la lista en las
+             vistas donde la respuesta no es "de la bodega". En las demás sobra. */
+          titulo={
+            filtro === "full"
+              ? "Los prepara y despacha Mercado Libre desde su centro"
+              : filtro === "en_camino"
+                ? "Ya salieron de aquí · lo más viejo primero"
+                : enTaller.length > 0
+                  ? "De bodega · se arman con lo que hay en el estante"
+                  : undefined
+          }
+          vacio={
+            cargandoHistorico
+              ? "Cargando el histórico…"
+              : filtroEstado !== "todos"
+                ? `Ningún pedido en "${obtenerEstadoPedido(filtroEstado)?.nombre ?? filtroEstado}".`
+                : /* Si lo único que queda son personalizados, decirlo: una tabla
+                     vacía arriba y otra llena abajo, sin explicación, parece un
+                     error de la pantalla. */
+                  enTaller.length > 0
+                  ? filtro === "urgentes"
+                    ? "Nada urgente de bodega: lo que corre prisa está en el taller."
+                    : "Nada que empacar de bodega: lo que queda son personalizados."
+                  : vistaActual.vacio
+          }
+        />
+      )}
 
       {/* Los personalizados, aparte. No se empacan: se fabrican primero, y
           mezclarlos con el resto hacía que la lista de "lo que hay que armar

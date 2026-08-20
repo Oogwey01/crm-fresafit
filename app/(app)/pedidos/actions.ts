@@ -10,7 +10,7 @@ import {
   DIAS_VENTANA_PEDIDOS,
   ESTADOS_PEDIDO_TERMINALES,
 } from "@/lib/pedidos/consulta";
-import type { EstadoPedidoId, PedidoEnvio } from "@/lib/types";
+import type { EstadoPedidoId, EtapaEmpaqueId, PedidoEnvio } from "@/lib/types";
 
 const RUTAS = ["/pedidos", "/metricas", "/clientes"];
 const revalidar = () => RUTAS.forEach((r) => revalidatePath(r));
@@ -110,6 +110,30 @@ export async function guardarEnvio(
   });
   if (error) return { error: error.message };
   if (!data) return { error: "Ese pedido ya no está; recarga la lista." };
+  revalidar();
+  return { ok: true };
+}
+
+/* Mover una tarjeta en el tablero de empaque (migración 20261024000000).
+
+   La RPC hace dos cosas de un golpe: sella la etapa con la hora —que es lo que
+   alimenta el "1h 11min en esta etapa"— y avanza `sales.estado` a través de
+   `avanzar_estado_pedido`, que solo deja subir. De ahí que arrastrar hacia atrás
+   corrija la mesa sin desandar lo que el canal ya dio por hecho.
+
+   Mismo motivo que `cambiarEstadoPedido` para ir por RPC y no por UPDATE: la RLS
+   de las ventas `origen = 'api'` —o sea, todas las pendientes— descarta el
+   UPDATE en silencio y el toast saldría verde con el pedido sin moverse. */
+export async function moverEtapaEmpaque(id: string, etapa: EtapaEmpaqueId): Promise<Resultado> {
+  const cx = await exigirRol("interno", "Solo el equipo interno puede mover el tablero.");
+  if ("error" in cx) return cx;
+
+  const { data, error } = await cx.supabase.rpc("mover_etapa_empaque", {
+    p_id: id,
+    p_etapa: etapa,
+  });
+  if (error) return { error: error.message };
+  if (!data) return { error: "Ese pedido ya no está o está cancelado; recarga la lista." };
   revalidar();
   return { ok: true };
 }

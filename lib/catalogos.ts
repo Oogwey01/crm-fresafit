@@ -320,6 +320,28 @@ export const ESTADOS_PEDIDO = [
 /* Los estados que cuentan como "pendiente" (aún dan trabajo). */
 export const ESTADOS_PEDIDO_PENDIENTES = ["nuevo", "preparando", "enviado"] as const;
 
+/* --- Las cuatro etapas FÍSICAS de la mesa de empaque (tablero de /pedidos) ---
+
+   No son estados del pedido y no sustituyen a ESTADOS_PEDIDO: aquéllos dicen
+   dónde va el pedido de cara al canal, éstas dicen dónde está la caja. Los dos
+   son ciertos a la vez —un paquete puede llevar veinte minutos en "Revisión de
+   calidad" y para Mercado Libre seguir siendo, correctamente, "preparando"—.
+
+   Salen de un "Rastreador de paquetes" que bodega usaba fuera del CRM: el
+   vocabulario es el suyo, no uno inventado aquí, y por eso "Sellado y esperando
+   recolección" va con ese nombre largo en vez de un "Sellado" más cómodo.
+
+   El orden ES el avance del flujo: el tablero pinta las columnas en este orden y
+   los botones ◀ ▶ de la tarjeta se mueven por el índice. Se guarda en
+   `sales.etapa_empaque` (migración 20261024000000). */
+export const ETAPAS_EMPAQUE = [
+  { id: "preparado", nombre: "Preparado", color: "#f59e0b" },
+  { id: "calidad", nombre: "Revisión de calidad", color: "#0984e3" },
+  { id: "sellado", nombre: "Sellado y esperando recolección", color: "#6c5ce7" },
+  { id: "recolectado", nombre: "Recolectado", color: "#22c55e" },
+] as const;
+
+
 /* Paqueterías sugeridas (datalist; no es un catálogo cerrado). */
 export const PAQUETERIAS = ["Estafeta", "DHL", "FedEx", "Paquetexpress", "J&T", "99minutos", "Correos de México"] as const;
 
@@ -855,6 +877,9 @@ export function obtenerPeriodicidadPersonal(id: string | null | undefined) {
 }
 export function obtenerEstadoPedido(id: string) {
   return ESTADOS_PEDIDO.find((e) => e.id === id) ?? null;
+}
+export function obtenerEtapaEmpaque(id: string | null | undefined) {
+  return ETAPAS_EMPAQUE.find((e) => e.id === id) ?? null;
 }
 export function obtenerEstadoRecepcion(id: string) {
   return ESTADOS_RECEPCION.find((e) => e.id === id) ?? null;

@@ -83,6 +83,27 @@ export function horaMX(instante: string | number | Date): string {
   });
 }
 
+/* Cuánto ha pasado desde un instante, en corto: "12min", "1h 11min", "2d 3h".
+
+   Es para el tablero de empaque, donde va pegado a cada tarjeta ("1h 11min en
+   esta etapa") y lo que se lee de un vistazo es si un paquete lleva demasiado
+   parado. Por eso se recorta a dos unidades y la de abajo se calla en cuanto la
+   de arriba pasa de un día: a las 26 horas, los minutos ya no dicen nada.
+
+   Sin huso: es una RESTA de instantes, no una fecha, así que México no pinta
+   aquí. `ahora` entra como parámetro —y no se lee dentro— porque el primer
+   render viene del servidor: leer el reloj aquí daría un texto distinto en el
+   servidor y en el navegador, y React tira la hidratación por eso. */
+export function duracionCorta(desde: string, ahora: number): string {
+  const t = Date.parse(desde);
+  if (Number.isNaN(t)) return "";
+  const min = Math.max(0, Math.floor((ahora - t) / 60000));
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h ${min % 60}min`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
 /* Hoy en formato AAAA-MM-DD (zona de México). */
 export function hoyISO(): string {
   const d = ahoraMX();
