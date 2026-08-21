@@ -517,7 +517,7 @@ export function Board({
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-start md:justify-between">
         <div>
           <h1 className="text-[26px] font-bold tracking-tight">
-            {esAgencia ? "Tareas de la Agencia" : "Tareas del equipo"}
+            {esAgencia ? "Tareas de la Agencia" : "Tareas del equipo FresaFit"}
           </h1>
           <p className="mt-1.5 text-[14.5px] text-muted-foreground">
             {esAgencia

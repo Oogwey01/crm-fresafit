@@ -134,7 +134,7 @@ export function VistaMovil({
   return (
     <div className="pb-24">
       {/* Encabezado */}
-      <h1 className="text-[21px] font-bold tracking-tight">{titulo ?? "Tareas del equipo"}</h1>
+      <h1 className="text-[21px] font-bold tracking-tight">{titulo ?? "Tareas del equipo FresaFit"}</h1>
       <p className="mt-1.5 text-[13.5px] text-muted-foreground">
         {porCliente
           ? "Lo que traemos de cada cliente."
