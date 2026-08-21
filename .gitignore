@@ -57,3 +57,9 @@ usuarios-fresafit.txt
 
 # ajustes personales de Claude Code (no se comparten)
 .claude/settings.local.json
+
+# Traspaso de Diego: la carpeta guarda contraseñas del entorno de diseño, así
+# que solo se versiona lo que no las lleva dentro.
+/onboarding-diego/*
+!/onboarding-diego/LEEME.txt
+!/onboarding-diego/prompts-diego.md

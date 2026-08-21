@@ -1,0 +1,31 @@
+TRASPASO DE DIEGO — qué es cada archivo
+=======================================
+
+Diego entra a mover el diseño y la experiencia de uso del CRM desde la app de
+Claude en su computadora. Aquí está lo que hace falta para arrancarlo.
+
+PARA TI (no se suben al repo: traen contraseñas)
+  vercel-preview-pasos.md  Los 5 pasos en el panel de Vercel para que los
+                           previews dejen de usar la base de producción.
+                           PENDIENTE de hacer.
+  credenciales-diego.txt   Contraseña del CRM para Diego y datos del proyecto
+                           de Supabase de diseño. No se lo mandes completo.
+
+PARA MANDARLE A DIEGO
+  prompts-diego.md         Los tres prompts que pega en su Claude, y las dos
+                           formas de ver sus cambios. (Sí se versiona.)
+  env-diego.local          Lo guarda como .env.local en la raíz del proyecto.
+                           Mándaselo por un canal privado. (No se versiona.)
+
+YA ESTÁ EN EL REPO — no hay que mandarle nada, su Claude lo lee solo
+  ONBOARDING-UI.md              La guía de arranque.
+  AGENTS.md                     Remite a ella.
+  .claude/settings.solo-ui.json El perfil de permisos que él copia a mano.
+  scripts/clonar-datos-a-entorno.sh  Refresca la base de diseño desde producción.
+
+POR QUÉ ESTA CARPETA ESTÁ A MEDIAS EN GIT
+El .gitignore ignora todo lo de aquí menos este archivo y prompts-diego.md.
+Los otros tres llevan llaves dentro y no deben salir de tu máquina. Si algún
+día agregas un archivo nuevo con contraseñas, compruébalo antes con:
+
+    git check-ignore -v onboarding-diego/<archivo>
