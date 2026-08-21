@@ -54,3 +54,6 @@ flujo de work FF/
 # Vercel
 .vercel
 usuarios-fresafit.txt
+
+# ajustes personales de Claude Code (no se comparten)
+.claude/settings.local.json

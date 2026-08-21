@@ -1,0 +1,23 @@
+{
+  "//": "Reglas para el agente en este repo, para todo el mundo. 'deny' no se puede aprobar sobre la marcha, así que aquí solo va lo que nunca debe correr contra producción; lo que sí es trabajo legítimo va en 'ask' y se confirma a mano.",
+  "permissions": {
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(vercel deploy:*)",
+      "Bash(vercel --prod:*)",
+      "Bash(vercel promote:*)",
+      "Bash(vercel rollback:*)",
+      "Bash(vercel env add:*)",
+      "Bash(vercel env rm:*)",
+      "Bash(node scripts/set-passwords.mjs:*)",
+      "Bash(node scripts/seed.mjs:*)"
+    ],
+    "ask": [
+      "Bash(node scripts/crear-usuario.mjs:*)",
+      "Bash(node scripts/reparar-ordenes-canceladas-ml.mjs:*)",
+      "Bash(node scripts/cerrar-personalizados-entregados.mjs:*)",
+      "Bash(bash scripts/clonar-datos-a-entorno.sh:*)"
+    ]
+  }
+}

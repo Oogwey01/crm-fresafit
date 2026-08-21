@@ -1,0 +1,31 @@
+{
+  "//": "Perfil para quien solo toca UI/UX. Cópialo a .claude/settings.local.json en tu máquina; ese archivo no se sube al repo. 'deny' se cumple solo, 'ask' pide confirmación y 'allow' evita que te pregunte por lo de todos los días.",
+  "permissions": {
+    "deny": [
+      "Bash(supabase:*)",
+      "Bash(psql:*)",
+      "Bash(vercel:*)",
+      "Bash(node scripts/*)",
+      "Read(./.env.local)",
+      "Edit(./.env.local)",
+      "Edit(supabase/migrations/**)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(curl:*)",
+      "Edit(lib/**)",
+      "Edit(app/api/**)"
+    ],
+    "allow": [
+      "Bash(pnpm dev:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
