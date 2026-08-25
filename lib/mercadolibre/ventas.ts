@@ -519,6 +519,7 @@ async function aplicarOrdenes(
         fecha: f.fecha,
         monto: f.monto,
         cantidad: f.cantidad,
+        producto_id: f.producto_id,
         estado: f.estado,
         /* En qué punto del canal está el paquete: es lo que separa "hay que
            empacarlo" de "ya está listo, falta la colecta", y por tanto lo que
