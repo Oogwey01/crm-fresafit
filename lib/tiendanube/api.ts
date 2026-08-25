@@ -292,7 +292,12 @@ export async function actualizarVarianteTN(
 
 /* ------------------------------ Órdenes ----------------------------------- */
 
-/* Renglón de una orden (un producto vendido). `price` es el precio unitario. */
+/* Renglón de una orden (un producto vendido). `price` es el precio unitario.
+
+   OJO con `variant_id`: la API lo devuelve NÚMERO en el listado de órdenes y
+   TEXTO en el detalle (`/orders/{id}`). El mismo campo, dos tipos, sin que la
+   documentación lo mencione. Aquí se declara `number` porque `normalizarOrden`
+   lo garantiza a la salida de este módulo; no confiar en el JSON crudo. */
 export type LineaOrdenTN = {
   product_id: number;
   variant_id: number;
@@ -301,6 +306,44 @@ export type LineaOrdenTN = {
   quantity: number | string;
   sku?: string | null;
 };
+
+/* Id numérico, o null si el valor no lo es. Null y cadena vacía se descartan
+   ANTES de `Number`, que los convertiría en 0 — un id inventado que cruzaría
+   con el producto equivocado. */
+function aIdNumerico(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* Deja los ids de los renglones en número, venga la orden del listado o del
+   detalle.
+
+   Es la corrección de un fallo silencioso y caro: el webhook lee el DETALLE, y
+   sus `variant_id` de texto no encontraban nada en los mapas del CRM, que se
+   arman con las llaves numéricas de la base (`mapaVariantes` en
+   lib/tiendanube/ventas.ts, `fichasPorVarianteTN` en lib/maquila/ingesta.ts).
+   Resultado: toda venta avisada por webhook entraba SIN `producto_id` y sin
+   pedido de maquila — el 85% de las ventas de Tienda Nube de agosto de 2026—,
+   mientras las mismas órdenes releídas por el cron (que usa el listado, con
+   números) sí cruzaban. Por eso el síntoma era intermitente y por orden entera.
+   El tipo declaraba `number`, así que el compilador no podía avisar.
+
+   Se normaliza en la FRONTERA para que nadie río abajo tenga que acordarse.
+   `referencia_externa` no cambia de forma —"2053141788:1508700595" se escribe
+   igual con el texto que con el número—, así que esto no duplica renglones ni
+   rompe la idempotencia de lo ya importado. */
+function normalizarOrden(o: OrdenTN): OrdenTN {
+  if (!Array.isArray(o?.products)) return o;
+  return {
+    ...o,
+    products: o.products.map((l) => ({
+      ...l,
+      variant_id: aIdNumerico(l.variant_id) ?? l.variant_id,
+      product_id: aIdNumerico(l.product_id) ?? l.product_id,
+    })),
+  };
+}
 
 export type OrdenTN = {
   id: number;
@@ -378,7 +421,7 @@ export async function obtenerOrdenTN(cx: ConexionTN, id: number): Promise<OrdenT
   const res = await tnFetch(cx, `/orders/${id}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Tienda Nube respondió ${res.status} al pedir la orden ${id}.`);
-  return (await res.json()) as OrdenTN;
+  return normalizarOrden((await res.json()) as OrdenTN);
 }
 
 /* Órdenes ACTUALIZADAS desde una fecha (ISO), paginadas. Incluye canceladas: el
@@ -404,7 +447,7 @@ export async function listarOrdenesTN(cx: ConexionTN, desdeISO: string): Promise
     if (res.status === 404) break; // más allá de la última página
     if (!res.ok) throw new Error(`Tienda Nube respondió ${res.status} al listar órdenes.`);
     const lote = (await res.json()) as OrdenTN[];
-    todas.push(...lote);
+    todas.push(...lote.map(normalizarOrden));
     if (lote.length < POR_PAGINA) break;
   }
   return todas;

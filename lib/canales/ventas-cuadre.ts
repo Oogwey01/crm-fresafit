@@ -60,6 +60,16 @@ export type RenglonRefrescado = {
   fecha: string;
   monto: number;
   cantidad: number;
+  /* Producto del catálogo. Solo RELLENA cuando el renglón guardado no tiene
+     ninguno; jamás pisa el que ya está (puede haberse asignado a mano).
+
+     Es la red de seguridad de un renglón que nació huérfano: si la venta llegó
+     antes de que el catálogo conociera ese producto —o si un importador falla al
+     cruzarlo, como pasó con los `variant_id` de texto del webhook de Tienda
+     Nube—, el renglón se repara solo en la siguiente sincronización en vez de
+     quedarse sin producto para siempre y desaparecer de las métricas por
+     producto. */
+  producto_id?: string | null;
   estado?: string | null;
   paqueteria?: string | null;
   num_guia?: string | null;

@@ -361,6 +361,7 @@ async function aplicarOrdenes(
         fecha: f.fecha,
         monto: f.monto,
         cantidad: f.cantidad,
+        producto_id: f.producto_id,
         estado: f.estado,
         paqueteria: f.paqueteria,
         num_guia: f.num_guia,
